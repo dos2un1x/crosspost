@@ -1,0 +1,12 @@
+# 构建上下文白名单（v2.3）
+#
+# 镜像里**不放代码**：仓库是同路径挂载进去的。构建上下文只需要 Dockerfile、entrypoint
+# 与 LICENSE，所以这里用"先全排除、再逐个放行"的写法——避免把 .local/（运行数据）、
+# md-backup/（只读归档）、node_modules 之类的东西送进 docker daemon。
+*
+!Dockerfile
+!docker/
+!docker/**
+# 许可证全文：镜像里放了 entrypoint.sh（本仓库代码），分发镜像即分发代码，
+# Dockerfile 里的 `COPY LICENSE` 需要它进构建上下文（不放行则 build 直接失败）。
+!LICENSE

@@ -1,0 +1,102 @@
+# CrossPost 容器编排（v2.3）
+#
+# 用法（在仓库根执行）：
+#   export CROSSPOST_REPO="$PWD"
+#   docker compose up -d
+#   curl -fsS http://127.0.0.1:9540/ >/dev/null && echo Console OK
+#
+# 关键设计（详见 docs/docker.md）：
+#   ① **同路径挂载**：宿主与容器里路径逐字一致 → paths.json / config.json / 项目 manifest
+#      里的绝对路径零改写
+#   ② **端口只发到宿主环回**（127.0.0.1）：保持"本地 API"的边界，不暴露到局域网
+#   ③ **依赖在容器私有卷里**：绝不复用宿主 node_modules（原生依赖按平台预编译）
+#   ④ 定时调度由引擎自带定时器负责（住在容器里的桥进程内），不需要任何系统定时器
+#   ⑤ **项目名显式钉住**（v2.3.6，见下面的 `name:`）
+#
+# 为什么 ⑤ 是必须的（本机实测踩到）：compose 的项目名默认取**目录名**，于是仓库
+# 目录一改名（仓库目录 → 新名字）项目名就跟着变，而容器名 / 卷名 / 网络都带
+# 这个前缀 —— 旧卷 `<旧目录名>_*` 当场变成没人引用的孤儿（约几百 MB 白占），新卷
+# `<新目录名>_*` 是**空的**，于是下一次 `up` 要重新装依赖、重建 core。症状是
+# "容器还 healthy，但引擎莫名缺依赖"，与代码毫无关系，极难归因。钉住之后目录
+# 再改名也不会生出第二套卷。
+#
+# 要临时用别的项目名（例如与旧卷对齐）：`COMPOSE_PROJECT_NAME=<旧目录名> docker compose up -d`
+# —— 环境变量优先于本键。
+name: crosspost
+
+services:
+  crosspost:
+    build:
+      context: .
+      args:
+        # 需要额外系统包（例如项目脚本要 python3 / chromium）时：
+        #   EXTRA_APT="python3 chromium" docker compose build
+        EXTRA_APT: '${EXTRA_APT:-}'
+        # 镜像里的飞书 CLI：**始终装最新**（空值 = 不装，镜像约小 50MB）。
+        LARK_CLI_VERSION: '${LARK_CLI_VERSION:-latest}'
+        # 只为让装 lark-cli 那一层失效 —— `latest` 会被 Docker 层缓存钉住，
+        # 升级必须显式刷：LARK_CLI_REFRESH=$(date +%s) docker compose build
+        LARK_CLI_REFRESH: '${LARK_CLI_REFRESH:-}'
+    image: crosspost-runtime:local
+    # 作为 PID 1 收信号：容器停的时候桥能优雅收掉 worker 与槽位子进程
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      CROSSPOST_REPO: '${CROSSPOST_REPO:?请先 export CROSSPOST_REPO="$PWD"}'
+      # HOME 与仓库都要与宿主同名同路径：引擎把会话目录、launchd 目录（只读检测）、
+      # 项目目录都按绝对路径解析
+      HOME: '${HOME}'
+      # 调度时区（槽位时间按它解释，与容器自身时区无关）
+      TZ: '${TZ:-Asia/Shanghai}'
+      SYNC_PROXY_WS_PORT: '9539'
+      # 宿主网关重写（2026-09-25）：项目 manifest 里声明的宿主服务地址通常是
+      # `http://127.0.0.1:<port>/…`，而容器里的 127.0.0.1 指**容器自己** ——
+      # 宿主上服务明明在听，容器里却连不上（实测：8787 宿主在听、容器 ECONNREFUSED，
+      # 换成 host.docker.internal 立刻通）。设了这个变量，引擎会把**回环**主机名
+      # 重写成它（远程端点不动，manifest 不用改，原生形态不受影响）。
+      # 关掉它（生成服务就跑在**同一个容器**里时）：
+      #   CROSSPOST_HOST_GATEWAY= docker compose up -d
+      # 注意这里用 `-` 而不是 `:-`：`:-` 会把**空值也当成未设置**，于是"留空即关闭"
+      # 根本关不掉（2026-09-25 实测踩到）；用 `-` 才是"只有真正没设过才取默认"。
+      CROSSPOST_HOST_GATEWAY: '${CROSSPOST_HOST_GATEWAY-host.docker.internal}'
+      # Linux 宿主上建议设为当前用户，避免挂载目录里出现 root 属主文件：
+      #   CROSSPOST_UID=$(id -u) CROSSPOST_GID=$(id -g) docker compose up -d
+      CROSSPOST_UID: '${CROSSPOST_UID:-0}'
+      CROSSPOST_GID: '${CROSSPOST_GID:-0}'
+      npm_config_cache: /deps/npm-cache
+    # 容器里访问宿主服务（项目侧「一键生成」provider 等）走这个名字：
+    # 项目 manifest 里的 http://127.0.0.1:<port> 要改成 http://host.docker.internal:<port>
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      # 只发布到宿主环回：浏览器扩展与 Console 按 127.0.0.1 访问，与原生运行一致
+      - '127.0.0.1:9539:9539' # 扩展 WS
+      - '127.0.0.1:9540:9540' # HTTP / Console
+    volumes:
+      # ① 同路径挂载宿主 HOME：仓库、项目目录、~/.dsh/会话目录一次性到位
+      - '${HOME}:${HOME}'
+      # ② 仓库不在 $HOME 下时，补这一行（否则容器里看不到仓库）
+      - '${CROSSPOST_REPO}:${CROSSPOST_REPO}'
+      # ③ 容器私有的依赖树与构建产物（别与宿主共用：原生依赖按平台预编译）
+      #    v2.3.1：core 不再单独装依赖树 —— 它的整棵图由 crosspost-runtime 那棵承载
+      - runtime-node-modules:${CROSSPOST_REPO}/crosspost-runtime/node_modules
+      - bridge-node-modules:${CROSSPOST_REPO}/bridge/node_modules
+      - core-dist:${CROSSPOST_REPO}/crosspost-runtime/core/dist
+      - npm-cache:/deps/npm-cache
+      # ④ 仓库外还有项目目录时，按"同路径"再加一行，例如：
+      # - "/data/projects:/data/projects"
+    healthcheck:
+      # 静态页免鉴权、零副作用；/proxy/health 需要 token，不适合做探针
+      test: ['CMD-SHELL', 'curl -fsS -o /dev/null http://127.0.0.1:9540/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # 首次启动可能要装依赖 + 构建 core（几分钟），给足余量
+      start_period: 180s
+
+volumes:
+  runtime-node-modules:
+  bridge-node-modules:
+  core-dist:
+  npm-cache:

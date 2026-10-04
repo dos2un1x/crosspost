@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "slots": {
+    "weekly": {
+      "name": "产品周报",
+      "time": "09:00",
+      "command": ["bash", "scripts/run_once.sh", "weekly"],
+      "cwd": ".",
+      "logDir": "logs",
+      "description": "本流水线自己的栏目：栏目名与 id 都由你定，引擎只校验 id 形状。"
+    }
+  }
+}

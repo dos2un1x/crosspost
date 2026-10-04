@@ -1,0 +1,47 @@
+{
+  "name": "@crosspost/runtime",
+  "version": "2.6.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "CrossPost 原生 Node 运行时（无 Chrome 依赖）：Node RuntimeInterface + 平台适配器 + 提取 + JSON CLI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dos2un1x/crosspost.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dos2un1x/crosspost/issues"
+  },
+  "homepage": "https://github.com/dos2un1x/crosspost#readme",
+  "keywords": [
+    "crosspost",
+    "publisher",
+    "multi-platform",
+    "markdown",
+    "cli",
+    "mcp"
+  ],
+  "scripts": {
+    "cli": "node src/cli.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-lines=76 --test-coverage-branches=68 --test-coverage-functions=68 \"tests/*.test.mjs\"",
+    "test:console": "node tests/console-smoke.mjs",
+    "test:extension": "node tests/extension-options-smoke.mjs",
+    "test:smoke:empty-env": "node tests/empty-env-smoke.mjs",
+    "test:smoke:console": "node tests/console-onboarding-smoke.mjs",
+    "verify:immutable": "node tests/verify-immutable.mjs",
+    "test:smoke:production": "node tests/production-path-smoke.mjs",
+    "verify:scheduled": "node tests/verify-scheduled-run.mjs"
+  },
+  "dependencies": {
+    "@crosspost/core": "file:./core",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^24.1.1",
+    "ws": "^8.21.3",
+    "zod": "^3.22.4"
+  }
+}

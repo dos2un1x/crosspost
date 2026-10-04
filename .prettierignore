@@ -1,0 +1,30 @@
+# 依赖与构建
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+crosspost-runtime/core/coverage/
+
+# 敏感与本地运行状态（绝不 format）
+crosspost-runtime/config.json
+crosspost-runtime/.env
+crosspost-runtime/storage.json
+crosspost-runtime/token.*.json
+crosspost-runtime/ever-authed.json
+crosspost-runtime/paths.json
+crosspost-runtime/downloads/
+crosspost-runtime/backups/
+crosspost-runtime/articles/
+bridge/token.local
+bridge/brand/
+
+# 单行压缩/第三方
+bridge/console/vendor/
+*.min.js
+
+# npm/pnpm 锁文件（各自包管理器所有，避免 format 改动）
+**/package-lock.json
+**/pnpm-lock.yaml
+
+# 文档备份
+md-backup/

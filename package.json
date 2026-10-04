@@ -1,0 +1,58 @@
+{
+  "name": "crosspost",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "CrossPost/AI 发布流水线根工作区——统一 lint/format/typecheck/test 入口",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dos2un1x/crosspost.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dos2un1x/crosspost/issues"
+  },
+  "homepage": "https://github.com/dos2un1x/crosspost#readme",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm -C crosspost-runtime/core run typecheck",
+    "test:core": "npm -C crosspost-runtime/core run test:coverage",
+    "test:runtime": "npm -C crosspost-runtime run test:coverage",
+    "setup": "node crosspost-runtime/src/commands/setup-cli.mjs",
+    "doctor": "node crosspost-runtime/src/commands/doctor-cli.mjs",
+    "dev": "node bridge/run-bridge.mjs",
+    "docs:screenshots": "node crosspost-runtime/tests/docs-screenshots.mjs",
+    "check": "npm -C crosspost-runtime/core run build && npm run typecheck && npm run lint && npm run format:check && npm run test:core && npm run test:runtime",
+    "test:contract": "node --test crosspost-runtime/tests/surface-contract.test.mjs crosspost-runtime/tests/platform-matrix-contract.test.mjs crosspost-runtime/tests/scheduler-spec.test.mjs crosspost-runtime/tests/docker-contract.test.mjs",
+    "bench:views": "node crosspost-runtime/tests/bench-views.mjs",
+    "test:docker": "node crosspost-runtime/tests/docker-runtime-smoke.mjs",
+    "test:docker:full": "node crosspost-runtime/tests/docker-runtime-smoke.mjs --full",
+    "test:smoke": "node crosspost-runtime/tests/empty-env-smoke.mjs",
+    "test:smoke:fresh": "node crosspost-runtime/tests/fresh-clone-smoke.mjs",
+    "repair:domain-orphans": "node crosspost-runtime/src/scripts/repair-domain-orphans.mjs",
+    "verify:immutable": "node crosspost-runtime/tests/verify-immutable.mjs",
+    "verify:acceptance": "node crosspost-runtime/tests/acceptance-report.mjs",
+    "verify:oob": "node crosspost-runtime/tests/oob-report.mjs",
+    "scheduler": "node crosspost-runtime/src/commands/scheduler-cli.mjs",
+    "scheduler:migrate": "node crosspost-runtime/src/commands/scheduler-cli.mjs migrate",
+    "test:smoke:production": "node crosspost-runtime/tests/production-path-smoke.mjs",
+    "test:extension": "node crosspost-runtime/tests/extension-options-smoke.mjs",
+    "verify:scheduled": "node crosspost-runtime/tests/verify-scheduled-run.mjs",
+    "test:scoped": "node crosspost-runtime/src/scripts/scoped-tests.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

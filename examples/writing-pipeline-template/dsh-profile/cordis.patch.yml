@@ -1,0 +1,27 @@
+# 本流水线 headless 会话的叠加层（可选）。
+#
+# 用法：把它软链成 DSH profile 的 cordis.patch.yml，见 examples/writing-pipeline-template/README.md。
+# 结构：① system-prompt 人格（写清"按本流水线的 SKILL.md 执行"）
+#       ② insert 发布器 MCP（引擎的 xp_* / crosspost MCP 工具）
+# 数据源（新闻/热榜那类）按你自己的需要再加 MCP client 进来。
+
+- id: system-prompt
+  config:
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      你是「我的写作流水线」的执行体，本次任务只处理一个栏目。
+      写作规范见本流水线仓库的 SKILL.md，必须读取并按其执行（含 SOP、评分与发布纪律）。
+      全程无人值守、不提问、不等待确认；拿不定主意时按默认路径执行。
+
+- insert:
+    - id: mcp-crosspost
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: crosspost
+        transport: stdio
+        command: node
+        # 换成你的 CrossPost 仓库位置（<…> 是占位符，复制后请替换）
+        args: ['<CROSSPOST_REPO>/crosspost-runtime/mcp-server/index.mjs']
+        env:
+          # 与 .crosspost/project.json 的 id 保持一致：定时链路的记录归属指向本流水线
+          CROSSPOST_PROJECT: my-pipeline

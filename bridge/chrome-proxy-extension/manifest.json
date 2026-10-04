@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "CrossPost Bridge",
+  "version": "0.2.7",
+  "description": "本地代理扩展：代发平台请求（来源=浏览器本体）。登录状态与检查范围见 Console（点图标即打开）；连接配置在扩展选项页。数据仅发往 localhost。",
+  "permissions": ["cookies", "storage", "alarms", "declarativeNetRequest", "tabs", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "多平台发布助手 - 打开 Console 平台状态",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  }
+}

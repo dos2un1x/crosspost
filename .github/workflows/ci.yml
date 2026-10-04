@@ -1,0 +1,143 @@
+name: CI
+
+# 触发策略（2026-09-22 / v2.105 调整）：
+#   · pull_request → main：改主线前先看见
+#   · schedule：**每天 02:10（北京时间）自动跑一次**（cron 用 UTC：18:10 UTC = 次日 02:10 +08）
+#   · workflow_dispatch：手动下发
+# push 仍不自动跑（避免每个 commit 都吃 Actions 分钟）——每日一次足够守住"开箱即用"这条线。
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '10 18 * * *'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ① 代码健康度：类型 / 测试 / lint / 格式 / 空环境冒烟
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 测试设计假设「测试机时区=北京」（isPeak/calcSessionCost 等用本地时区判定峰谷）；
+    # GitHub Actions runner 默认 UTC，需强制北京时区否则纯函数断言失败。
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      # `fetch-depth: 0` + `fetch-tags: true`：版本真值是 tag（`versionInfo().engine` = `git describe`），
+      # 而 checkout 默认只拉一个裸提交、**不带 tag** —— 那会让版本退化成读到一个短 SHA，
+      # `version-contract` 直接判红（首跑就是这么红的）。
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # zstd：token-cost.mjs 测试用 zstd 压缩会话文件（Linux 需安装）
+      - name: Install zstd
+        run: sudo apt-get update && sudo apt-get install -y zstd
+
+      # Node 24 LTS / Active（Node 20 已 EOL；Node 22 已入维护期，24 为当前 Active LTS；
+      # 本机即 Node 24，CI 与本地一致。action 运行时同样已迁移 Node24——
+      # 见 https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/）
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # 根依赖（eslint/prettier/typescript-eslint，供 lint/format/check 使用）
+      - name: Root install
+        run: npm ci
+
+      # 运行时依赖：runtime-node.mjs 等用 jsdom/ws/@mozilla/readability。
+      # **core 的整棵依赖图也在这里**（v2.3.1：npm 把 `file:./core` 当工作区 hoist，
+      # core 不再有自己的 node_modules 与 lock —— 见 docs/dependencies.md §1.1）。
+      - name: Runtime install
+        working-directory: crosspost-runtime
+        run: npm ci
+
+      # bridge 依赖：bridge/run-bridge.mjs 用 ws（bridge 目录独立解析，需装到 bridge/node_modules）
+      - name: Bridge install
+        working-directory: bridge
+        run: npm ci
+
+      # 核心包：构建 dist（tsup 来自上一步的 runtime 树 —— npm 会把祖先 .bin 注入 PATH）
+      - name: Core build
+        working-directory: crosspost-runtime/core
+        run: npm run build
+
+      # 类型门槛：tsc --noEmit --strict（严格模式）
+      - name: Core typecheck (tsc --noEmit --strict)
+        working-directory: crosspost-runtime/core
+        run: npm run typecheck
+
+      # 核心测试 + 覆盖率门槛
+      - name: Core test (vitest + coverage)
+        working-directory: crosspost-runtime/core
+        run: npm run test:coverage
+
+      # Lint + Format（统一入口在根）
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Format check (prettier --check)
+        run: npm run format:check
+
+      # 运行时测试 + 覆盖率门槛（依赖上面构建出的 core/dist）
+      - name: Runtime test (node --test + coverage)
+        working-directory: crosspost-runtime
+        run: npm run test:coverage
+
+      # systemd 用户单元的形状（Linux 独有证据，v2.1）：把 `print` 出来的单元交给**真解析器**。
+      # 契约测试只在任何平台做等效 INI 校验（macOS 开发机没有 systemd-analyze），
+      # 这一条才是"Linux 上这份单元能不能被读进去"的实证。`print` 不碰系统，所以 runner 上安全。
+      - name: systemd unit shape (systemd-analyze verify)
+        run: |
+          bridge/install-systemd.sh print 9539 > /tmp/crosspost-bridge.service
+          head -20 /tmp/crosspost-bridge.service
+          systemd-analyze verify /tmp/crosspost-bridge.service
+
+      # 空环境冒烟：零项目接入也能装/跑/自检/渲染（P0「引擎自治」的核心验收）。
+      # 它此前**只在本机验收里跑**，CI 完全没有覆盖 —— 一条只在"有人记得手动跑"时才生效的
+      # 检查等于没有（v2.60 的教训）。这里放最后：前面全绿时它才最有意义。
+      - name: Empty-env smoke (setup → doctor → bridge → render)
+        run: npm run test:smoke
+
+  # ② 开箱即用：干净 clone 能不能装起来
+  #
+  # 为什么单独一个 job：这一条**只在"没有任何 node_modules 的机器"上才会红**，
+  # 而上面那个 job 已经把四处依赖装好了 —— 结构上不可能发现这类断点
+  # （v2.104 修的正是它：根 package.json 没有 workspaces，`npm install` 只装根 devDeps，
+  #  core 的 tsup 与 bridge 的 ws 都不入库）。
+  # 冒烟自己造沙箱、自己按 README 走两步、再真起一次桥，因此**不需要**前置安装步骤。
+  #
+  # 注意：`verify:acceptance` **不能**放到 CI —— 它有一半检查依赖本机生产状态
+  # （生产草稿、本机接入项目、launchd 槽位、9540 上的桥、系统 Chrome），
+  # 在 runner 上会把"环境缺"报成"代码红"。验收仍是本机命令。
+  fresh-clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      # 同上：`fresh-clone-smoke` 要拿仓库 tag 核对回退版本的主次版本
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # 冒烟会在 /tmp 造沙箱并重新装两处依赖（runtime / bridge）；缓存 ~/.npm 让它快一些
+      - name: Cache npm (all packages)
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: npm-all-${{ hashFiles('package-lock.json', 'crosspost-runtime/package-lock.json', 'bridge/package-lock.json') }}
+          restore-keys: |
+            npm-all-
+
+      - name: Fresh-clone smoke (README 2 steps → doctor → bridge)
+        run: node crosspost-runtime/tests/fresh-clone-smoke.mjs

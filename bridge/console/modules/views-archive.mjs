@@ -1,0 +1,114 @@
+// 归档库视图（2026-08-24 app.js 拆分 Phase 1）
+import { getJSON, postJSON } from './api.mjs'
+import { SCORE_PASS } from './const.mjs'
+import { slotName } from './slot-lexicon.mjs'
+import { store } from './state.mjs'
+import { $, escapeHtml, riskBadge, fmtTime, pageSlice, renderPager } from './utils.mjs'
+import { loadArticles } from './views-articles.mjs'
+
+export async function loadArchive() {
+  const el = $('#archive-tbody')
+  el.innerHTML = '<tr><td colspan="7" class="placeholder">加载中…</td></tr>'
+  try {
+    const data = await getJSON('/proxy/archive')
+    store.archived = data.archived || []
+    renderArchive()
+  } catch (e) {
+    el.innerHTML = `<tr><td colspan="7" class="placeholder">加载失败: ${escapeHtml(e.message)}</td></tr>`
+  }
+}
+
+function renderArchive() {
+  const slot = $('#af-slot').value
+  const risk = $('#af-risk').value
+  const q = $('#af-q').value.trim().toLowerCase()
+  const list = store.archived.filter((r) => {
+    if (slot && r.slot !== slot) return false
+    if (risk && (r.risk || 'none') !== risk) return false
+    if (
+      q &&
+      !(
+        String(r.title ?? '')
+          .toLowerCase()
+          .includes(q) ||
+        String(r.id ?? '')
+          .toLowerCase()
+          .includes(q)
+      )
+    )
+      return false
+    return true
+  })
+  $('#archive-count').innerHTML =
+    `<span>归档 <b>${store.archived.length}</b> 篇</span><span style="color:var(--ink-faint)">草稿在 drafts/archive/ · 推送记录保留 · 仅人工操作</span>`
+  const tbody = $('#archive-tbody')
+  const shown = pageSlice(list, store.archivePage)
+  renderPager($('#archive-pager'), list.length, store.archivePage, (pg) => {
+    store.archivePage = pg
+    renderArchive()
+  })
+  if (!shown.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="placeholder">归档库为空</td></tr>'
+    return
+  }
+  tbody.innerHTML = shown
+    .map((r) => {
+      const missing = !r.hasFile
+      return `<tr>
+      <td class="cell-date">${escapeHtml(r.date || '—')}</td>
+      <td><span class="cell-slot">${escapeHtml(slotName(r.slot) || '—')}</span></td>
+      <td class="cell-title"><span class="${missing ? '' : 'has-file'}" ${missing ? 'style="color:var(--ink-faint)"' : ''}>${escapeHtml(r.title || r.id)}${missing ? ' <em style="font-style:normal;font-size:11px">（文件缺失）</em>' : ''}</span></td>
+      <td>${r.score !== null && r.score !== undefined ? `<span class="score-badge ${r.score >= SCORE_PASS ? '' : 'fail'}">${r.score}</span>` : '—'}</td>
+      <td>${riskBadge(r.risk) || '<span style="color:var(--ink-faint)">—</span>'}</td>
+      <td>${r.archivedAt ? fmtTime(r.archivedAt) : '<span style="color:var(--ink-faint)">—</span>'}</td>
+      <td class="retained-ops">
+        ${missing ? '' : `<button class="btn small" data-op="restore" data-id="${escapeHtml(r.id)}" title="移回草稿目录，恢复为未归档">恢复</button>`}
+        <button class="btn small danger" data-op="delete" data-id="${escapeHtml(r.id)}" title="永久删除草稿文件与记录（不可恢复）">删除</button>
+      </td>
+    </tr>`
+    })
+    .join('')
+  tbody
+    .querySelectorAll('button[data-op]')
+    .forEach((btn) =>
+      btn.addEventListener('click', () => archiveOp(btn.dataset.op, btn.dataset.id)),
+    )
+}
+
+async function archiveOp(op, id) {
+  const msg = $('#archive-msg')
+  msg.className = 'repub-result'
+  if (
+    op === 'delete' &&
+    !confirm(`确认永久删除《${id}》？（草稿文件与推送记录一并删除，不可恢复）`)
+  )
+    return
+  msg.innerHTML = '<span class="spinner tone-accent"></span>处理中…'
+  try {
+    const r = await postJSON('/proxy/archive', { id, action: op, authorized: op === 'delete' })
+    if (r.error) throw new Error(r.error)
+    msg.className = 'repub-result ok'
+    msg.textContent = op === 'restore' ? '✓ 已恢复至文章列表' : '✓ 已删除'
+    await loadArchive()
+    if (op === 'restore') await loadArticles()
+  } catch (e) {
+    msg.className = 'repub-result err'
+    msg.textContent = String(e.message || e)
+  }
+}
+
+/** 视图初始化：绑定归档库事件 */
+export function initArchiveView() {
+  $('#af-slot').addEventListener('change', () => {
+    store.archivePage = 1
+    renderArchive()
+  })
+  $('#af-risk').addEventListener('change', () => {
+    store.archivePage = 1
+    renderArchive()
+  })
+  $('#af-q').addEventListener('input', () => {
+    store.archivePage = 1
+    renderArchive()
+  })
+}

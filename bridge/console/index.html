@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CrossPost Console · 文章管理平台</title>
+    <link rel="icon" href="/console/favicon.ico" />
+    <script src="/console/theme-init.js"></script>
+    <link rel="stylesheet" href="/console/styles.css" />
+  </head>
+  <body>
+    <!-- 顶栏（报头重排）：**两行**
+         报头行 = 品牌 + 项目/统计/操作三模块；导航行 = 10 个 tab 通栏。
+         为什么拆行：单行时 `.topbar-right` 与 `.tabs` 抢宽，1280–1680px 下
+         tab 被 `overflow-x:auto` "可滚动地藏起来"、统计被 ellipsis 截断、
+         刷新按钮折成两行。改布局时别把 `.tabs` 放回 `.topbar-right` 那一行。 -->
+    <header class="topbar">
+      <div class="topbar-main">
+        <div class="brand">
+          <span class="brand-mark cp-img" id="brand-mark"
+            ><img class="brand-mark-img" src="/console/favicon.ico" alt="CrossPost"
+          /></span>
+          <div class="brand-text">
+            <h1>CrossPost Console</h1>
+            <p class="brand-sub">文章管理平台 · 恒草稿 · 本地零 token</p>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <!-- 项目切换器骨架（v2.03）。P1 将接入多项目注册表；当前恒为「未接入项目」。 -->
+          <div class="project-switch" id="project-switch" title="接入的写作项目">
+            <span class="project-label">项目</span>
+            <select id="project-select" class="project-select" aria-label="选择写作项目" disabled>
+              <option value="">未接入项目（平台域可用）</option>
+            </select>
+            <span class="project-note" id="project-note"></span>
+          </div>
+          <div class="stats" id="stats"></div>
+          <div class="topbar-actions">
+            <button
+              class="btn ghost theme-toggle"
+              id="btnTheme"
+              title="切换浅色/深色模式"
+              aria-label="切换主题"
+            >
+              🌙
+            </button>
+            <button class="btn ghost" id="btnRefresh" title="刷新">⟳ 刷新</button>
+          </div>
+        </div>
+      </div>
+      <nav class="tabs">
+        <a href="#/onboarding" class="tab" data-view="onboarding">接入与自检</a>
+        <a href="#/articles" class="tab active" data-view="articles">文章</a>
+        <a href="#/editor" class="tab" data-view="editor">编写</a>
+        <a href="#/topics" class="tab" data-view="topics">选题库</a>
+        <a href="#/retained" class="tab" data-view="retained">留存库</a>
+        <a href="#/archive" class="tab" data-view="archive">归档库</a>
+        <a href="#/reports" class="tab" data-view="reports">报表</a>
+        <a href="#/settings" class="tab" data-view="settings">设置</a>
+      </nav>
+    </header>
+
+    <main id="view-onboarding" class="view">
+      <div class="ob-wrap">
+        <section class="card ob-hero">
+          <div class="ob-head">
+            <div class="ob-head-main">
+              <h2 class="ob-title">
+                接入与自检 <span class="badge" id="onboarding-conn">检查中</span>
+              </h2>
+              <p class="card-sub">
+                按「桥 → 扩展 → 平台登录 → 接入项目」四步排查。平台域功能（登录态 / 发布 / 渲染 /
+                样式）无需接入任何写作项目即可使用；文章、选题库、留存等视图需要接入项目。
+              </p>
+            </div>
+            <div class="ob-head-act">
+              <!-- 四步进度（v2.88）：4 段由 views-onboarding 按步骤状态写入 data-state，
+                   纯读数、不承载文案（文案仍在下面的 rail 行里，避免重复）。 -->
+              <div
+                class="ob-progress"
+                id="onboarding-progress"
+                role="img"
+                aria-label="四步排查状态"
+              ></div>
+              <!-- v2.90：⟳ 与文案拆成两个 span —— 忙碌时只换文案、只让 ⟳ 自转。
+                   旧版整块 textContent 是"⟳ 重新检查"，JS 改文案会把图标一起冲掉。 -->
+              <button class="btn ghost" id="btnOnboardingRefresh">
+                <span class="ob-glyph" aria-hidden="true">⟳</span>
+                <span class="ob-btn-label">重新检查</span>
+              </button>
+            </div>
+          </div>
+          <!-- 检查回执（v2.90）：任何一次检查都留痕（时间 / 耗时 / 状态变化 / 失败）。
+               为什么要它：旧版点「⟳ 重新检查」**确实**发了 4 个请求（doctor 约 0.3–0.7s），
+               但按钮不置灰、文案不变、重渲染结果又与上一次逐字节相同 —— 使用者反馈
+               "点击这个按钮没有任何反应"。回执行由 views-onboarding 写 data-kind
+               （busy | ok | changed | warn | fail），样式按 kind 取色。 -->
+          <div class="ob-loadbar" id="onboarding-loadbar" hidden><i></i></div>
+          <p class="ob-fresh" id="onboarding-checked" role="status" aria-live="polite"></p>
+          <div class="ob-steps" id="onboarding-steps"></div>
+        </section>
+        <section class="card">
+          <h2>平台能力矩阵</h2>
+          <p class="card-sub">
+            平台口径的唯一来源（引擎 /proxy/platform-matrix）。界面不再手写平台数量。
+          </p>
+          <div id="onboarding-matrix"></div>
+        </section>
+        <!-- 引擎自检（v2.50）：把 doctor 的检查结果显示出来。
+             此前 Console 完全看不到 doctor —— "一键生成不可用""通知配置矛盾"这类
+             只在终端 `npm run doctor` 可见。数据取不到时整块隐藏（对旧桥优雅降级）。 -->
+        <section class="card" id="onboarding-project-card" hidden>
+          <h2>当前项目 <span class="badge" id="onboarding-project-badge">—</span></h2>
+          <p class="card-sub">
+            选中项目时，这里给出<b>该项目自己</b>的域：草稿与记录目录、项目级资源（选题库/编辑记忆/日志）、
+            项目设置覆盖了哪些键、以及它是否提供「一键生成」。引擎级检查（Node、桥、MCP、扩展…）
+            在下面那张卡里——两者作用域不同，别混着看。
+          </p>
+          <div id="onboarding-project"></div>
+        </section>
+        <section class="card" id="onboarding-workers-card">
+          <h2>常驻 worker 车道 <span class="badge" id="onboarding-workers-badge">检查中</span></h2>
+          <p class="card-sub">
+            Console 的每个请求都由一条常驻 CLI 车道执行（各自独立进程、独立串行队列）。
+            车道一旦「降级 / 冷却」，该请求就退化成每次冷启动 CLI（约 1.2 秒）——
+            觉得网页变慢先看这里。
+          </p>
+          <div id="onboarding-workers"></div>
+        </section>
+        <section class="card" id="onboarding-doctor-card" hidden>
+          <h2>引擎自检 <span class="badge" id="onboarding-doctor-badge">检查中</span></h2>
+          <p class="card-sub">
+            引擎自身的检查结果（doctor）。列出<b>非通过</b>项与其修法；全部通过时只显示一行汇总。
+          </p>
+          <div id="onboarding-doctor"></div>
+        </section>
+      </div>
+    </main>
+
+    <main id="view-articles" class="view active">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="filter-slot">
+            <option value="">全部栏目</option>
+          </select>
+          <select id="filter-status">
+            <option value="">全部状态</option>
+            <option value="published">已发布</option>
+            <option value="pending">⚠ 待重推</option>
+            <option value="partial">部分成功</option>
+            <option value="failed">失败</option>
+            <option value="draft">未推送</option>
+          </select>
+          <select id="filter-risk">
+            <option value="">全部风险</option>
+            <option value="unclassified">未分类</option>
+            <option value="none">正常</option>
+            <option value="ad">广告</option>
+            <option value="investment">投资</option>
+            <option value="pr">公司宣传</option>
+            <option value="person">人名</option>
+          </select>
+          <input type="text" id="filter-q" placeholder="搜索标题…" />
+        </div>
+        <div class="toolbar-note" id="article-status-note">
+          <span class="dot ok"></span>成功 <span class="dot fail"></span>失败
+          <span class="dot partial"></span>部分 <span class="dot skip"></span>未推
+        </div>
+      </div>
+      <div id="platform-stats" class="pstats"></div>
+      <div id="douyin-banner" class="douyin-banner"></div>
+      <div id="batch-bar" class="batch-bar hidden">
+        <span id="sel-count" class="batch-count">已选 0 篇</span>
+        <button class="btn" id="batch-archive">归档所选</button>
+        <button class="btn primary" id="batch-retain">留存所选</button>
+        <button class="btn danger" id="batch-delete">删除所选</button>
+        <button class="btn ghost" id="batch-clear">取消</button>
+        <span id="batch-msg" class="repub-result"></span>
+      </div>
+      <div id="batch-retain-panel" class="edit-panel hidden" style="margin-bottom: 14px">
+        <div class="mark-row">
+          <label class="form-label"
+            ><b id="br-title">批量留存</b>（移入留存库，AI 链路不可触碰，人工经留存库处理）</label
+          >
+        </div>
+        <div class="mark-row">
+          <label class="chk"
+            ><input type="radio" name="br-dir" value="rejected" checked />
+            低分留存（drafts/rejected/）</label
+          >
+          <label class="chk"
+            ><input type="radio" name="br-dir" value="risk" /> 风险留存（drafts/risk/）</label
+          >
+        </div>
+        <div class="mark-row">
+          <input
+            type="text"
+            id="br-reason"
+            placeholder="留存原因（可选），如：素材不足/内容有风险"
+            style="max-width: 100%"
+          />
+        </div>
+        <div class="edit-actions">
+          <button class="btn primary" id="br-confirm">确认留存</button>
+          <button class="btn ghost" id="br-cancel">取消</button>
+          <span id="br-msg" class="repub-result"></span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="article-table">
+          <thead>
+            <tr>
+              <th class="sel-col"><input type="checkbox" id="thead-sel-all" title="全选本页" /></th>
+              <th>日期</th>
+              <th>栏目</th>
+              <th>标题</th>
+              <th>风险</th>
+              <th>评分</th>
+              <th>样式</th>
+              <th>微信</th>
+              <th class="matrix-col">平台推送状态</th>
+              <th>状态</th>
+              <th>最近更新</th>
+            </tr>
+          </thead>
+          <tbody id="article-tbody"></tbody>
+        </table>
+        <div class="pager" id="article-pager"></div>
+        <div id="empty-state" class="empty hidden">暂无文章 — 草稿目录为空或尚未扫描。</div>
+      </div>
+    </main>
+
+    <main id="view-topics" class="view">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="tf-slot">
+            <option value="">全部栏目</option>
+          </select>
+          <select id="tf-status">
+            <option value="">全部状态</option>
+            <option value="generated">已生成</option>
+            <option value="adopted">未生成（已采用）</option>
+            <option value="rejected">落选</option>
+          </select>
+          <select id="tf-date">
+            <option value="">全部日期</option>
+            <option value="7d">近 7 天</option>
+            <option value="30d">近 30 天</option>
+          </select>
+          <input type="text" id="tf-q" placeholder="搜索选题关键词…" />
+        </div>
+        <div class="toolbar-note">
+          <span class="dot ok"></span>已生成 <span class="dot partial"></span>未生成
+          <span class="dot fail"></span>落选
+          <span
+            id="topics-summary"
+            style="margin-left: 14px; color: var(--ink-faint); font-size: 12px"
+          ></span>
+          <!-- v2.97：批量入口 —— 把当前筛选结果里所有"未生成"选题一次排进生成队列。
+               队列在引擎侧串行（默认并发 1），所以这里是"排进去"而不是"同时跑"。 -->
+          <button
+            id="topics-gen-pending"
+            class="btn mini ghost"
+            style="margin-left: 12px"
+            disabled
+            title="把当前筛选结果里所有未生成的选题排进生成队列（恒写草稿，不推送）"
+          >
+            一键生成全部未生成
+          </button>
+        </div>
+      </div>
+      <!-- 选题库「一键生成」状态条（2026-09-17）：结构由 views-topics.mjs 的 topicBannerView 渲染；
+           这里给"未运行"的静态兜底，避免 JS 加载前出现空块。 -->
+      <div id="topics-banner" class="tgen tgen--idle hidden" role="status" aria-live="polite">
+        <div class="tgen-meta">
+          <span class="tgen-kw">点「一键生成」为该选题开草稿；生成期间进度显示在这里。</span>
+          <span class="tgen-time"></span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="topics-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>栏目</th>
+              <th>选题</th>
+              <th>选题分</th>
+              <th>状态</th>
+              <th>关联文章</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="topics-tbody"></tbody>
+        </table>
+        <div class="pager" id="topics-pager"></div>
+        <div id="topics-empty" class="empty hidden">
+          暂无选题 — 运行一轮定时任务或从文章库迁移后出现。
+        </div>
+      </div>
+    </main>
+
+    <main id="view-reports" class="view">
+      <div class="wf-head">
+        <div>
+          <h2 class="wf-title">发布报表</h2>
+          <p class="card-sub">基于文章库的本地聚合（前端计算,零 token）</p>
+        </div>
+        <button class="btn ghost" id="rp-refresh">⟳ 刷新</button>
+      </div>
+      <div class="wf-grid">
+        <section class="card">
+          <h2>每周产出量</h2>
+          <p class="card-sub">文章 + 留存 + 归档 三库合计</p>
+          <div id="rp-weekly" class="rp-bars"></div>
+        </section>
+        <section class="card">
+          <h2>平台成功率排行</h2>
+          <div id="rp-platforms" class="rp-list"></div>
+        </section>
+      </div>
+      <div class="wf-grid" style="margin-top: 18px">
+        <section class="card">
+          <h2>栏目产量</h2>
+          <p class="card-sub">
+            三库合计（文章 + 留存 + 归档）；条形按「在库 / 留存 / 归档」分段，7 个类型恒列出
+          </p>
+          <div id="rp-slots" class="rp-list"></div>
+        </section>
+        <section class="card">
+          <h2>状态构成</h2>
+          <div id="rp-status" class="rp-donut"></div>
+        </section>
+      </div>
+      <div class="wf-grid" style="margin-top: 18px">
+        <section class="card">
+          <h2>今日生成费用（token 估算）</h2>
+          <!-- 计价口径由接口给（meta.pricing）：型号/价格表版本/峰谷规则都写在引擎里，
+               这里是**中性兜底**——绝不写型号与份数这类会漂的字面量（2026-09-25）。 -->
+          <p class="card-sub" id="rp-cost-sub">
+            统计今日全量产出费用（文章 + 留存 + 归档）。按引擎内置价格表 × 会话 usage 事件逐 step
+            计费（仅可追溯会话）
+          </p>
+          <div id="rp-cost" class="rp-list">计算中…（首次需解压会话缓存）</div>
+        </section>
+        <section class="card">
+          <h2>近 7 日每日费用</h2>
+          <div id="rp-cost-daily" class="rp-list">加载中…</div>
+        </section>
+      </div>
+    </main>
+
+    <main id="view-settings" class="view">
+      <!-- v2.77：设置是分层的（引擎级 + 项目级），这里显示"正在编辑哪个域" -->
+      <div id="cfg-scope" class="cfg-scope"></div>
+      <div class="settings-grid">
+        <section class="card card-wide" id="card-schedule">
+          <h2>
+            <span class="cicon">⏰</span>自动推送调度
+            <span class="badge" id="sched-summary">—</span>
+          </h2>
+          <p class="card-sub">
+            控制<b>当前项目</b>的定时槽位：到点由引擎自带的定时器触发（它住在宿主进程里）。
+            槽位的<b>命令</b>来自项目根 <code>.crosspost/schedule.json</code>；关闭只改开关，
+            流水线内部门禁仍会再问一次（双保险）。徽标显示"能不能跑、跑没跑"。
+          </p>
+
+          <!-- 全局开关（v2.93）：发丝线行，刻意**不再**与下面的槽位行同构 ——
+               此前两行开关与六个槽位行长得一样，读不出"这是总闸、那是单个班次"。 -->
+          <div class="sw-list">
+            <div class="sw-row">
+              <div class="sw-main">
+                <div class="sw-title">生成后自动推送 <span class="sw-tag">各平台</span></div>
+                <div class="sw-sub">
+                  关闭则<b>定时流水线</b>生成后仅落草稿，不推任何平台；通知仍按「通知方式」发送。
+                  Console 重推/抖音推送、以及你在会话中要求 AI 推送不受此开关限制
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="ap-enabled" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="sw-row" id="ap-wechat-row">
+              <div class="sw-main">
+                <div class="sw-title">包含微信公众号 <span class="sw-tag">官方通道</span></div>
+                <div class="sw-sub">微信走官方通道，恒为草稿；受上方「生成后自动推送」开关控制</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="ap-include-wechat" disabled />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 全天时刻条（v2.93）：六个槽位此前是六个盒子，读不出"一天里什么时候跑"。
+               这里按 24 小时刻度铺一条时刻线，点色 = 启停状态。由 views-settings 写入。 -->
+          <div id="sched-notices" class="sched-notices" hidden></div>
+
+          <div class="sched-day">
+            <div class="sched-day-head">
+              <span class="sched-day-title">全天时刻</span>
+              <span class="sched-day-hint" id="sched-day-hint">—</span>
+            </div>
+            <div class="sched-day-track" id="sched-day" role="img" aria-label="全天调度时刻"></div>
+          </div>
+
+          <div class="sched-table">
+            <div class="sched-head" aria-hidden="true">
+              <span>时间</span>
+              <span>栏目 / 槽位</span>
+              <span>状态</span>
+              <span>下次触发</span>
+              <span class="sched-head-ops">操作</span>
+            </div>
+            <div id="schedule-list" class="schedule-list"></div>
+          </div>
+
+          <!-- 新增/启用槽位（v2.3）：命令由项目声明提供，这里只登记名称/时间/开关 -->
+          <div class="sched-add">
+            <input
+              id="sched-new-id"
+              class="sched-new-id"
+              placeholder="槽位 id（小写字母/数字/横线）"
+              aria-label="新槽位 id"
+              title="技术键：要在项目的 .crosspost/schedule.json 里有同名条目才可运行（它会成为流水线的 模式=<id>）"
+            />
+            <input
+              id="sched-new-name"
+              class="sched-new-name"
+              placeholder="显示名称"
+              aria-label="新槽位显示名称"
+            />
+            <input
+              id="sched-new-time"
+              type="time"
+              class="sched-new-time"
+              value="09:00"
+              aria-label="新槽位触发时间"
+            />
+            <label class="sched-new-enable"
+              ><input type="checkbox" id="sched-new-enabled" /> 创建即启用</label
+            >
+            <button class="btn" id="btn-sched-add">＋ 登记槽位</button>
+          </div>
+          <p class="sched-hint">
+            槽位（id / 名称 / 时间）存在<b>当前项目</b>的设置里。触发由<b>引擎内置定时器</b>负责 ——
+            它住在宿主进程里（桥，或独立的
+            <code>scheduler-cli.mjs run</code>），桥不在时到点不会触发。 <b>命令</b>由项目自己的
+            <code>.crosspost/schedule.json</code> 声明（引擎不替项目编造命令）；
+            没有声明时槽位会显示「缺命令声明」，此时开关无效。
+          </p>
+          <div class="schedule-actions">
+            <button class="btn" id="btn-sched-all-on">全部开启</button>
+            <button class="btn" id="btn-sched-all-off">全部关闭</button>
+            <span id="sched-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <!-- v2.96：这一节是设置页最长的一节（27 个平台 / 5 组），680px 里排 3 列时
+             每行只有 3 个平台、整节 816px 高。改成与「自动推送调度」同宽（跨两栏）。 -->
+        <section class="card card-wide" id="card-platforms">
+          <h2><span class="cicon">🌐</span>默认推送平台</h2>
+          <p class="card-sub">
+            自动推送（定时轮）默认按此列表存草稿；<b>未登录平台自动跳过</b>（不报失败，通知注明）。抖音仅支持手动推送；微信走官方通道，均不可选。
+          </p>
+          <!-- v2.96 读数条：勾选总数此前埋在工具栏最右侧（12px 灰字、与 27 行平台等重）。
+               现在提到与调度卡读数同一位置：左＝读数，右＝检索。 -->
+          <div class="pf-bar">
+            <div class="pf-readout">
+              <span class="pf-readout-num" id="pf-picked">—</span>
+              <span class="pf-readout-cap">已勾选</span>
+              <span class="pf-readout-note" id="pf-stat">—</span>
+            </div>
+            <input type="text" id="pf-q" class="pf-search" placeholder="搜索平台…" />
+          </div>
+          <div id="pf-grid" class="pf-grid">加载中…</div>
+          <div class="schedule-actions">
+            <button class="btn" id="btn-pf-all">全选</button>
+            <button class="btn" id="btn-pf-none">清空</button>
+            <button class="btn primary" id="btn-save-platforms">保存平台配置</button>
+            <span id="pf-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <section class="card" id="card-notify">
+          <h2><span class="cicon">🔔</span>通知方式</h2>
+          <p class="card-sub">发布器直发（不经 AI），每次推送后按此渠道发送一条汇总通知</p>
+
+          <!-- v2.96：总闸换成与「自动推送调度」同款的发丝线开关行。
+               原先它和下面几行是同一张 form-row（左侧 90px 标签 + 右侧控件），
+               与「包含微信公众号」那种"总闸"在调度卡里的形态不一致，读者要学两遍。 -->
+          <div class="sw-list">
+            <div class="sw-row" id="n-enable-row">
+              <div class="sw-main">
+                <div class="sw-title">启用通知</div>
+                <div class="sw-sub">
+                  每轮一条，含各平台链接清单；关闭后不发通知（推送本身不受影响）
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="n-enabled" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- v2.96：渠道从下拉换成三格分段器。下拉把"还有哪几种可选"藏进一次点击之后，
+               而这一节要读的恰恰是"现在发到哪 / 还能发到哪"。真值仍是 <select id="n-channel">，
+               按钮点选后写回它并派发 change —— syncNotifyRows() 一行未改。 -->
+          <div class="chan-seg" id="n-channel-seg" role="radiogroup" aria-label="通知渠道"></div>
+          <select id="n-channel" class="sr-only" aria-hidden="true" tabindex="-1">
+            <option value="lark">lark-cli（飞书 bot）</option>
+            <option value="webhook">通用 Webhook（钉钉/企微/飞书群机器人）</option>
+            <option value="off">关闭</option>
+          </select>
+
+          <!-- v2.96：字段从"左侧 90px 标签 + 右侧控件"改成定义栅格（标签在上、控件在下），
+               修掉「平台状态缓存（分钟）」这类标签被 90px 挤成两行、每行左缘参差的问题。 -->
+          <div class="def-grid">
+            <div class="def-cell" id="row-lark">
+              <label class="def-label" for="n-lark-chat">飞书群 ID</label>
+              <input type="text" id="n-lark-chat" placeholder="oc_bcd3e2bb..." />
+            </div>
+            <div class="def-cell def-cell-wide" id="row-webhook">
+              <label class="def-label" for="n-webhook">Webhook URL</label>
+              <input
+                type="text"
+                id="n-webhook"
+                placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
+              />
+            </div>
+            <div class="def-cell" id="row-webhook-type">
+              <label class="def-label" for="n-webhook-type">Webhook 格式</label>
+              <select id="n-webhook-type">
+                <option value="raw">通用 JSON（post 富文本）</option>
+                <option value="dingtalk">钉钉机器人（markdown）</option>
+                <option value="wecom">企业微信机器人（markdown）</option>
+              </select>
+            </div>
+          </div>
+          <details class="tpl-details">
+            <summary>通知模板（可选，留空用默认）</summary>
+            <p class="card-sub foot-note">
+              可用变量：<code>{title}</code> <code>{slot}</code> <code>{style}</code>
+              <code>{score}</code> <code>{wechat}</code> <code>{ok}</code> <code>{total}</code>
+              <code>{failed}</code> <code>{failReason}</code> <code>{file}</code>
+            </p>
+            <div class="def-grid">
+              <div class="def-cell def-cell-wide">
+                <label class="def-label" for="n-tpl-title">标题</label>
+                <input type="text" id="n-tpl-title" placeholder="crosspost · {slot} · {title}" />
+              </div>
+              <div class="def-cell def-cell-wide">
+                <label class="def-label" for="n-tpl-summary">正文</label>
+                <textarea
+                  id="n-tpl-summary"
+                  rows="4"
+                  placeholder="📌 《{title}》&#10;模式={slot} 样式={style} 质量分={score} 微信={wechat} 分发={ok}/{total} 成功"
+                ></textarea>
+              </div>
+              <div class="def-cell def-cell-wide">
+                <label class="def-label" for="n-tpl-footer">结尾</label>
+                <textarea
+                  id="n-tpl-footer"
+                  rows="2"
+                  placeholder="已推送公众号草稿箱 + {ok} 个平台草稿箱,请查看筛选。"
+                ></textarea>
+              </div>
+            </div>
+          </details>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-save-notify">保存设置</button>
+            <button class="btn" id="btn-test-notify" title="用当前配置真实发一条自检消息">
+              📨 发送测试通知
+            </button>
+            <span id="notify-msg" class="repub-result"></span>
+          </div>
+          <p class="foot-note">
+            测试通知会真实发送到当前渠道；“已发送”仅表示<b>渠道 API 已接收</b>（飞书会返回
+            message_id），若你没看到请确认自己在该会话内、且未设免打扰。
+          </p>
+        </section>
+        <section class="card" id="scoring-card">
+          <h2><span class="cicon">🎯</span>评分与风险</h2>
+          <p class="card-sub">文章质量评分门槛与投资风险词（config.json → scoring.investment）</p>
+
+          <!-- v2.96：阈值从"一个 80px 数字框 + 两行长说明"改成"刻度盘"——
+               68 在 0–100 上没有量感，滑一下就知道松紧；数字框保留（要精确输入时用），
+               两者双向同步，真值仍是 #s-threshold。 -->
+          <div class="dial-row">
+            <div class="dial-main">
+              <div class="dial-label">评分阈值</div>
+              <div class="dial-hint">score ≥ 阈值才推送；低于则按参考类型重写，最多 2 次</div>
+            </div>
+            <div class="dial-ctl">
+              <input
+                type="range"
+                id="s-threshold-range"
+                min="0"
+                max="100"
+                step="1"
+                aria-label="评分阈值滑块"
+              />
+              <input
+                type="number"
+                id="s-threshold"
+                min="0"
+                max="100"
+                step="1"
+                aria-label="评分阈值"
+              />
+            </div>
+          </div>
+
+          <!-- v2.96：风险词从"两个逗号串文本框"改成词卡编辑器。
+               改前实测：强煽动词一行 26 个词挤在 textarea 里，中文长串读不出边界、也数不清几个；
+               而这两个清单直接决定文章被判 risk=investment 与否。
+               现在一个词一张卡（× 删），下方输入框回车/逗号追加。
+               真值仍是 #inv-strong / #inv-weak 两个 textarea（视觉隐藏），保存逻辑一行未改。 -->
+          <div class="risk-block">
+            <div class="risk-head">
+              <span class="risk-title">强投资煽动词</span>
+              <span class="risk-count" id="inv-strong-count">—</span>
+              <span class="risk-note">命中即判 <code>risk=investment</code></span>
+            </div>
+            <div class="rw-chips" id="inv-strong-chips"></div>
+            <input
+              type="text"
+              class="rw-add"
+              id="inv-strong-add"
+              placeholder="加一个词，回车或逗号确认"
+              aria-label="添加强投资煽动词"
+            />
+            <textarea id="inv-strong" class="sr-only" rows="2" tabindex="-1"></textarea>
+          </div>
+          <div class="risk-block">
+            <div class="risk-head">
+              <span class="risk-title">弱业务词（不触发）</span>
+              <span class="risk-count" id="inv-weak-count">—</span>
+              <span class="risk-note">单独出现不判风险</span>
+            </div>
+            <div class="rw-chips" id="inv-weak-chips"></div>
+            <input
+              type="text"
+              class="rw-add"
+              id="inv-weak-add"
+              placeholder="加一个词，回车或逗号确认"
+              aria-label="添加弱业务词"
+            />
+            <textarea id="inv-weak" class="sr-only" rows="2" tabindex="-1"></textarea>
+          </div>
+          <p class="foot-note">
+            分词符号 <code>,</code> <code>、</code> <code>|</code>
+            <code>;</code> 换行均可；保存时自动去重。
+          </p>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-save-scoring">保存评分设置</button>
+            <span id="scoring-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <!-- v2.96：品牌图标此前**长在「通知方式」卡里**——它和通知没有任何关系，
+             只是 2026-09-02 加功能时手边最近的空位。搬出来单独成卡：一条信息归属一张卡，
+             顺带把"通知方式"从 816px 压回它该有的高度。
+             卡序：放在「评分与风险」之后 —— 两栏 grid 里它与「文章库备份」同排（276 / 366），
+             而「通知方式」与「评分与风险」同排（452 / 506）—— 同排两张卡的高度差从 176px
+             降到 54px，页面右缘不再出现一个空半张卡的洞。 -->
+        <section class="card" id="card-brand">
+          <h2><span class="cicon">🎛️</span>品牌图标</h2>
+          <p class="card-sub">左上角品牌图标 + 浏览器标签 favicon；保存后全局生效</p>
+          <div class="brand-row">
+            <img
+              id="brand-icon-preview"
+              class="brand-preview"
+              alt="当前图标"
+              src="/console/favicon.ico"
+            />
+            <div class="brand-fields">
+              <label class="def-label" for="brand-icon-file">上传图片（png/jpg/svg/ico）</label>
+              <input type="file" id="brand-icon-file" accept="image/*" />
+              <label class="def-label" for="brand-icon-url">或粘贴 URL / 路径</label>
+              <input
+                type="text"
+                id="brand-icon-url"
+                placeholder="/console/favicon.ico 或 https://…"
+              />
+            </div>
+          </div>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-brand-apply">应用图标</button>
+            <button class="btn" id="btn-brand-reset">恢复默认</button>
+            <span id="brand-msg" class="repub-result"></span>
+          </div>
+          <p class="foot-note">留空并点「应用图标」即恢复默认图标。</p>
+        </section>
+        <section class="card" id="card-backup">
+          <h2><span class="cicon">📦</span>文章库备份</h2>
+          <!-- 保留份数由接口给（`/proxy/backup` 的 `keep`）；这里不写数字（2026-09-25） -->
+          <p class="card-sub" id="backup-sub">每日自动备份 articles/ 到 backups/（tar.gz）</p>
+          <div class="backup-status" id="backup-status">加载中…</div>
+          <div class="backup-files" id="backup-files"></div>
+          <div class="schedule-actions backup-actions">
+            <button class="btn" id="btn-backup-now">立即备份</button>
+            <span id="backup-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <section class="card" id="card-bridge">
+          <h2><span class="cicon">🔌</span>Bridge 与代理配置</h2>
+          <p class="card-sub">
+            本地桥 / 浏览器扩展代理通道的健康度 +
+            平台状态缓存、代理超时、并发发布数（代理保存即时生效）
+          </p>
+
+          <!-- v2.96：状态从"6 行 `·` 串文"改成四格指标（连接 / 代理来源 / 检查范围 /
+               失败平台）。改前一行里塞了"21 分钟前 · 2 / 27 个平台（勾选即自动检查 · 含仅检查 2）
+               · 下次 39 分钟后 · 检查并发 6"+ 一句括号说明，读者要在一串点号里找数字。
+               读数仍在 #bridge-status 内（验收断言"含 检查范围 / 代理来源"照旧成立）。 -->
+          <div class="bx-strip" id="bridge-status">加载中…</div>
+
+          <div class="schedule-actions bx-actions">
+            <button class="btn" id="btn-check-platforms">立即检查平台状态</button>
+            <span id="bridge-check-msg" class="repub-result"></span>
+          </div>
+
+          <!-- v2.96（下）：5 个数字字段改成定义栅格 + 单位后缀。改前是 90px 标签 + 120px 输入框
+               + 一段折行说明挤在一行，「平台状态缓存（分钟）」这类标签全部折成两行，
+               五行左缘参差；说明文字宽度随标签长度变化，读起来像五段随手贴上的注释。 -->
+          <div class="def-grid bx-grid">
+            <div class="def-cell">
+              <label class="def-label" for="px-cache-min">平台状态缓存</label>
+              <div class="unit-in">
+                <input type="number" id="px-cache-min" min="1" max="1440" placeholder="60" />
+                <span class="unit">分钟</span>
+              </div>
+              <div class="def-hint">
+                平台登录状态检查间隔：缓存到期后由 bridge 后台自动重查（1-1440）
+              </div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="px-check-conc">平台检查并发度</label>
+              <div class="unit-in">
+                <input type="number" id="px-check-conc" min="1" max="10" placeholder="6" />
+                <span class="unit">路</span>
+              </div>
+              <div class="def-hint">
+                检查时同时请求的平台数（1-10）；平台限流/风控报错时可下调到 2-4，发布链路不受影响
+              </div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="px-poll-sec">状态刷新间隔</label>
+              <div class="unit-in">
+                <input type="number" id="px-poll-sec" min="15" max="600" placeholder="60" />
+                <span class="unit">秒</span>
+              </div>
+              <div class="def-hint">
+                Console 读取 bridge 状态的轮询间隔（15-600）；只读取不触发平台检查
+              </div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="px-timeout-sec">代理请求超时</label>
+              <div class="unit-in">
+                <input type="number" id="px-timeout-sec" min="5" max="600" placeholder="150" />
+                <span class="unit">秒</span>
+              </div>
+              <div class="def-hint">单次代理调用超时（5-600）</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="px-concurrency">并发发布数</label>
+              <div class="unit-in">
+                <input type="number" id="px-concurrency" min="1" max="10" placeholder="3" />
+                <span class="unit">路</span>
+              </div>
+              <div class="def-hint">多平台存草稿并发（1-10，详情视图重推亦使用此值）</div>
+            </div>
+          </div>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-save-proxy">保存代理配置</button>
+            <span id="px-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <section class="card" id="card-styles">
+          <h2><span class="cicon">🎨</span>样式库</h2>
+          <p class="card-sub">
+            核心内置 + AI 资讯系列 +
+            自定义主题（点击色卡选中后可重命名/删除/启停，内置样式不可改；禁用的样式发布与预览时回退默认）
+          </p>
+
+          <!-- v2.96（下）：与「默认推送平台」同款读数条（左读数 / 右检索）。
+               改前「启用 16 · 禁用 49」是一行与搜索框同排的 12px 灰字，
+               而下面 16 张卡每张都挂一个「启用中」——同一句话印了 17 遍。 -->
+          <div class="pf-bar style-bar">
+            <div class="pf-readout">
+              <span class="pf-readout-num" id="style-stat-num">—</span>
+              <span class="pf-readout-cap">个样式启用</span>
+              <span class="pf-readout-note" id="style-stat">—</span>
+            </div>
+            <input type="text" id="style-q" class="pf-search" placeholder="搜索样式…" />
+            <button
+              class="btn ghost style-show-disabled"
+              id="btn-style-show-disabled"
+              type="button"
+            >
+              ▸ 显示已禁用
+            </button>
+          </div>
+          <div id="style-lib" class="style-lib">加载中…</div>
+          <div id="style-disabled-wrap" class="style-disabled-wrap hidden">
+            <div class="style-disabled-head">
+              <span class="pf-group-title">已禁用样式（发布/预览回退默认，可单独启用）</span>
+              <span id="style-disabled-count" class="pf-group-count"></span>
+            </div>
+            <div id="style-disabled-lib" class="style-lib"></div>
+          </div>
+          <div class="schedule-actions style-actions">
+            <button class="btn" id="btn-style-rename">✏️ 重命名选中样式</button>
+            <button class="btn" id="btn-style-delete">🗑️ 删除选中样式</button>
+            <span id="style-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <!-- v2.96：这一节的「默认项」本来就是**一行排开**的六个控件（默认封面/默认结束语/
+             封面图片/结束语图片/结束语内容/保存），680px 里必然折行；整页最后一排也只有
+             它一张卡。跨满两栏后 6 个控件回到一行，模板库也从 2 列变 4~5 列。 -->
+        <!-- v2.96：跨满两栏。改前 680px 里 6 个控件（默认封面/默认结束语/封面图片/
+             结束语图片/结束语内容/保存）挤成一个折行的"默认项"盒子，label 与控件互相穿插。 -->
+        <section class="card card-wide" id="card-cover-tpl">
+          <h2><span class="cicon">🖼️</span>封面 × 结束语模板</h2>
+          <p class="card-sub">
+            与封面视觉呼应的结束语模板：禁用后发布回退默认；封面默认 = 发布封面，结束语默认 =
+            文末结束语（留空跟随封面）
+          </p>
+
+          <!-- v2.96（下）：默认项拆成"三个定义格 + 一行开关"。
+               改前它们同在一个 .cover-tpl-defaults 盒子里，label 与控件同排混流，
+               读起来是"默认项 默认封面 cyber 默认结束语 跟随封面 ☑封面图片 ☐结束语图片
+               结束语内容 … 保存"一长串。 -->
+          <div class="def-grid">
+            <div class="def-cell">
+              <label class="def-label" for="ctpl-default">默认封面</label>
+              <select id="ctpl-default"></select>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ctpl-ending">默认结束语</label>
+              <select id="ctpl-ending"></select>
+            </div>
+            <div class="def-cell def-cell-wide">
+              <label class="def-label" for="ctpl-ending-text">结束语内容</label>
+              <input
+                type="text"
+                id="ctpl-ending-text"
+                placeholder="留空用默认话术（单行）；改动停止输入后自动保存"
+              />
+            </div>
+          </div>
+          <div class="ctpl-foot">
+            <label class="ctpl-switch"
+              ><input type="checkbox" id="ctpl-cover-on" checked /> 封面图片</label
+            >
+            <label class="ctpl-switch"
+              ><input type="checkbox" id="ctpl-ending-on" checked /> 结束语图片</label
+            >
+            <button class="btn primary" id="ctpl-save">保存默认项</button>
+            <span id="ctpl-msg" class="repub-result"></span>
+          </div>
+
+          <div class="pf-bar style-bar">
+            <div class="pf-readout">
+              <span class="pf-readout-num" id="ctpl-stat-num">—</span>
+              <span class="pf-readout-cap">个模板启用</span>
+              <span class="pf-readout-note" id="ctpl-stat">—</span>
+            </div>
+            <button class="btn ghost style-show-disabled" id="btn-ctpl-show-disabled" type="button">
+              ▸ 显示已禁用
+            </button>
+          </div>
+          <div id="cover-tpl-lib" class="cover-tpl-lib"></div>
+          <div id="cover-tpl-disabled-wrap" class="style-disabled-wrap hidden">
+            <div class="style-disabled-head">
+              <span class="pf-group-title">已禁用模板（发布/预览回退默认，可单独启用）</span>
+              <span id="cover-tpl-disabled-count" class="pf-group-count"></span>
+            </div>
+            <div id="cover-tpl-disabled-lib" class="cover-tpl-lib"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <main id="view-retained" class="view">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="rf-dir">
+            <option value="">全部留存</option>
+            <option value="rejected">低分</option>
+            <option value="risk">高风险</option>
+          </select>
+          <select id="rf-risk">
+            <option value="">全部风险</option>
+            <option value="ad">广告</option>
+            <option value="investment">投资</option>
+            <option value="pr">公司宣传</option>
+            <option value="person">人名</option>
+            <option value="none">正常(低分)</option>
+          </select>
+          <input type="text" id="rf-q" placeholder="搜索标题…" />
+        </div>
+        <div class="toolbar-note">
+          <span class="dot partial"></span>低分 <span class="dot fail"></span>高风险 ·
+          自动链路永不触碰，仅人工处理
+        </div>
+      </div>
+      <div id="retained-count" class="pstats"></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>栏目</th>
+              <th>标题</th>
+              <th>类别</th>
+              <th>分数</th>
+              <th>风险</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="retained-tbody"></tbody>
+        </table>
+        <div class="pager" id="retained-pager"></div>
+      </div>
+      <div id="retained-msg" class="repub-result"></div>
+    </main>
+
+    <main id="view-archive" class="view">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="af-slot">
+            <option value="">全部栏目</option>
+          </select>
+          <select id="af-risk">
+            <option value="">全部风险</option>
+            <option value="ad">广告</option>
+            <option value="investment">投资</option>
+            <option value="pr">公司宣传</option>
+            <option value="person">人名</option>
+            <option value="none">正常</option>
+          </select>
+          <input type="text" id="af-q" placeholder="搜索标题…" />
+        </div>
+        <div class="toolbar-note">
+          <span class="dot skip"></span>已归档 · 草稿文件在 drafts/archive/，记录保留 ·
+          自动链路不触碰，仅人工操作
+        </div>
+      </div>
+      <div id="archive-count" class="pstats"></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>栏目</th>
+              <th>标题</th>
+              <th>分数</th>
+              <th>风险</th>
+              <th>归档时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="archive-tbody"></tbody>
+        </table>
+        <div class="pager" id="archive-pager"></div>
+      </div>
+      <div id="archive-msg" class="repub-result"></div>
+    </main>
+
+    <!-- 编写工作台（v2.97 美化）：
+         改前的问题是「三个下拉没有标签」「保存反馈出现在 600px 外的预览窗格」
+         「左右两栏内容起点差 20px」「工作台比视口高 132px，永远要滚一下才看得到底」。
+         结构改动都写成注释留在原地。 -->
+    <main id="view-editor" class="view">
+      <div class="editor-toolbar">
+        <div class="editor-title-zone">
+          <!-- v2.97：标题从"一个和下拉同重的带框输入框"改成**稿纸抬头**——无边框大字号，
+               聚焦时才浮出一道下划线。它是这一页最重要的字段，不该长得像个普通表单控件。 -->
+          <input
+            type="text"
+            id="ed-title"
+            class="ed-title-in"
+            placeholder="文章标题…"
+            maxlength="60"
+          />
+          <!-- v2.97：三个下拉此前**一个标签都没有**（只显示 2026/09/21 / 手动 / swiss），
+               新用户不可能知道它们是什么。现在各带一个上置小标签。 -->
+          <div class="editor-meta-row">
+            <label class="ed-field">
+              <span class="ed-field-label">日期</span>
+              <input type="date" id="ed-date" />
+            </label>
+            <label class="ed-field">
+              <span class="ed-field-label">栏目</span>
+              <select id="ed-slot"></select>
+            </label>
+            <label class="ed-field">
+              <span class="ed-field-label">样式</span>
+              <select id="ed-style"></select>
+            </label>
+          </div>
+        </div>
+        <div class="editor-actions">
+          <!-- v2.99（C1）：窄屏（≤900px）两栏会**静默**堆叠成单栏，预览被推到下方，
+               用户常常以为"预览没了"。这里给一个只在窄屏出现的分段控件，
+               宽屏下 `display:none`（两栏本来就都在，不需要切换）。
+               默认停在「正文」——进这一页第一件事是打字，不是看预览。 -->
+          <div class="ed-narrow-switch" id="ed-narrow-switch" role="group" aria-label="窄屏显示">
+            <button type="button" data-narrow="source" aria-pressed="true">正文</button>
+            <button type="button" data-narrow="preview" aria-pressed="false">预览</button>
+          </div>
+          <!-- v2.97：保存反馈移到**保存按钮旁边**。改前 setEditorState() 写的是
+               #ed-preview-state —— "请先填写标题""保存中…""已保存 ✓"都出现在右边那个
+               预览窗格的右上角，离保存按钮 600px，用户根本不会往那里看。 -->
+          <span id="ed-save-state" class="ed-save-state"></span>
+          <button class="btn ghost" id="ed-new">新建</button>
+          <!-- v2.97：「一键清空」从常驻红色 danger 按钮降级：它是全页最危险的破坏性动作
+               （还有二次确认），却是改前最抢眼的元素。现在与「新建」同重，
+               危险色只在悬停时出现。 -->
+          <button class="btn ghost ed-danger" id="ed-clear" title="清空当前标题与正文（不可撤销）">
+            🗑️ 一键清空
+          </button>
+          <button class="btn primary" id="ed-save">保存</button>
+          <!-- v2.99.1（C2）：编写页直达推送。
+               改前只能存草稿，要推微信得绕到「文章」列表 → 打开详情抽屉 → 点重推。 -->
+          <button
+            class="btn ghost"
+            id="ed-push"
+            title="先保存草稿，再创建微信官方草稿（仍是草稿：不发表、不群发、不推其它平台）"
+          >
+            推送微信
+          </button>
+          <span id="ed-clear-result" class="repub-result"></span>
+          <!-- 二次确认：用**行内面板**而不是 window.confirm ——
+               ① 需要把"会发生什么、不会发生什么"写清楚，原生 confirm 放不下；
+               ② 行内面板是真 DOM，测试可以在**不产生任何副作用**的前提下断言
+                  "点了按钮只弹确认、不发请求"。 -->
+          <div
+            class="ed-push-confirm hidden"
+            id="ed-push-confirm"
+            role="dialog"
+            aria-label="确认推送微信草稿"
+          >
+            <p class="ed-push-h">确认推送到微信？</p>
+            <ul class="ed-push-list">
+              <li>先保存当前草稿（标题 / 正文 / 日期 / 栏目 / 样式）</li>
+              <li>再创建 <strong>微信官方草稿</strong></li>
+              <li class="ed-push-no">不会发表、不会群发、不会推送到其它平台</li>
+            </ul>
+            <div class="ed-push-ops">
+              <button class="btn primary" id="ed-push-go">确认推送</button>
+              <button class="btn ghost" id="ed-push-cancel">取消</button>
+            </div>
+            <span id="ed-push-result" class="repub-result"></span>
+          </div>
+        </div>
+      </div>
+      <div class="editor-layout">
+        <section class="editor-pane">
+          <div class="editor-pane-head">
+            <span class="editor-pane-label">正文 <span class="editor-hint">Markdown</span></span>
+            <span class="editor-count" id="ed-count"></span>
+          </div>
+          <!-- v2.97：10 个按钮按用途分成 4 组（标题 / 强调 / 插入 / 列表），
+               组间用发丝线分隔。改前它们同重排成一排，H2（块级）与 B（行内）与 🔗（插入）
+               与 •（列表）混在一起，读不出任何结构。
+               v2.98.1：① 图标去掉彩色 emoji —— 🔗（蓝色 3D 链条）与 🖼（绿色位图相框，
+               在暖白纸上像一块绿补丁）跟 ❝ • 1. 这些单色字形混在一排里是四种画风，
+               改用同语言的单色汉字记号「链 / 图」；
+               ② 每条按钮补 aria-label（按钮可见文字是"链""图"这种单字，读屏读不出用途）；
+               ③ 整条工具条只留**一个** Tab 停靠点（roving tabindex，见 v2.98.1 CSS/JS 与
+               views-editor.mjs 的 bindFormatbarRoving）—— 改前 10 个按钮各占一个，
+               从「保存」到预览头「样式」要按 11 次 Tab。 -->
+          <div class="editor-formatbar" role="toolbar" aria-label="Markdown 格式">
+            <div class="fb-group">
+              <button class="fb" data-fb="h2" title="二级标题" aria-label="二级标题" tabindex="0">
+                H2
+              </button>
+              <button class="fb" data-fb="h3" title="三级标题" aria-label="三级标题" tabindex="-1">
+                H3
+              </button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" data-fb="b" title="加粗" aria-label="加粗" tabindex="-1">B</button>
+              <button class="fb" data-fb="i" title="斜体" aria-label="斜体" tabindex="-1">I</button>
+              <button
+                class="fb"
+                data-fb="code"
+                title="行内代码"
+                aria-label="行内代码"
+                tabindex="-1"
+              >
+                &lt;/&gt;
+              </button>
+            </div>
+            <div class="fb-group">
+              <button
+                class="fb"
+                data-fb="link"
+                title="插入链接"
+                aria-label="插入链接"
+                tabindex="-1"
+              >
+                链
+              </button>
+              <button class="fb" data-fb="img" title="插入图片" aria-label="插入图片" tabindex="-1">
+                图
+              </button>
+            </div>
+            <!-- v2.99：块级语法单独成组（引用 / 分割线 / 代码块）——
+                 改前 10 个键里没有 `---` 与三反引号围栏，而这两个是写长文最常用的块级语法；
+                 原来的「插入」组把行内（链接/图片）与块级（引用）混在一起，看不出层级。 -->
+            <div class="fb-group">
+              <button class="fb" data-fb="quote" title="引用" aria-label="引用" tabindex="-1">
+                ❝
+              </button>
+              <button class="fb" data-fb="hr" title="分割线" aria-label="插入分割线" tabindex="-1">
+                —
+              </button>
+              <button
+                class="fb"
+                data-fb="codeblock"
+                title="代码块"
+                aria-label="插入代码块"
+                tabindex="-1"
+              >
+                {}
+              </button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" data-fb="ul" title="无序列表" aria-label="无序列表" tabindex="-1">
+                •
+              </button>
+              <button class="fb" data-fb="ol" title="有序列表" aria-label="有序列表" tabindex="-1">
+                1.
+              </button>
+            </div>
+          </div>
+          <!-- v2.97：把编辑区与空态提示包进 .ed-body（position:relative）——
+               提示层就能用 inset:0 精确覆盖"正文区"本身，不必去猜头部与格式栏有多高。 -->
+          <div class="ed-body">
+            <div id="ed-editor-host" class="cm-host"></div>
+            <div class="ed-empty" id="ed-empty" aria-hidden="true">
+              正文从这里开始 —— 支持 Markdown，上面一排是格式按钮
+            </div>
+          </div>
+        </section>
+        <section class="preview-pane">
+          <div class="editor-pane-head">
+            <span class="editor-pane-label">实时预览</span>
+            <label class="editor-preview-style"
+              >样式
+              <select id="ed-style-dup">
+                <!-- 与 ed-style 同步 -->
+              </select>
+            </label>
+            <!-- v2.98.2：预览头补上真正的工具组（改前这里只有"样式"下拉 + 一行状态字）。
+                 ① 同步开关：store.editor.syncOn 早就是 true、editor-sync.mjs 里 **5 处**在读它，
+                    但界面上从来没有开关 —— 一个"实现了却够不着"的能力；
+                 ② 刷新：不等 450ms 防抖，立刻重渲染；
+                 ③ 在新标签页打开：发布前想看"整页长什么样"（iframe 里是缩在窗格里的）。
+                 三个都是图标钮 + title + aria-label（字形后跟 U+FE0E 强制文本呈现，
+                 避免 ↗ 在 macOS 上被渲染成蓝色 emoji 箭头）。 -->
+            <div class="editor-pane-tools">
+              <button
+                type="button"
+                class="ed-tool"
+                id="ed-sync-toggle"
+                aria-pressed="true"
+                title="滚动 / 选区双向同步（关闭后两栏各自滚动，互不打扰）"
+                aria-label="滚动与选区同步"
+              >
+                ⇅
+              </button>
+              <button
+                type="button"
+                class="ed-tool"
+                id="ed-preview-refresh"
+                title="立即重新渲染预览（不必等输入防抖）"
+                aria-label="立即刷新预览"
+              >
+                ⟳
+              </button>
+              <button
+                type="button"
+                class="ed-tool"
+                id="ed-preview-open"
+                title="在新标签页打开渲染结果（发布前的整页自检）"
+                aria-label="在新标签页打开预览"
+              >
+                ↗︎
+              </button>
+            </div>
+            <span class="editor-pane-state" id="ed-preview-state"></span>
+          </div>
+          <!-- v2.97：占位条补上真正的按钮（v2.99 起 12 个）（原先是**空的**，CSS 里那条
+               `.editor-formatbar-spacer .fb { visibility: hidden }` 没有对象可隐藏）——
+               于是左栏格式栏实测 45px、右栏占位条只有 17px，两栏正文起点差了 20px。
+               按钮不带 data-fb（不会被执行）；JS 的绑定选择器也一并收窄到 .editor-pane .fb。 -->
+          <div class="editor-formatbar editor-formatbar-spacer" aria-hidden="true">
+            <div class="fb-group">
+              <button class="fb" tabindex="-1">H2</button>
+              <button class="fb" tabindex="-1">H3</button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" tabindex="-1">B</button>
+              <button class="fb" tabindex="-1">I</button>
+              <button class="fb" tabindex="-1">&lt;/&gt;</button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" tabindex="-1">链</button>
+              <button class="fb" tabindex="-1">图</button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" tabindex="-1">❝</button>
+              <button class="fb" tabindex="-1">—</button>
+              <button class="fb" tabindex="-1">{}</button>
+            </div>
+            <div class="fb-group">
+              <button class="fb" tabindex="-1">•</button>
+              <button class="fb" tabindex="-1">1.</button>
+            </div>
+          </div>
+          <div class="ed-body">
+            <div class="iframe-wrap">
+              <iframe id="ed-preview-frame" sandbox="allow-same-origin"></iframe>
+            </div>
+            <div class="ed-preview-empty" id="ed-preview-empty" aria-hidden="true">
+              标题与正文写入后，这里会按所选样式渲染成发布时的样子
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 详情抽屉 -->
+    <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+    <aside id="detail-drawer" class="drawer hidden">
+      <div class="drawer-head">
+        <div class="drawer-head-main">
+          <div class="drawer-title-line">
+            <h2 id="d-title"></h2>
+            <span id="d-status" class="badge"></span>
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <div class="drawer-act-group">
+            <button class="btn" id="d-edit"><span class="b-ic">✏️</span>编辑</button>
+            <button class="btn" id="d-write" title="在编写工作台打开">
+              <span class="b-ic">🖊️</span>编写
+            </button>
+            <button class="btn" id="d-mark"><span class="b-ic">📌</span>补记</button>
+          </div>
+          <div class="drawer-act-group drawer-act-group--muted">
+            <button class="btn ghost" id="d-archive"><span class="b-ic">📦</span>归档</button>
+            <button class="btn" id="d-retain"><span class="b-ic">🗂️</span>留存</button>
+          </div>
+          <div class="drawer-act-group drawer-act-group--danger">
+            <button class="btn danger" id="d-delete"><span class="b-ic">🗑️</span>删除</button>
+          </div>
+        </div>
+        <button class="btn-close" id="d-close" title="关闭（Esc）" aria-label="关闭">✕</button>
+        <div class="drawer-head-meta">
+          <p class="drawer-meta" id="d-meta"></p>
+        </div>
+      </div>
+
+      <div id="mark-panel" class="edit-panel hidden">
+        <h3 class="sec-title" style="margin-top: 0">手动补记推送状态</h3>
+        <div class="mark-row">
+          <label class="chk"><input type="checkbox" id="m-wechat" checked /> 微信草稿已存</label>
+          <input type="text" id="m-media-id" placeholder="微信 mediaId（可选）" />
+        </div>
+        <div class="mark-row"><label class="form-label">补记平台（勾选=成功）</label></div>
+        <div id="m-platforms" class="chips"></div>
+        <div class="mark-row">
+          <input
+            type="text"
+            id="m-note"
+            placeholder="备注（可选），如：手动推过抖音+豆瓣"
+            style="max-width: 100%"
+          />
+        </div>
+        <div class="edit-actions">
+          <button class="btn primary" id="m-save">保存补记</button>
+          <button class="btn ghost" id="m-cancel">取消</button>
+          <span id="m-msg" class="repub-result"></span>
+        </div>
+      </div>
+
+      <div id="retain-panel" class="edit-panel hidden">
+        <h3 class="sec-title" style="margin-top: 0">手动留存</h3>
+        <div class="mark-row">
+          <label class="form-label">留存到（移入留存库，AI 链路不可触碰，人工经留存库处理）</label>
+        </div>
+        <div class="mark-row">
+          <label class="chk"
+            ><input type="radio" name="retain-dir" value="rejected" checked />
+            低分留存（drafts/rejected/）</label
+          >
+          <label class="chk"
+            ><input type="radio" name="retain-dir" value="risk" /> 风险留存（drafts/risk/）</label
+          >
+        </div>
+        <div class="mark-row">
+          <input
+            type="text"
+            id="r-reason"
+            placeholder="留存原因（可选），如：素材不足/内容有风险"
+            style="max-width: 100%"
+          />
+        </div>
+        <div class="edit-actions">
+          <button class="btn primary" id="r-confirm">确认留存</button>
+          <button class="btn ghost" id="r-cancel">取消</button>
+          <span id="r-msg" class="repub-result"></span>
+        </div>
+      </div>
+
+      <div id="edit-panel" class="edit-panel hidden">
+        <div class="form-row">
+          <label class="form-label">标题</label><input type="text" id="e-title" />
+        </div>
+        <textarea id="e-markdown" rows="12" spellcheck="false"></textarea>
+        <div class="edit-actions">
+          <button class="btn primary" id="e-save">保存</button>
+          <button class="btn ghost" id="e-cancel">取消</button>
+          <span id="e-msg" class="repub-result"></span>
+        </div>
+      </div>
+
+      <div class="drawer-tabs">
+        <button class="dtab active" data-dtab="preview">样式预览</button>
+        <button class="dtab" data-dtab="raw">原文</button>
+        <button class="dtab" data-dtab="record">发布记录</button>
+      </div>
+
+      <div class="drawer-body">
+        <div class="dtab-pane active" id="pane-preview">
+          <div class="preview-bar">
+            <!-- 封面模板下拉 + 生成封面按钮（2026-09-10 摘除）：封面由推送链路按设置页默认项自动生成；
+                 恢复只需加回 #d-cover-template / #d-cover / #d-cover-result 与 views-detail-actions.mjs 中的绑定 -->
+            <label
+              >样式
+              <select id="d-style"></select>
+            </label>
+            <button class="btn" id="d-render">渲染预览</button>
+          </div>
+          <div class="iframe-wrap"><iframe id="d-preview-frame" sandbox=""></iframe></div>
+        </div>
+
+        <div class="dtab-pane" id="pane-raw">
+          <pre id="d-raw" class="raw-pre"></pre>
+        </div>
+
+        <div class="dtab-pane" id="pane-record">
+          <div class="record-block">
+            <h3 class="sec-title">记录概览</h3>
+            <div class="record-grid" id="d-record-grid"></div>
+          </div>
+          <div class="record-block">
+            <h3 class="sec-title">生成消耗</h3>
+            <div id="d-cost" class="cost-box">加载中…</div>
+          </div>
+          <div class="record-block">
+            <h3 class="sec-title">发布历史</h3>
+            <ol id="d-history" class="timeline"></ol>
+          </div>
+        </div>
+      </div>
+
+      <div class="drawer-foot">
+        <div class="foot-card douyin-box">
+          <!-- 2026-09-11：去掉「📱 抖音手动推送」标题行 + 把「当前草稿箱」并入按钮同行，
+               整卡压成一条控制条，把高度还给文章阅读区。说明文案保留（sr-only，与确认弹窗同义）。 -->
+          <p class="douyin-note">
+            抖音草稿箱为单槽覆盖式——推送会<strong>覆盖现有草稿</strong>，仅手动触发，绝不进自动推送。
+          </p>
+          <div class="repub-actions douyin-row">
+            <button class="btn douyin-btn" id="d-douyin">📱 推送到抖音（覆盖草稿箱）</button>
+            <span id="d-douyin-current" class="repub-result"></span>
+            <span id="d-douyin-result" class="repub-result"></span>
+          </div>
+        </div>
+        <div class="foot-card repush-card">
+          <!-- 2026-09-11：去掉「手动重推」标题行，把「微信草稿 / 勾选即执行 / 自动推送状态」
+               全部并到重推按钮同一行；结果独占一行（长文案可换行，不丢信息）。
+               与抖音卡同一思路：把高度还给文章阅读区。 -->
+          <div id="d-platforms" class="chips"></div>
+          <div class="repub-actions repush-row">
+            <button class="btn primary" id="d-republish">▶ 重推到所选平台（恒草稿）</button>
+            <label class="chk"><input type="checkbox" id="d-wechat" checked /> 微信草稿</label>
+            <span
+              class="card-sub"
+              id="d-manual-hint"
+              title="勾选即执行（不受「生成后自动推送」开关限制）"
+              >勾选即执行（不受「生成后自动推送」开关限制）</span
+            >
+            <!-- 自动推送开关状态（2026-09-11）：手动重推不受该开关影响，但要让用户看清当前模式 -->
+            <div id="d-push-mode" class="repub-result"></div>
+          </div>
+          <div id="d-repub-result" class="repub-result"></div>
+        </div>
+      </div>
+    </aside>
+
+    <script type="module" src="/console/app.js"></script>
+  </body>
+</html>

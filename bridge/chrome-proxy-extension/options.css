@@ -1,0 +1,1088 @@
+/* CrossPost Bridge · 扩展选项页样式（v2.3.3）
+ *
+ * ## 这套样式从哪来
+ *
+ * 不是新造一套配色，而是把 **Console 的设计系统**移植过来（真值在
+ * `bridge/console/styles.css` 的 `:root` / `html[data-theme='dark']`）：
+ * 暖纸底 --paper、墨 --ink、砖红 --accent，衬线标题 + 等宽数字，
+ * `.card` 的 glass 底 + 发丝线 + 10px 圆角，三态色 --pf-auth-ok/no/unk。
+ * 移植而不是"参考"的原因：两个界面是一个产品，色值一旦各自漂移，
+ * 用户看到的就是两套东西（改造前的选项页是冷灰 + 微信绿，与 Console 的编辑部暖纸
+ * 完全不在一个色系）。
+ *
+ * ## 版面：320 控制面板 → 可伸缩的编辑部署名表
+ *
+ * 改造前 `html{width:320px}`（弹窗时代的遗留），于是作为标签页打开时它只是**贴在
+ * 左边的一条 320 纸带**，右侧全空；同时列表被 `max-height:340px` 切在半行上。
+ * 现在：外壳 `--shell` = 320（<560px，保持熟悉的控制面板形态）→ 760（≥560px，居中）；
+ * 列表交给**页面自然滚动**（不再有内嵌滚动区），报头/底栏 sticky 常驻。
+ *
+ * ## 三态必须三种颜色（v2.3.2 的教训升到颜色层）
+ *
+ * v2.3.2 修的是"未检查 0"的**文案**假象。这次顺手把它钉在**颜色**上：
+ * 已登录 = --score-pass、未登录 = --score-fail、未检查 = --partial（琥珀），
+ * 并且顶部多出**三态比例条**（--ok/--no/--unk 三段）—— 未检查从"一个措辞"
+ * 变成"看得见的一段"。真浏览器冒烟里有专门断言钉住这三色两两不同。
+ *
+ * ⚠️ 两条硬约束（踩过）：
+ *   ① 页面**不得**引用远端资源（不写 url(http…)）：选项页可能在没有外网时打开。
+ *   ② `.panes` 的 `overflow-x:auto` 会让另一轴被算成 auto → **纵向也会被裁**，
+ *      所以卡片阴影只能用 --shadow-sm（小模糊）并给 .pane 留底部内边距。
+ */
+
+:root {
+  /* ── 语义色（与 Console 同值；深色见下方 [data-theme='dark']） ── */
+  --paper: #f6f3ec;
+  --paper-2: #efe9dd;
+  --paper-3: #e6dfd0;
+  --ink: #1d1a15;
+  --ink-soft: #5f594e;
+  --ink-faint: #8d867a;
+  --line: #d9d2c2;
+  --hairline: rgba(217, 210, 194, 0.6);
+  --accent: #b4432f;
+  --accent-ink: #8f3322;
+  --surface: #fff;
+  --glass: rgba(255, 255, 255, 0.55);
+  --topbar-bg: rgba(246, 243, 236, 0.92);
+  --row-hover: rgba(180, 67, 47, 0.045);
+  --body-glow-a: rgba(180, 67, 47, 0.06);
+  --body-glow-b: rgba(46, 125, 79, 0.05);
+  --sk-shimmer: #f6f2eb;
+  --ok: #2e7d4f;
+  --fail: #b4432f;
+  --partial: #b07d1c;
+  --partial-bg: #f3ead2;
+  --score-pass: #2f9e44;
+  --score-fail: #c92a2a;
+  --pf-auth-ok-bg: #ebfbee;
+  --pf-auth-no-bg: #fff5f5;
+
+  /* ── tab 区数字的三态色（v2.3.4）──
+     两组：普通态（纸/白底上）与激活态（墨底上，同色系会糊掉所以单独给值）。
+     深色主题再各覆盖一次（见 [data-theme='dark'] 块）。 */
+  --seg-ok: #2f9e44;
+  --seg-no: #c92a2a;
+  --seg-unk: #b07d1c;
+  --seg-ok-on: #7fce96;
+  --seg-no-on: #f0968f;
+  --seg-unk-on: #e2b969;
+  /* 复核中的"墨底版"砖红（--accent 在墨底上太暗） */
+  --accent-on: #e8a08c;
+
+  /* ── 字级（Console 同一套） ── */
+  --mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --serif: Georgia, 'Songti SC', 'Noto Serif SC', 'Times New Roman', serif;
+  --sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    sans-serif;
+
+  /* ── 尺寸 ── */
+  --radius: 10px;
+  /* 卡片阴影必须小：.panes 是横向滚动容器，纵向溢出会被裁掉（见文件头 ②） */
+  --shadow-sm: 0 1px 2px rgba(29, 26, 21, 0.05), 0 6px 18px rgba(29, 26, 21, 0.05);
+  /* 外壳宽度：<560 保持弹窗时代的 320 控制面板；≥560 变成居中的编辑部署名表 */
+  --shell: 320px;
+}
+
+/* ── 深色（与 Console 同值） ── */
+html[data-theme='dark'] {
+  --paper: #17151a;
+  --paper-2: #1e1b22;
+  --paper-3: #282430;
+  --ink: #e8e4da;
+  --ink-soft: #a9a296;
+  --ink-faint: #7d766c;
+  --line: #38333f;
+  --hairline: rgba(56, 51, 63, 0.8);
+  --accent: #e07a5f;
+  --accent-ink: #f09074;
+  --surface: #1c1920;
+  --glass: rgba(28, 25, 32, 0.6);
+  --topbar-bg: rgba(23, 21, 26, 0.92);
+  --row-hover: rgba(224, 122, 95, 0.08);
+  --body-glow-a: rgba(224, 122, 95, 0.06);
+  --body-glow-b: rgba(111, 191, 138, 0.05);
+  --sk-shimmer: #2b2731;
+  --ok: #6fbf8a;
+  --fail: #e07a5f;
+  --partial: #d9a441;
+  --partial-bg: #3a311b;
+  --score-pass: #6fbf8a;
+  --score-fail: #e07a5f;
+  --pf-auth-ok-bg: #1f3a2b;
+  --pf-auth-no-bg: #3c2420;
+  /* tab 数字三态色（深色）：普通态用深色主题的亮版；激活态是**米白底**，
+     所以反而要用压深的版本（与浅色主题正好相反） */
+  --seg-ok: #6fbf8a;
+  --seg-no: #e07a5f;
+  --seg-unk: #d9a441;
+  --seg-ok-on: #2e7d4f;
+  --seg-no-on: #b4432f;
+  --seg-unk-on: #8a6316;
+  /* 深色的激活 tab 是**米白底**，所以这里要用压深的砖红 */
+  --accent-on: #b4432f;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+@media (min-width: 560px) {
+  :root {
+    --shell: 760px;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  /* overflow-x 在根元素上会传播给视口：横向绝不出现滚动条（窄窗口下的兜底） */
+  overflow-x: hidden;
+}
+
+body {
+  /* 暖纸底 + 双光晕（与 Console 的 body 同款）。
+     试过再加一层"校样格线"（1px 每 3px 的极淡横线），在 320 宽的空区里会读成**条纹**
+     而不是纸纹 —— 已去掉：氛围交给两个光晕，质感交给发丝线与阴影。 */
+  background:
+    radial-gradient(1200px 500px at 85% -10%, var(--body-glow-a), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, var(--body-glow-b), transparent 55%), var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  min-height: 100vh;
+  /* 列布局 + main flex:1：内容短时底栏仍贴视口底部；内容长时底部常驻（sticky） */
+  display: flex;
+  flex-direction: column;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.shell {
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+}
+
+/* ── 报头（sticky 毛玻璃，满幅 + 内容约束到外壳宽） ── */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 var(--hairline);
+}
+
+.bar-inner {
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  padding: 9px 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* 品牌砖：**纸底**而不是砖红渐变底 —— logo 本身是红的（icons/icon32.png），
+   红压红会糊成一团；换成纸底 + 发丝线，红色标记自己跳出来 */
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(29, 26, 21, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.brand-mark img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+}
+
+.brand-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.brand-text h1 {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 副标题只在 ≥560 出现：320 下它与连接胶囊抢宽（宽度预算见 §报头） */
+.brand-sub {
+  display: none;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (min-width: 560px) {
+  .brand-sub {
+    display: block;
+  }
+}
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  /* 12px：◐/☾/☀ 这些圆点状字形在 13px 下会显得过重（字形本身就是实心圆） */
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.icon-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 连接胶囊：已连接时**只留端口**（`● :9539`，端口是等宽真值），
+   断连/失败时必须显示中文原因 —— 那才是需要读的字。宽度预算（320）：
+   28(品牌) + 10 + 标题≈98 + 8 + 26(主题键) + 8 + 胶囊≈59 + 内边距 28 ≈ 265 < 320 */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.conn.ok .conn-label {
+  display: none;
+}
+/* ≥560 有宽度余量时把「代理已连接」写出来（窄屏留给端口这一个真值） */
+@media (min-width: 560px) {
+  .conn.ok .conn-label {
+    display: inline;
+  }
+}
+.conn-port {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+.dot.on {
+  background: var(--score-pass);
+  animation: dotPulse 2.2s ease-out infinite;
+}
+.dot.off {
+  background: var(--score-fail);
+}
+
+/* ── 主体 ── */
+main.shell {
+  flex: 1 0 auto;
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── 校样头（三格读数 + 三态比例条 + 次要行） ── */
+.summary {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px 10px;
+  animation: riseIn 0.22s ease-out both;
+}
+
+.sum-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.sum-cell {
+  text-align: center;
+  padding: 0 6px;
+  min-width: 0;
+}
+.sum-cell + .sum-cell {
+  border-left: 1px solid var(--hairline);
+}
+.sum-label {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+.sum-value {
+  display: block;
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.15s ease;
+}
+/* 已登录＝绿。未登录只在 **>0** 时转红（一个红色的 `0` 是纯噪音，会把"没问题"读成"有问题"） */
+.sum-cell.ok .sum-value {
+  color: var(--score-pass);
+}
+.sum-cell.warn .sum-value {
+  color: var(--score-fail);
+}
+.sum-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+.sum-value.unk {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+/* 三态比例条：把"未检查"从措辞变成看得见的一段（分母 = 检查范围 --all） */
+.cov {
+  display: flex;
+  height: 4px;
+  margin-top: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--paper-3);
+}
+.cov-seg {
+  transition: width 0.3s ease;
+}
+/* 三段宽度由 JS 写在容器的 --ok/--no/--unk 上（百分比字符串） */
+.cov-seg.ok {
+  width: var(--ok, 0);
+  background: var(--score-pass);
+}
+.cov-seg.no {
+  width: var(--no, 0);
+  background: var(--score-fail);
+}
+.cov-seg.unk {
+  width: var(--unk, 0);
+  background: var(--partial);
+}
+
+.sum-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 10px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.sum-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.sum-note {
+  margin-left: auto;
+  text-align: right;
+}
+/* 有未检查平台时整条说明转琥珀，与"未检查"标签同色 */
+.sum-note.warn {
+  color: var(--partial);
+}
+.sum-meta.err .sum-time,
+.sum-meta.err .sum-note {
+  color: var(--fail);
+}
+.sum-spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--paper-3);
+  border-top-color: var(--accent);
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── 连接配置 ── */
+.cfg {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.cfg summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-size: 12px;
+  color: var(--ink-soft);
+  transition: color 0.15s ease;
+}
+.cfg summary::-webkit-details-marker {
+  display: none;
+}
+.cfg summary::before {
+  content: '▸';
+  font-size: 10px;
+  color: var(--ink-faint);
+  transition: transform 0.15s ease;
+}
+.cfg[open] summary::before {
+  transform: rotate(90deg);
+}
+.cfg summary:hover {
+  color: var(--accent);
+}
+.cfg-cur {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cfg-body {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cfg-row label {
+  width: 62px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+.cfg-row input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cfg-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(180, 67, 47, 0.14);
+}
+.cfg-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+#cfgHint {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+
+/* ── 三态 tab（激活＝墨底米白字 + 砖红下划线，Console 的选中态语义） ──
+ *
+ * v2.3.4：tab 改成**两行** —— 主标签是计数（数字带三态颜色），副标签是这批数字的**可信度**
+ * （本轮已核验 / 复核中… / 3 小时前的核验 / 上次核对失败 / 扩展未连接 / 尚未核验 / 数据不可用）。
+ * 为什么必须两行：同一对计数（`已登录 12` / `未登录 0 · 未检查 15`）在"刚核完"与
+ * "三小时前的旧账"下读法完全不同 —— 可信度紧贴数字，才不必去别处找。
+ * 数字上色走 .seg（绿/红/琥珀；普通态与激活态两组 token，见 --seg-*）。 */
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+/* 不做等宽 flex:1：第二栏文案是「未登录 0 · 未检查 15」（契约要求两个数同时出现），
+   320 下等宽会把它挤到溢出；按内容分配 + 末尾省略号兜底 */
+.tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 10px 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.tab:hover {
+  border-color: var(--ink-faint);
+}
+.tab.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+  box-shadow: 0 2px 0 var(--accent);
+}
+.tab .cnt {
+  font-weight: 400;
+  opacity: 0.7;
+}
+.tab-main,
+.tab-sub {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-main {
+  font-size: 12px;
+}
+.tab-sub {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+/* 副标签的语气色（普通态）：复核中＝砖红、旧账/扩展未连＝琥珀、失败＝红 */
+.tab-sub.run {
+  color: var(--accent);
+}
+.tab-sub.warn {
+  color: var(--partial);
+}
+.tab-sub.err {
+  color: var(--fail);
+}
+/* 数字：等宽 + 三态颜色。文字保持中性 —— 只给数字上色，于是同一行里的
+   「未登录 0」与「未检查 15」在颜色上也是两种状态（红 / 琥珀） */
+.tab .seg {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.seg.ok {
+  color: var(--seg-ok);
+}
+.seg.no {
+  color: var(--seg-no);
+}
+.seg.unk {
+  color: var(--seg-unk);
+}
+/* 激活态是墨底（浅色）/ 米白底（深色），同色系会糊掉 → 一组专用 token */
+.tab.active .seg.ok {
+  color: var(--seg-ok-on);
+}
+.tab.active .seg.no {
+  color: var(--seg-no-on);
+}
+.tab.active .seg.unk {
+  color: var(--seg-unk-on);
+}
+.tab.active .tab-sub {
+  color: var(--paper);
+  opacity: 0.72;
+}
+/* 激活态同样要保留语气色（否则"复核中/旧账/核对失败"在**正在看的那一栏**上就丢了信号）。
+   注意必须带上 .tab.active .tab-sub 的完整优先级：单写 .tab-sub.warn 会被上面那条覆盖。 */
+.tab.active .tab-sub.run {
+  color: var(--accent-on);
+  opacity: 1;
+}
+.tab.active .tab-sub.warn {
+  color: var(--seg-unk-on);
+  opacity: 1;
+}
+.tab.active .tab-sub.err {
+  color: var(--seg-no-on);
+  opacity: 1;
+}
+/* 宽屏不要把两个 tab 拉成两根通栏长条（那看起来像按钮而不是页签）：按内容宽度左对齐 */
+@media (min-width: 560px) {
+  .tab {
+    flex: 0 1 auto;
+    min-width: 168px;
+    padding-inline: 18px;
+  }
+}
+
+/* ── 面板（左右滑动；自然页滚动，不再有内嵌滚动区） ── */
+.panes {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  /* 布局层隔离：滑动内容（2×外壳宽）不参与祖先宽度计算 */
+  contain: inline-size;
+  max-width: 100%;
+  min-width: 0;
+}
+.panes::-webkit-scrollbar {
+  display: none;
+}
+.pane {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  /* 给卡片阴影留出纵向余量（.panes 会裁纵向溢出，见文件头 ②） */
+  padding-bottom: 14px;
+}
+.pane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.pane-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+
+/* ── 平台行：一张卡里的署名表（不再是 12 张漂浮白卡） ── */
+.pane-body {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+/* 占位态（加载/空/错误）不套卡片壳，免得留一个空盒子 */
+.pane-body:has(.empty),
+.pane-body:has(.error),
+.pane-body:has(.loading) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  min-width: 0;
+  transition: background 0.12s ease;
+}
+.item + .item {
+  border-top: 1px solid var(--hairline);
+}
+.item:hover {
+  background: var(--row-hover);
+}
+/* 首次渲染的错峰上浮（轮询重渲染不加：否则列表每 1.5s 抖一次） */
+.item.reveal {
+  animation: riseIn 0.2s ease-out both;
+  animation-delay: var(--i, 0ms);
+}
+
+.icon-wrap {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+.item img.icon {
+  width: 30px;
+  height: 30px;
+  display: block;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  object-fit: contain;
+}
+/* 远端 favicon 失败 → JS 把 img 藏掉并给 wrap 加 .broken → 平台名自己的字母牌显形。
+   （判据与 v2.3.2 一致：img 仍 visibility:hidden，只是行首不再留空洞） */
+.icon-wrap.broken img.icon {
+  visibility: hidden;
+}
+.icon-mono {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.icon-wrap.broken .icon-mono {
+  display: flex;
+}
+/* 未检查平台的字母牌：虚框 + 纸灰底，明确"没核验过"（不得读成登录态） */
+.icon-wrap.unknown .icon-mono {
+  display: flex;
+  border-style: dashed;
+  background: var(--paper-3);
+  color: var(--ink-faint);
+}
+
+/* 字母牌 8 档纸系底色（toneOf(id) 0…7，稳定不闪） */
+.icon-mono[data-tone='0'] {
+  background: #f1ddd6;
+  color: #8c3a27;
+}
+.icon-mono[data-tone='1'] {
+  background: #efe4d3;
+  color: #8a6430;
+}
+.icon-mono[data-tone='2'] {
+  background: #e7e8d7;
+  color: #5c6535;
+}
+.icon-mono[data-tone='3'] {
+  background: #dde8dd;
+  color: #38603f;
+}
+.icon-mono[data-tone='4'] {
+  background: #d9e6e5;
+  color: #2f5e5c;
+}
+.icon-mono[data-tone='5'] {
+  background: #dde1ea;
+  color: #3c4a6b;
+}
+.icon-mono[data-tone='6'] {
+  background: #e6dded;
+  color: #5b4270;
+}
+.icon-mono[data-tone='7'] {
+  background: #eae0d6;
+  color: #6f4b33;
+}
+html[data-theme='dark'] .icon-mono[data-tone='0'] {
+  background: #3a2723;
+  color: #e0a08c;
+}
+html[data-theme='dark'] .icon-mono[data-tone='1'] {
+  background: #38301f;
+  color: #d9b878;
+}
+html[data-theme='dark'] .icon-mono[data-tone='2'] {
+  background: #2d3220;
+  color: #b9c286;
+}
+html[data-theme='dark'] .icon-mono[data-tone='3'] {
+  background: #22352a;
+  color: #8fc79c;
+}
+html[data-theme='dark'] .icon-mono[data-tone='4'] {
+  background: #1f3231;
+  color: #86bcb8;
+}
+html[data-theme='dark'] .icon-mono[data-tone='5'] {
+  background: #232838;
+  color: #9aabcf;
+}
+html[data-theme='dark'] .icon-mono[data-tone='6'] {
+  background: #2c2433;
+  color: #bda3cf;
+}
+html[data-theme='dark'] .icon-mono[data-tone='7'] {
+  background: #2f2721;
+  color: #c9a789;
+}
+
+.item .info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.item .name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item .user {
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 平台 id 列：窄屏不出（宽度留给平台名），宽屏变成"编辑部署名表"的一栏 */
+.plat-id {
+  display: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+@media (min-width: 560px) {
+  .plat-id {
+    display: inline-block;
+    min-width: 92px;
+    text-align: right;
+  }
+}
+
+/* 三态标签：绿 / 红 / 琥珀 —— 必须两两可辨（真浏览器冒烟有断言） */
+.status {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.status.ok {
+  color: var(--score-pass);
+  background: var(--pf-auth-ok-bg);
+}
+.status.no {
+  color: var(--score-fail);
+  background: var(--pf-auth-no-bg);
+}
+.status.unk {
+  color: var(--partial);
+  background: var(--partial-bg);
+}
+
+/* 未检查分组标题（只在真的渲染这一组时出现） */
+.group-title {
+  padding: 10px 12px 5px;
+  font-size: 11px;
+  color: var(--partial);
+  letter-spacing: 0.02em;
+}
+.group-title + .item {
+  border-top: 0;
+}
+.item + .group-title {
+  border-top: 1px solid var(--hairline);
+}
+
+/* ── 底栏（sticky 毛玻璃；按钮走 Console 的 .btn / .btn.primary） ── */
+.footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -1px 0 var(--hairline);
+}
+.footer .bar-inner {
+  gap: 8px;
+  padding: 10px 14px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn:hover {
+  border-color: var(--ink-faint);
+  background: var(--paper-2);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(180, 67, 47, 0.28);
+}
+.btn.primary:hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+/* 长按钮吃掉剩余宽度、刷新按钮按内容宽：320 下两个 flex:1 会让文案贴边 */
+#openLogged {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+#refresh {
+  flex: 0 0 auto;
+}
+.cnt {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.btn.primary .cnt {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* ── 加载 / 空 / 错误 ── */
+.loading {
+  padding: 16px 14px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+/* 骨架行用伪元素铺（JS 仍只写「正在检查…」一句话，改动面最小） */
+.loading::before {
+  content: '';
+  display: block;
+  height: 76px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  background: repeating-linear-gradient(180deg, var(--paper-2) 0 14px, transparent 14px 26px);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+.error {
+  padding: 22px 14px;
+  text-align: center;
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--fail);
+}
+.error small {
+  display: block;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+.empty {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ── 动效（克制；全部可关） ── */
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes dotPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(47, 158, 68, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(47, 158, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(47, 158, 68, 0);
+  }
+}
+
+/* 键盘可达：焦点永远是砖红描边（鼠标点击不出描边） */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

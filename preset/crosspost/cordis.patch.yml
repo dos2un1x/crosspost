@@ -1,0 +1,297 @@
+# 多平台发布助手 —— DSH agent preset 声明（bundle patch）
+#
+# 载体的由来（2026-10-03，DSH 0.2.0-rc.2）：
+#   0.2.0 起**没有"预设目录"这个概念**了。`$DSH_HOME/.agent-presets/<id>/`（`preset.yml` +
+#   `agent.cordis.yml`）不再被任何代码读取（`@deepseek-ai/dsh-agent-preset` 的
+#   `editing-cordis-compositions` skill 明写 "Nothing reads that directory any more"）。
+#   预设现在是 **bundle patch 里的一条 `@deepseek-ai/dsh-agent-preset` 声明行**：
+#   `config.id` 是预设 id，`config.plugins` 才是那份条目列表。官方四个预设
+#   （standard/ptc/minimal/cordis）就是这么发的（`@deepseek-ai/dsh-web-app/presets/*.patch.yml`）。
+#
+# 因此本文件取代了原来的 `agent.cordis.yml`（已删除），`preset.yml` 的 name/description
+# 也合并进这里（已删除，避免第二份真源）。
+#
+# ⚠ 本地插件行**必须写成包名**（`preset-crosspost/plugins/crosspost.js`），
+# **不能**写成 `./plugins/crosspost.js`。这是 0.2.0 的一条硬事实，实测踩到过：
+#   `dsh-app-boot` 的 boot() 契约明写 "Relative entry names resolve against the
+#   **config directory**"——相对名解析的是 **profile 目录**（`~/.dsh/profiles/web/`），
+#   **不是**本 patch 文件所在目录。于是 `./plugins/crosspost.js` 会去找
+#   `~/.dsh/profiles/web/plugins/crosspost.js`（不存在）→ 那一行拿不到 fiber →
+#   声明挂载看似成功，而**新会话一绑定就失败**：
+#     agent-preset/invalid: crosspost-tools (./plugins/crosspost.js): never started
+#   （`!!js` 表达式里的 `baseUrl` 又是另一回事：它确实是本 patch 目录——两者别混。
+#     `skill-filesystem.customSkillDirs` 能用 `createRequire(baseUrl)` 就是靠这一点。）
+#
+# 写成包名后由**模块解析**处理：bundle 作为依赖装在 profile 的 `node_modules` 里
+# （`link:` 安装下指向本仓库），从 config 目录一定解析得到。上游的同一句指导是
+# "Resolve assets from installed packages rather than a preset directory"。
+# 这条 specifier 与 package.json 的 `name` 必须一致——
+# crosspost-runtime/tests/deployment-consistency.test.mjs 会断言这一点（改名不许漏改）。
+#
+# 安装方式见 README（`link:` 符号链，仓库即源，改代码免重装）。
+#
+# 行清单对齐 0.2.0-rc.2 的 `cordis` 预设：删掉已不存在的 `dsh-workflow-worker-thread`
+# （→ `dsh-workflow-ptc`）、`enableRunInBackground` 改名 `backgroundMode`，并补上
+# command-goal / tool-cordis / present / tool-plugin-manager / modelSelectionSettings /
+# skill-filesystem.customSkillDirs。**下次 DSH 升级后先跑 `preset/upgrade-check.sh`**——
+# 它会逐条断言这里的每个包名在当前部署里可达（本次就是这么发现 workflow-worker-thread 没了的）。
+- insert:
+    - id: preset-crosspost
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: crosspost
+        name: 多平台发布助手
+        description: 基于标准编码 Agent 扩展的多平台发布能力：默认勾选 12 个平台（知乎/CSDN/微信公众号/百家号/头条/小红书/一点号/大鱼号/什么值得买/掘金/51CTO/抖音图文）纳入登录检查与草稿发布，其中 微信公众号/抖音图文 仅纳入检查、草稿走各自专用通道；另有 15 个 beta 平台需在 Console 显式启用。经浏览器代理（来源检测≈0）单通道。
+        order: 5
+        plugins:
+          # ── identity ────────────────────────────────────────────────────────────
+          # 本预设自带人格，覆盖部署默认值。`{{model}}`/`{{cwd}}` 按该 agent 自己的
+          # 路由与工作目录解析。
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              suffix: Your working directory is {{cwd}}.
+              prefix: >-
+                You are a coding agent powered by the {{model}} model.
+
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+
+          # ── shell ───────────────────────────────────────────────────────────────
+          # `shell-env` 留在 HOST 组合里（`apps/cli/src/web.ts` 注入它来发布
+          # `DSH_WEB_URL`/`DSH_WEB_MODE`）；两个 shell 工具从 preset 侧消费 host 注册表，
+          # 执行器（`bash-sandbox`/`pwsh-sandbox`）也是 host 面。
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+
+          # ── filesystem ──────────────────────────────────────────────────────────
+          # 两行都注册进 host 的 `tools` 注册表、不发布服务，所以不需要 realm；
+          # `fs` 服务与其策略留在 host。
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+
+          # ── background jobs ─────────────────────────────────────────────────────
+          # 只有模型可见的控制面。任务注册表留在 host 面：它的生产者在本文件任何 realm
+          # 之外——上面的 `tool-bash` 用 `ctx.get` 解析它，而这里的 entry-local realm 对
+          # 兄弟行不可见，`run_in_background` 会答"background jobs unavailable"。
+          # 注册表按 owner agent 分键，host 一份实例即可服务所有会话。
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+
+          # ── goals / plan mode ───────────────────────────────────────────────────
+          # 只挂模型可见工具。goal SERVICE、其 session driver 与 `/goal` 命令留在 host 面
+          # （Gateway 把 goal 域作为 Remote 端点服务，receiver 来自生成的描述符，会在 host
+          # 解析 `goals`；entry-local realm 会把它藏起来）。注册表本身就按 session 分键。
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+
+          # plan 状态天然按 agent 分，所以 entry-local realm 在这里不是将就，而是正确的生命周期。
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed only to keep the request shape stable. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+          # ── compaction ──────────────────────────────────────────────────────────
+          # `compaction-basic` 用 `ctx.get` 读 `toolResultPrune`，所以 pruner 必须与它共享
+          # realm，不能坐在外面。
+          #
+          # `tokenMeter` 刻意**不**放进这个 realm：meter 留在 HOST 面，这里的行解析那一个实例。
+          # 它无配置、按 Session fold，并持有浏览器要读的上下文计量投影单元；放进 realm 会让
+          # 这些单元随"恰好挂载了哪些预设"忽有忽无。本预设决定的是"这个 agent 要不要压缩"。
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+          # ── delegation and workflows ────────────────────────────────────────────
+          # `subagents` 注册表与 spawn/fork 后端在 HOST 组合里（注册表是进程单例，api-proxy
+          # 要把它跨会话暴露给浏览器；provider 名只能注册一次）。本预设只贡献委派 TOOL，
+          # 它们解析那个 host 注册表。
+          #
+          # `workflows` 不同——agent 之外没人读它——所以触达它的行在这里共享一个 entry-local
+          # realm；留在外面的消费者会解析到一个本预设没有填充的 host 注册表。
+          #
+          # `tool-subagent-report` 与注册表同理属 host 面：它在那个单例上注册 CONTINUABLE
+          # SETUP 而非本 agent 调用的工具，setup 列表不感知 scope——每挂载一份预设就让每个
+          # 子 agent 重复注册一次 `report`，第二次会抛。
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+                  backgroundMode: continuable
+
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+                  backgroundMode: continuable
+
+              # 产品级 provider 是 host 面单例。复制本预设、把某个普通工具行的 `disabled`
+              # 去掉即可只对由副本组成的 agent 暴露该产品。
+              - id: tool-subagent-codex
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: codex
+                  toolName: subagent_codex
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+
+              - id: tool-subagent-claude-code
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: claude-code
+                  toolName: subagent_claude_code
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+
+              # 2026-10-03：`@deepseek-ai/dsh-workflow-worker-thread` 在 0.2.0-rc.2 已不存在，
+              # 由 `@deepseek-ai/dsh-workflow-ptc` 取代（workflows 与 PTC 共用同一个沙箱 Node
+              # 执行引擎；`provider` 默认就是 `spawn`）。包名不改的话这一行会在激活时报错。
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+
+              # 与上游 default 不同：上游发的是 `disabled: true`（"Ralph remains disabled in
+              # shipped defaults"）。这里**保持启用**以延续本机既有行为；ralph 现走 PTC 引擎
+              # （host `ptc-runtime` 行），改回关闭只需加一行 `disabled: true`。
+              - id: tool-ralph
+                name: '@deepseek-ai/dsh-tool-ralph'
+                config:
+                  subagentProvider: spawn
+                  maxRounds: 64
+
+          # ── remaining model-facing rows ─────────────────────────────────────────
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+
+          # `web` 服务与其搜索 provider 留在 host 组合里；只有模型可见工具是按会话的。
+          # 与上游 default 不同：这里 `fetch: false`（本预设不带 web_fetch），是有意保留的
+          # 既有行为——不要因为"和上游不一致"就改掉。
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: false
+              searchTimeoutMs: 60000
+
+          # cordis 内省工具（`cordis_inspect_list`/`cordis_inspect_query`）。
+          - id: tool-cordis
+            name: '@deepseek-ai/dsh-tool-cordis'
+
+          # 内置 skill 目录来自 `@deepseek-ai/dsh-agent-preset` 包自带的 `skills/`
+          # （cordis-composition-reference / editing-cordis-compositions / agent-experience 等）。
+          # `baseUrl` 是**本 patch 文件所在目录**，所以这段表达式经本 bundle 的依赖解析到
+          # 部署里的 dsh-agent-preset 包；漏掉它本预设就没有内置 skill 目录。
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
+
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          # 交付物卡片（`present`）。
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+
+          # 与上游 cordis 预设同款：Creator 模式下可自助装卸插件；普通 profile 无
+          # `profileContext` 时该行不激活。
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: !!js "!ctx.get('profileContext')"
+
+          # ── 多平台发布助手（P2 固化）──────────────────────────────────────────────
+          # 自写静态插件：7 个 xp_* 原生代理工具 + bridge 自拉起（单通道，桥接已移除）。
+          # specifier 必须是**包名**（理由见文件头 ⚠ 那段）：`./plugins/crosspost.js`
+          # 会按 config 目录（profile 目录）解析而找不到文件，导致新会话绑定失败。
+          # 插件内部用 `../runtime/src/*.mjs` 引用引擎源码——那是**模块内**的相对导入，
+          # 按插件文件自身位置解析，所以仍然要本目录的 `runtime → ../../crosspost-runtime` 软链。
+          # 仅消费 host 服务（tools/fs/shell/subprocess/timer），不发布服务，无需 isolate realm。
+          - id: crosspost-tools
+            name: 'preset-crosspost/plugins/crosspost.js'
+
+          # 人用斜杠指令（`/crosspost-status`、`/crosspost-projects`、`/crosspost-platforms`、
+          # `/crosspost-styles`、`/crosspost-drafts`、`/crosspost-costs`、`/crosspost-help`）。
+          #
+          # 为什么另起一个插件而不是塞进上面那个：`commands` 的注册层由**ctx 的 scope** 决定
+          # （`ScopedLayers.effect`），本行挂在 preset 的 standing scope 里 → 这些指令**只对
+          # 选中本预设的会话可见**，不会泄漏到 standard/cordis 等其它预设的会话
+          # （实证：上游四个官方预设各自声明 `command-goal` 而不冲突）。两者关注点也不同：
+          # 上面那个是模型面工具（工具注册表），这个是**人用指令**（命令注册表）——
+          # DSH 输入框的 `/` 菜单只列后者，MCP 工具从来不在里面。
+          # 只消费 host 服务（commands/subprocess/timer），不发布服务，无需 isolate realm。
+          - id: crosspost-commands
+            name: 'preset-crosspost/plugins/commands.js'

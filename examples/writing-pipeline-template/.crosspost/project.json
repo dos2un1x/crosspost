@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 2,
+  "id": "my-pipeline",
+  "name": "我的写作流水线",
+  "dataDir": "drafts",
+  "capabilities": {
+    "drafts": true,
+    "generate": {
+      "kind": "http",
+      "url": "http://127.0.0.1:8787/generate",
+      "statusUrl": "http://127.0.0.1:8787/status",
+      "description": "本流水线的一键生成入口（P2）。端口与 examples/generate-provider-http 的默认值一致。"
+    },
+    "schedule": {
+      "kind": "http",
+      "url": "http://127.0.0.1:8788/slot/run",
+      "statusUrl": "http://127.0.0.1:8788/slot/status",
+      "cancelUrl": "http://127.0.0.1:8788/slot/cancel",
+      "description": "槽位执行器（P3）：到点由引擎发一次 HTTP，脚本在本流水线自己的环境里跑。"
+    }
+  }
+}

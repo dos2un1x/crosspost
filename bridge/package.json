@@ -1,0 +1,22 @@
+{
+  "name": "@crosspost/bridge",
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "CrossPost bridge（WS↔HTTP 中转 + 平台状态缓存）",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dos2un1x/crosspost.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dos2un1x/crosspost/issues"
+  },
+  "homepage": "https://github.com/dos2un1x/crosspost#readme",
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

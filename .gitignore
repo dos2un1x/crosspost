@@ -1,0 +1,43 @@
+# ── 依赖与构建 ──
+node_modules/
+.npm-cache/
+.vite/
+**/node_modules/
+crosspost-runtime/core/dist/
+crosspost-runtime/core/coverage/
+*.tsbuildinfo
+
+# ── 本地运行状态（含敏感信息）──
+crosspost-runtime/config.json
+crosspost-runtime/.env
+crosspost-runtime/storage.json
+crosspost-runtime/token.*.json
+crosspost-runtime/ever-authed.json
+crosspost-runtime/platforms-state.json
+crosspost-runtime/downloads/
+crosspost-runtime/backups/
+crosspost-runtime/articles/
+bridge/brand/
+bridge/token.local
+
+# ── 本地数据与基线快照（v2.00 起；P0 计划：引擎自身运行数据不再落在外部项目）──
+.local/
+
+# ── 临时产物 ──
+*.tmp
+/tmp/
+# 发布时由 core 的 prepack 从根 LICENSE 复制进来（postpack 随即清掉）；
+# 仓库只在根目录保留一份许可证正文。
+crosspost-runtime/core/LICENSE
+
+# ── 系统与编辑器 ──
+.DS_Store
+*.log
+crosspost-runtime/paths.json
+
+# ── 文档备份 ──
+md-backup/
+
+# ── Python 产物（examples 下有 .py；别让 __pycache__ 混进提交）──
+__pycache__/
+*.py[cod]

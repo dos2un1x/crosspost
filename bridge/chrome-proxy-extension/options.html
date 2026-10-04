@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <!-- 标签页 favicon：文件本来就在（icons/favicon.ico 从没被引用过），
+         不写这一行 Chrome 会去要扩展根下的 /favicon.ico 并报一个"加载失败" -->
+    <link rel="icon" href="icons/favicon.ico" />
+    <!-- 深色跟随系统时表单控件（input/滚动条）也走深色 -->
+    <meta name="color-scheme" content="light dark" />
+    <title>CrossPost Bridge · 扩展选项</title>
+    <!-- 主题必须在**首帧之前**定下来，否则深色用户每次打开都会闪一下白纸。
+         必须是外置脚本：MV3 扩展页 CSP = script-src 'self'，内联 <script> 会被拦掉。
+         放在 stylesheet 之前（同步执行），见 theme.js 文件头。 -->
+    <script src="theme.js"></script>
+    <!-- v2.3.3：样式从内联 <style> 抽成独立文件（与 Console 的 index.html + styles.css 分工一致）。
+         设计系统（暖纸/墨/砖红/衬线+等宽/三态色）全部来自 bridge/console/styles.css -->
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <!-- ── 报头（sticky 毛玻璃；内容约束到 --shell，与下方内容同宽） ──
+         宽度预算（320）：28(品牌砖) + 9 + 标题≈98 + 9 + 26(主题键) + 8 + 胶囊≈59 + 内边距 28 ≈ 265。
+         ⚠️ 注释必须按 HTML 的方式收尾（两个连字符后接一个大于号）：写成 CSS 习惯的
+         「星号加斜杠」会让注释一直吞到下一个真正的收尾符，把整个报头从 DOM 里抹掉 ——
+         页面表现只是"没有报头"，控制台一声不响（2026-09-25 踩过，已加解析级断言）。 -->
+    <header class="header">
+      <div class="bar-inner">
+        <span class="brand-mark"><img src="icons/icon32.png" alt="CrossPost" /></span>
+        <div class="brand-text">
+          <h1>多平台发布助手</h1>
+          <p class="brand-sub">CrossPost Bridge · 本地桥 · 数据只发往 localhost</p>
+        </div>
+        <div class="header-tools">
+          <button class="icon-btn" id="themeToggle" type="button" aria-label="主题：跟随系统">
+            ◐
+          </button>
+          <!-- 已连接时只显示端口（真值，等宽）；断连/失败时显示中文原因 -->
+          <span class="conn" id="conn" title="本地桥连接状态">
+            <span class="dot" id="dot"></span>
+            <span class="conn-label" id="connLabel">连接中</span>
+            <span class="conn-port" id="connPort"></span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <!-- ── 校样头：三格读数 + 三态比例条 + 次要行 ──
+           三格数字一律等宽 + tabular-nums；「未检查」不再只是措辞 —— 比例条上有一段琥珀。
+           注意：renderSummary 会整句覆写 #sumOk/#sumNo/#sumScope 的 className（sum-value[ unk]）
+           与 #sumMeta 的 className（sum-meta[ err]），所以别往这几个元素上挂装饰类。 -->
+      <section class="summary" id="summary" aria-live="polite">
+        <div class="sum-grid">
+          <div class="sum-cell ok">
+            <span class="sum-label">已登录</span>
+            <span class="sum-value" id="sumOk">—</span>
+          </div>
+          <div class="sum-cell">
+            <span class="sum-label">未登录</span>
+            <span class="sum-value" id="sumNo">—</span>
+          </div>
+          <div class="sum-cell">
+            <span class="sum-label">检查范围</span>
+            <span class="sum-value" id="sumScope">—</span>
+          </div>
+        </div>
+        <!-- 已登录/未登录/未检查 三段（分母 = 检查范围）；data-* 是给测试与排障看的可观测真值 -->
+        <div class="cov" id="covBar" hidden data-ok="0" data-no="0" data-unk="0">
+          <span class="cov-seg ok"></span><span class="cov-seg no"></span
+          ><span class="cov-seg unk"></span>
+        </div>
+        <div class="sum-meta" id="sumMeta">
+          <span class="sum-time" id="sumTime">正在读取…</span>
+          <span class="sum-note" id="sumNote"></span>
+        </div>
+      </section>
+
+      <!-- ── 连接配置（端口动态配置） ── -->
+      <details class="cfg" id="cfgBox">
+        <summary>
+          连接配置（端口动态配置）
+          <span class="cfg-cur" id="cfgCur"></span>
+        </summary>
+        <div class="cfg-body">
+          <div class="cfg-row">
+            <label for="cfgHost">Bridge Host</label>
+            <input id="cfgHost" placeholder="127.0.0.1" spellcheck="false" />
+          </div>
+          <div class="cfg-row">
+            <label for="cfgWsPort">WS 端口</label>
+            <input id="cfgWsPort" placeholder="9539" type="number" min="1" max="65535" />
+          </div>
+          <div class="cfg-actions">
+            <span id="cfgHint">HTTP API 端口自动 = WS + 1，无需配置</span>
+            <button id="saveCfg" class="btn primary" type="button">保存并重连</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── 两个 pane（点击 tab 或左右滑动切换） ──
+           每个 tab 两行：主标签＝计数（数字带三态颜色，见 .seg），副标签＝**这批数字的可信度**
+           （本轮已核验 / 复核中… / 3 小时前的核验 / 上次核对失败 / 扩展未连接 / 尚未核验 /
+           数据不可用），由 region-state.mjs 的状态机给出。主标签由 platform-groups.mjs 的
+           loggedTabText / notLoggedTabText 给出：**一个都没核验过时不报 0，未知画成 –**
+           （「未登录 0」若出现在"什么都没核过"时，就是 v2.3.2 那条假象的同族错误）。
+           未检查平台的登录态是**未知**，因此它只有一格（未检查）——
+           不存在"已登录未检查"或"未登录未检查"：桥侧 `platforms-state.json` 只保留
+           当前范围内的平台，范围外平台一条登录记录都没有。 -->
+      <div class="tabs" id="tabs" role="tablist">
+        <div
+          class="tab active"
+          data-pane="0"
+          role="tab"
+          aria-selected="true"
+          aria-controls="paneOk"
+          tabindex="0"
+        >
+          <span class="tab-main" id="tabOk">已登录 –</span>
+          <span class="tab-sub" id="tabOkSub">尚未核验</span>
+        </div>
+        <div
+          class="tab"
+          data-pane="1"
+          role="tab"
+          aria-selected="false"
+          aria-controls="paneNo"
+          tabindex="0"
+        >
+          <span class="tab-main" id="tabNo">未登录 –</span>
+          <span class="tab-sub" id="tabNoSub">未核验 · 状态未知</span>
+        </div>
+      </div>
+
+      <div class="panes" id="panes">
+        <div class="pane" id="paneOk" role="tabpanel">
+          <div class="pane-title">已登录平台</div>
+          <div class="pane-body"></div>
+        </div>
+        <div class="pane" id="paneNo" role="tabpanel">
+          <div class="pane-title">未登录 · 未检查</div>
+          <div class="pane-body"></div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="bar-inner">
+        <button id="openLogged" class="btn primary" type="button">
+          打开已登录平台<span class="cnt" id="openCount">0</span>
+        </button>
+        <button id="refresh" class="btn" type="button">刷新状态</button>
+      </div>
+    </footer>
+
+    <!-- type="module"：options.js 会 import 纯函数模块 platform-groups.mjs（三态分组，可单测）
+         与 platform-monogram.mjs（字母牌，可单测） -->
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
