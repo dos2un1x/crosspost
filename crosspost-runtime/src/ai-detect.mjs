@@ -59,7 +59,12 @@ export const AI_DETECT_DEFAULTS = {
    */
   gate: { metric: 'labels_ai', threshold: 0.3 },
   rewrite: {
-    maxRounds: 2,
+    /**
+     * 改写轮数上限。为什么是 3 而不是 2：实测同一篇 4000 字深度长文，
+     * 一轮去模板骨架 73%→34%、二轮微观改句式反而回退到 44%、三轮改成"列举→场景"才降到 26%。
+     * 轮数不足会让深度长文整类被门禁拦下。
+     */
+    maxRounds: 3,
     maxSegmentsPerRound: 5,
     minSegmentConf: 0.5,
     /** 是否把"疑似AI"（label=2）也纳入定向改写；默认只改明确判 AI 的段 */
