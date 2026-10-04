@@ -81,7 +81,7 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 
 ## 3. MCP（stdio，`crosspost-runtime/mcp-server/index.mjs`）
 
-**21 个工具**（DSH 里名字是 `mcp__crosspost__*`）：
+**22 个工具**（DSH 里名字是 `mcp__crosspost__*`）：
 
 | 类别        | 工具                                                                                                                                                                  |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -89,6 +89,7 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 | 内容 / 发布 | `publish_article` `publish_styled` `sync_article` `wechat_draft` `wechat_draft_delete`                                                                                |
 | 渲染 / 素材 | `render_preview` `list_styles` `create_style` `install_styles` `styles_rename` `styles_delete` `analyze_style` `generate_cover` `extract_article` `upload_image_file` |
 | 选题库      | `topic_pool_upsert`（候选入库；行形状由 schema 约束，是 AI 会话侧的写入口。脚本/定时链路走同名的 CLI 方法，同一个实现）                                               |
+| 内容质量    | `ai_detect`（朱雀 AIGC 检测；返回整体判定 + **被判 AI 的片段**及其在正文里的字符区间。见 [`ai-detect.md`](ai-detect.md)）                                             |
 
 项目语义：`CROSSPOST_PROJECT` 在**会话级**声明一次（一进程一项目）。
 **两个来源标记由 shell 注入、AI 无法自我豁免**：`WECHAT_AUTO_SCHEDULED=1`（定时链路）、

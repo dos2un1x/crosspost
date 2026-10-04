@@ -43,6 +43,10 @@ export const PROJECT_KEYS = new Set([
   'platforms', // 推哪些平台（platforms.default）
   'notify', // 通知发到哪（飞书群/开关）
   'scoring', // 评分阈值与投资信号
+  'aiDetect', // AI 检测门禁（口径/阈值/重写轮数）——与 scoring 同类：写作质量政策，每个项目可以不一样。
+  // 注意 `monthlyTokenBudget` 虽然也在这个键里，但朱雀额度是**账号级**的、
+  // 用量台账也只有一份（<repo>/.local/ai-detect-usage.json），所以它是全引擎共享预算，
+  // 不是"每项目各 50 万"——多项目并行时要按总和规划。
   'branding', // 公众号品牌（名称/图标）
   'coverSettings', // 封面模板/水印
   'styles', // 样式启用清单 + 每槽默认样式

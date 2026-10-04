@@ -743,6 +743,13 @@ server.registerTool(
         .describe(
           '独立审稿快照（可选，§5.6 审稿行「审稿=分 行动=publish|revise|block 修订=n」原文，随记录/历史入库，可复盘）',
         ),
+      aiDetect: z
+        .string()
+        .optional()
+        .describe(
+          'AI 检测快照（可选，§5.55 门禁行原文，如「AI检测=pass(口径=confidence 值=12.3% 阈值=30.0% …)」；' +
+            '随记录/历史入库，并出现在发布通知里。**检测被跳过时也要传**（reason 会写进去），否则事后无法区分"通过"与"没检测"）',
+        ),
     },
   },
   async (args) => {
@@ -772,6 +779,7 @@ server.registerTool(
         rewrites: args.rewrites,
         decision: args.decision,
         review: args.review,
+        aiDetect: args.aiDetect,
         // 2026-09-12：来源与 manual 均由上面的可信标记推导（定时链路恒 false）
         origin,
         manual: origin === 'manual',
@@ -846,6 +854,74 @@ server.registerTool(
     try {
       const r = await callCli(args)
       // 被拒时 CLI 以退出码 1 结束并给出 {error}（逐条原因），要如实报成工具错误
+      if (r && r.error) return errText(r.error)
+      return text(r)
+    } catch (e) {
+      return errText(String((e && e.message) || e))
+    }
+  },
+)
+
+// 22. ai_detect —— 朱雀 AIGC 检测：这篇稿子被判 AI 的浓度有多高
+//
+// 为什么给 AI 会话面单开一个工具：写作流水线要在发布前**拿到一个外部判分**，
+// 而"哪几段像 AI 写的"必须落到正文的具体字符区间上才改得动。朱雀在
+// `is_merge:false` 时返回 `segment_labels[].position`（字符区间），引擎把它映射回
+// markdown 原文的字符偏移，这里只回传被判 AI 的片段（**不回传全量分段**，省上下文）。
+//
+// 返回里 `verdict` 三态，看清再动手：
+//   · pass  —— 低于阈值，可以继续走审稿/发布；
+//   · fail  —— 超阈值，按 `rewriteTargets`（片段序号）定向改写后复检；
+//   · skip  —— **这次没检测成**（无 key / 配额不足 / 接口故障 / 正文 < 350 字）。
+//              必须如实按"未检测"处理并记日志，**不得当成 pass**（那等于静默放行）。
+// 台账：当月 token 用量落在 <repo>/.local/ai-detect-usage.json，超预算即 skip。
+server.registerTool(
+  'ai_detect',
+  {
+    title: 'AI 检测：朱雀 AIGC 文本检测',
+    description:
+      '用腾讯朱雀（EdgeOne Makers 内置模型 @makers/zhuque-text）检测一篇文章的 AI 生成浓度，' +
+      '返回整体判定（pass/fail/skip）、AI 特征字符占比，以及**被判 AI 的片段**（含回映射到正文的字符区间与预览）。' +
+      '检测对象是剥离 markdown 标记后的纯文本（正文需 >350 字，过短直接 skip）。' +
+      '凭证走 crosspost-runtime/.env 的 ZHUQUE_API_KEY；无凭证或配额不足时返回 skip 而不是报错——' +
+      '调用方必须把 skip 记成「未检测」，不得当成通过。',
+    inputSchema: {
+      file: z.string().optional().describe('草稿文件绝对路径（与 id / text 三选一）'),
+      id: z
+        .string()
+        .optional()
+        .describe('草稿文件名去 .md（在当前项目草稿目录里找；与 file / text 三选一）'),
+      text: z.string().optional().describe('直接给正文（基线回测/排查用；与 file / id 三选一）'),
+      project: z
+        .string()
+        .optional()
+        .describe('目标项目 id（可选；缺省取会话级 CROSSPOST_PROJECT）'),
+      metric: z
+        .enum(['confidence', 'labels_ai', 'both'])
+        .optional()
+        .describe(
+          '判定口径（缺省取 config.json → aiDetect.gate.metric）：' +
+            'confidence=整体 AI 浓度（官网顶部那个数）/ labels_ai=AI 特征字符占比 / both=两者都低于阈值',
+        ),
+      threshold: z
+        .number()
+        .optional()
+        .describe('判定阈值 0-1（缺省取 config.json → aiDetect.gate.threshold）'),
+      budget: z.boolean().optional().describe('只看当月用量与预算，不调用接口'),
+    },
+  },
+  async ({ file, id, text: rawText, metric, threshold, budget, project }) => {
+    const args = ['aiDetect']
+    if (budget) args.push('--budget')
+    else if (file) args.push(`--file=${file}`)
+    else if (id) args.push(`--id=${id}`)
+    else if (rawText !== undefined) args.push(`--text=${rawText}`)
+    else return errText('缺少输入：file / id / text 至少给一个')
+    if (metric) args.push(`--metric=${metric}`)
+    if (threshold !== undefined) args.push(`--threshold=${threshold}`)
+    try {
+      // 检测本身 ≤60s（fetch 超时），CLI 留给它的余量按 180s 走
+      const r = await callCli(args, 180000, project)
       if (r && r.error) return errText(r.error)
       return text(r)
     } catch (e) {

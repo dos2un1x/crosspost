@@ -546,6 +546,7 @@ export function buildPublishNotifyCopy({
   slot,
   style,
   score,
+  aiDetect,
   wechatStatus,
   wechatError,
   okCount = 0,
@@ -590,13 +591,17 @@ export function buildPublishNotifyCopy({
     failReason: dispatchEnabled ? failedText || '无' : '未开启自动推送',
     origin: originLabel,
     file,
+    // AI 检测快照（2026-10-05）：跳过检测时也要如实入文案——"没检测"必须一眼可见，
+    // 否则一条本该被 AI 率门禁挡下的稿子会看起来跟"检测通过"一样。
+    aiDetect: aiDetect || '未执行',
   }
   const notifyTitle = renderTemplate(template.title, vars) || `${slot || 'manual'} · ${title}`
+  const aiClause = aiDetect ? `\nAI检测=${aiDetect}` : ''
   const summaryLine =
     renderTemplate(template.summary, vars) ||
     (dispatchEnabled
-      ? `📌 《${title}》\n模式=${slot} 样式=${style} 微信=${vars.wechat} 分发=${okCount}/${total} 成功${failList.length ? `,失败:${failList.join(',')}` : ''}`
-      : `📌 《${title}》\n模式=${slot} 样式=${style} 微信=未推送（未开启自动推送）\n已生成草稿（来源=${vars.origin}）`)
+      ? `📌 《${title}》\n模式=${slot} 样式=${style} 微信=${vars.wechat} 分发=${okCount}/${total} 成功${failList.length ? `,失败:${failList.join(',')}` : ''}${aiClause}`
+      : `📌 《${title}》\n模式=${slot} 样式=${style} 微信=未推送（未开启自动推送）\n已生成草稿（来源=${vars.origin}）${aiClause}`)
   // 尾行按事实陈述：只有微信真的 ok 才声称"已推送公众号草稿箱"
   const wechatClause =
     wechatStatus === 'ok'
@@ -842,6 +847,7 @@ export async function runPublishArticle(req) {
       slot: parsed.slot,
       style,
       score,
+      aiDetect: req.aiDetect,
       wechatStatus: summary.wechat.status,
       wechatError: summary.wechat.error,
       okCount: okList.length,
@@ -923,6 +929,7 @@ export async function runPublishArticle(req) {
       // C-3（2026-08-26）：编辑决策/独立审稿快照（AI 经 publish_article 传入，未传保持原记录）
       ...(req.decision !== undefined ? { decision: req.decision } : {}),
       ...(req.review !== undefined ? { review: req.review } : {}),
+      ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
       risk: parsed.risk || (prev && prev.risk) || 'unclassified',
       score:
         score === null
@@ -948,6 +955,7 @@ export async function runPublishArticle(req) {
           ...(dryHtml ? { dryRunHtml: dryHtml } : {}),
           ...(req.decision !== undefined ? { decision: req.decision } : {}),
           ...(req.review !== undefined ? { review: req.review } : {}),
+          ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
         },
       ],
       createdAt: prev.createdAt || now,
@@ -1009,6 +1017,7 @@ export async function runPublishArticle(req) {
     // C-3（2026-08-26）：编辑决策/独立审稿快照（AI 经 publish_article 传入，未传保持原记录）
     ...(req.decision !== undefined ? { decision: req.decision } : {}),
     ...(req.review !== undefined ? { review: req.review } : {}),
+    ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
     risk: parsed.risk || (prev && prev.risk) || 'unclassified',
     score:
       score === null
@@ -1042,6 +1051,7 @@ export async function runPublishArticle(req) {
         ...(htmlFile ? { htmlFile } : {}),
         ...(req.decision !== undefined ? { decision: req.decision } : {}),
         ...(req.review !== undefined ? { review: req.review } : {}),
+        ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
       },
     ],
     createdAt: prev.createdAt || now,

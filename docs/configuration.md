@@ -43,19 +43,20 @@
 换项目不该让队列形状跟着变。临时调参可以用环境变量
 `CROSSPOST_TOPIC_GEN_MAX_CONCURRENCY=<1–5>` 覆盖并发（优先于配置）。
 
-## 3. 项目级键（白名单，9 个）
+## 3. 项目级键（白名单，10 个）
 
-| 键                  | 形状                                                                                           | 说明                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `schedule`          | `{ <槽位>: bool }`                                                                             | 槽位门禁（`false` 即不跑）                                                        |
-| `slots`             | `[{id,name,time,enabled}]`                                                                     | **槽位定义**：id/名称/时间/开关（**命令**在项目的 `.crosspost/schedule.json` 里） |
-| `platforms.default` | `string[]`                                                                                     | 这个项目推哪些平台                                                                |
-| `notify`            | `{enabled,channel,webhookUrl,webhookType,larkChatId,larkBin,template}`                         | 通知发到哪                                                                        |
-| `scoring`           | `{threshold,investment:{strong[],weak[]}}`                                                     | 评分阈值与投资类信号词                                                            |
-| `branding`          | `{name,icon}`                                                                                  | 品牌素材                                                                          |
-| `coverSettings`     | `{defaultTemplate,endingTemplate,disabledTemplates,coverEnabled,endingCardEnabled,endingText}` | 封面/结束语                                                                       |
-| `styles`            | `{disabled[], perSlot}`                                                                        | 样式启用清单 + **每栏默认样式**（`perSlot = { "<栏目 id>": "<样式名>" }`）        |
-| `autoPush`          | `{enabled}`                                                                                    | 生成后自动推送；**关着时链路只存草稿**（是开关，不是绕过总开关的捷径）            |
+| 键                  | 形状                                                                                                                              | 说明                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `schedule`          | `{ <槽位>: bool }`                                                                                                                | 槽位门禁（`false` 即不跑）                                                                               |
+| `slots`             | `[{id,name,time,enabled}]`                                                                                                        | **槽位定义**：id/名称/时间/开关（**命令**在项目的 `.crosspost/schedule.json` 里）                        |
+| `platforms.default` | `string[]`                                                                                                                        | 这个项目推哪些平台                                                                                       |
+| `notify`            | `{enabled,channel,webhookUrl,webhookType,larkChatId,larkBin,template}`                                                            | 通知发到哪                                                                                               |
+| `scoring`           | `{threshold,investment:{strong[],weak[]}}`                                                                                        | 评分阈值与投资类信号词                                                                                   |
+| `aiDetect`          | `{enabled,provider,gateway,minChars,timeoutMs,gate{metric,threshold},rewrite{...},onError,monthlyTokenBudget,recheckAfterRevise}` | 朱雀 AI 检测与门禁（**凭证不在这里**，走 `.env` 的 `ZHUQUE_API_KEY`）。见 [`ai-detect.md`](ai-detect.md) |
+| `branding`          | `{name,icon}`                                                                                                                     | 品牌素材                                                                                                 |
+| `coverSettings`     | `{defaultTemplate,endingTemplate,disabledTemplates,coverEnabled,endingCardEnabled,endingText}`                                    | 封面/结束语                                                                                              |
+| `styles`            | `{disabled[], perSlot}`                                                                                                           | 样式启用清单 + **每栏默认样式**（`perSlot = { "<栏目 id>": "<样式名>" }`）                               |
+| `autoPush`          | `{enabled}`                                                                                                                       | 生成后自动推送；**关着时链路只存草稿**（是开关，不是绕过总开关的捷径）                                   |
 
 **槽位的默认时间**：`morning 08:10` · `hotspot 08:30` · `noon 12:30` · `hotspot2 13:10` · `tips 18:10` · `evening 20:30`。
 

@@ -158,6 +158,7 @@ Console、MCP 工具描述与文档都从它派生：
 | 接一条/多条写作流水线（不同风格）  | [`docs/writing-pipelines.md`](docs/writing-pipelines.md) |
 | 改配置 / 找环境变量                | [`docs/configuration.md`](docs/configuration.md)         |
 | 调接口（HTTP / CLI / MCP / IPC）   | [`docs/api-surfaces.md`](docs/api-surfaces.md)           |
+| 给文章做 AI 检测（朱雀）           | [`docs/ai-detect.md`](docs/ai-detect.md)                 |
 | 配置定时槽位 / 迁移旧系统任务      | [`docs/scheduling.md`](docs/scheduling.md)               |
 | 知道支持哪些平台、各自什么级别     | [`docs/platforms.md`](docs/platforms.md)                 |
 | 凭据与数据边界                     | [`docs/security.md`](docs/security.md)                   |

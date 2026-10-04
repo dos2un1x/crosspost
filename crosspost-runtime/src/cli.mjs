@@ -58,6 +58,7 @@ import {
   runTopicPoolShow,
 } from './commands/topic-pool-cli.mjs'
 import { pushHumanFeedback } from './editorial-memory.mjs'
+import { runAiDetect } from './commands/ai-detect-cli.mjs'
 import { wechatDraft, wechatDrafts, wechatDraftDelete } from './commands/wechat.mjs'
 import {
   syncArticle,
@@ -673,6 +674,16 @@ const HANDLERS = {
   topicPoolUpsert: (args) => runTopicPoolUpsert(args),
   topicPoolValidate: (args) => runTopicPoolValidate(args),
   topicPoolShow: (args) => runTopicPoolShow(args),
+
+  // ── AI 检测（朱雀 @makers/zhuque-text，2026-10-05）──
+  //
+  // 为什么放引擎侧：检测能力是**通用的**（任何接入方项目都想知道"这篇像不像 AI 写的"），
+  // 而凭证解析（env / .env，绝不落 config.json）、用量台账（.local/ai-detect-usage.json）、
+  // markdown 剥离与偏移映射都是引擎的运行态关注点。项目侧只负责"什么时候检测、不达标怎么办"
+  // 这套写作政策（见 ai2writing SKILL §5.55）。
+  //
+  // 暴露为 MCP 工具 `ai_detect`（AI 会话侧），同时项目脚本/基线回测可走 CLI（同一个实现）。
+  aiDetect: (args) => runAiDetect(args),
 }
 
 /**
