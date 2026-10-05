@@ -822,3 +822,73 @@ test('内容缓存：命中缓存时不需要凭证（省的不只是 token）',
     },
   )
 })
+
+/* ────────────────── ⑩ 精确区间口径（人工30-50 / AI30-<50 / 疑似20-40）────────────────── */
+
+const EXACT_CFG = {
+  ...AI_DETECT_DEFAULTS,
+  gate: {
+    mode: 'bands',
+    humanMin: 0.3,
+    humanMax: 0.5,
+    aiMin: 0.3,
+    aiMax: 0.5,
+    uncertainMin: 0.2,
+    uncertainMax: 0.4,
+    exclusive: ['ai:max'],
+    enforce: 'observe',
+  },
+  rewrite: { ...AI_DETECT_DEFAULTS.rewrite },
+}
+
+test('精确区间：三项各在区间内且和为 100% → pass', () => {
+  for (const [h, a, u] of [
+    [0.36, 0.35, 0.29],
+    [0.3, 0.3, 0.4],
+    [0.5, 0.3, 0.2],
+    [0.4, 0.35, 0.25],
+  ]) {
+    const r = judgeResult(bandResult(h, a, u), EXACT_CFG)
+    assert.equal(r.verdict, 'pass', `${h}/${a}/${u} 应达标，实际 ${JSON.stringify(r.fails)}`)
+  }
+})
+
+test('精确区间：AI 特征上界是**开区间**——恰好 50% 判不达标', () => {
+  const r = judgeResult(bandResult(0.3, 0.5, 0.2), EXACT_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['ai:above'])
+
+  // 49.9% 仍在区间内
+  const ok = judgeResult(bandResult(0.301, 0.499, 0.2), EXACT_CFG)
+  assert.equal(ok.verdict, 'pass')
+})
+
+test('精确区间：其他两条边界是闭区间（恰好取到端点仍然达标）', () => {
+  assert.equal(judgeResult(bandResult(0.3, 0.3, 0.4), EXACT_CFG).verdict, 'pass', '人工 30% 闭')
+  assert.equal(judgeResult(bandResult(0.5, 0.3, 0.2), EXACT_CFG).verdict, 'pass', '人工 50% 闭')
+  assert.equal(judgeResult(bandResult(0.5, 0.3, 0.2), EXACT_CFG).verdict, 'pass', '疑似 20% 闭')
+})
+
+test('精确区间：等价约束 人工+疑似 ∈ (50%,70%]（推导自 AI 必须落在 [30,50)）', () => {
+  // 人工+疑似 = 50 ⇒ AI = 50 ⇒ 被开区间拒
+  assert.equal(judgeResult(bandResult(0.3, 0.5, 0.2), EXACT_CFG).verdict, 'fail')
+  // 人工+疑似 = 70 ⇒ AI = 30 ⇒ 达标
+  assert.equal(judgeResult(bandResult(0.4, 0.3, 0.3), EXACT_CFG).verdict, 'pass')
+  // 人工+疑似 < 50 ⇒ AI > 50 ⇒ 超上界
+  const over = judgeResult(bandResult(0.3, 0.6, 0.1), EXACT_CFG)
+  assert.ok(over.fails.includes('ai:above'))
+})
+
+test('精确区间：验证稿 36.3/0/63.7 的两项失败方向正确', () => {
+  const r = judgeResult(bandResult(0.363, 0, 0.637), EXACT_CFG)
+  assert.deepEqual(r.fails, ['ai:below', 'uncertain:above'])
+})
+
+test('精确区间：日志标出开区间，便于事后复核判定依据', () => {
+  const line = formatVerdictLine(judgeResult(bandResult(0.36, 0.35, 0.29), EXACT_CFG))
+  assert.match(line, /口径=bands/)
+  assert.match(line, /人工=36\.0%\[30\.0%~50\.0%\]/)
+  assert.match(line, /AI特征=35\.0%\[30\.0%~50\.0%\]/)
+  assert.match(line, /疑似=29\.0%\[20\.0%~40\.0%\]/)
+  assert.match(line, /开区间=ai:max/)
+})

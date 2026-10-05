@@ -77,8 +77,14 @@ export const AI_DETECT_DEFAULTS = {
     humanMax: 0.5,
     aiMin: 0.3,
     aiMax: 0.5,
-    uncertainMin: 0.3,
-    uncertainMax: 0.5,
+    uncertainMin: 0.2,
+    uncertainMax: 0.4,
+    /**
+     * 哪些边界是**严格**的（开区间）。`['ai:max']` = AI 特征上界为 `<50%` 而非 `≤50%`。
+     * 用数组而不是给每个边界配一个布尔键，是为了让"哪条是开区间"在 config、日志与
+     * 代码里都是同一处事实。
+     */
+    exclusive: ['ai:max'],
     /**
      * `observe` = 只报不拦（**不进入重写循环**，每篇仅 1 次调用，配额最优）；
      * `block` = 硬门禁（结构化改写 ≤rewrite.maxRounds，仍不达标则留存）。
@@ -692,16 +698,22 @@ export function judgeResult(result, cfg) {
       uncertain: [Number(gate.uncertainMin), Number(gate.uncertainMax)],
     }
     // 失败项带方向：`human:below` = 低于下界 / `ai:above` = 高于上界
+    // `exclusive` 名单里的上界按开区间判（默认只有 AI 特征上界是 <50%）
+    const excl = new Set(Array.isArray(gate.exclusive) ? gate.exclusive : [])
     const fails = []
     for (const [name, [lo, hi]] of Object.entries(bands)) {
       if (Number.isFinite(lo) && got[name] < lo) fails.push(`${name}:below`)
-      if (Number.isFinite(hi) && got[name] > hi) fails.push(`${name}:above`)
+      if (Number.isFinite(hi)) {
+        const isOpen = excl.has(`${name}:max`)
+        if (isOpen ? got[name] >= hi : got[name] > hi) fails.push(`${name}:above`)
+      }
     }
     return {
       ...result,
       verdict: fails.length ? 'fail' : 'pass',
       metric: 'bands',
       bands,
+      exclusive: Array.isArray(gate.exclusive) ? gate.exclusive : [],
       ratios: got,
       fails,
       value: got.ai,
@@ -799,6 +811,7 @@ export function formatVerdictLine(result) {
       ` 口径=bands 人工=${pct(r.human)}[${pct((b.human || [])[0])}~${pct((b.human || [])[1])}]` +
       ` AI特征=${pct(r.ai)}[${pct((b.ai || [])[0])}~${pct((b.ai || [])[1])}]` +
       ` 疑似=${pct(r.uncertain)}[${pct((b.uncertain || [])[0])}~${pct((b.uncertain || [])[1])}]` +
+      `${result.exclusive && result.exclusive.length ? ` 开区间=${result.exclusive.join('|')}` : ''}` +
       ` 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}`
     )
   }
