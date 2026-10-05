@@ -897,12 +897,14 @@ server.registerTool(
         .optional()
         .describe('目标项目 id（可选；缺省取会话级 CROSSPOST_PROJECT）'),
       mode: z
-        .enum(['distribution', 'metric'])
+        .enum(['bands', 'distribution', 'metric'])
         .optional()
         .describe(
           '判定口径模式（缺省取 config.json → aiDetect.gate.mode）：' +
-            'distribution=三分布同时达标（人工≥humanMin、AI特征≤aiMax、疑似≤uncertainMax，三项之和为 1）；' +
-            'metric=旧的单指标口径（只看 metric/threshold）',
+            'bands=三段各给一个区间（humanMin~humanMax / aiMin~aiMax / uncertainMin~uncertainMax，' +
+            '三项之和为 1，故"每段都 ≥30%"实际等价于"每段都落在 30%-40%"）；' +
+            'distribution=三条硬线（人工≥humanMin、AI≤aiMax、疑似≤uncertainMax）；' +
+            'metric=旧的单指标口径',
         ),
       humanMin: z
         .number()
@@ -919,6 +921,15 @@ server.registerTool(
         .optional()
         .describe(
           'distribution 模式：疑似 AI 占比上限 0-1（缺省 config → aiDetect.gate.uncertainMax）',
+        ),
+      humanMax: z.number().optional().describe('bands 模式：人工特征占比上界 0-1'),
+      aiMin: z.number().optional().describe('bands 模式：AI 特征占比下界 0-1'),
+      uncertainMin: z.number().optional().describe('bands 模式：疑似 AI 占比下界 0-1'),
+      sampleRate: z
+        .number()
+        .optional()
+        .describe(
+          '抽样检测率 0-1（缺省 config → aiDetect.sampleRate，默认 1 全检）。按正文哈希确定性抽样，省配额',
         ),
       enforce: z
         .enum(['observe', 'block'])
@@ -944,8 +955,12 @@ server.registerTool(
     text: rawText,
     mode,
     humanMin,
+    humanMax,
+    aiMin,
     aiMax,
+    uncertainMin,
     uncertainMax,
+    sampleRate,
     enforce,
     metric,
     threshold,
@@ -960,8 +975,12 @@ server.registerTool(
     else return errText('缺少输入：file / id / text 至少给一个')
     if (mode) args.push(`--mode=${mode}`)
     if (humanMin !== undefined) args.push(`--human-min=${humanMin}`)
+    if (humanMax !== undefined) args.push(`--human-max=${humanMax}`)
+    if (aiMin !== undefined) args.push(`--ai-min=${aiMin}`)
     if (aiMax !== undefined) args.push(`--ai-max=${aiMax}`)
+    if (uncertainMin !== undefined) args.push(`--uncertain-min=${uncertainMin}`)
     if (uncertainMax !== undefined) args.push(`--uncertain-max=${uncertainMax}`)
+    if (sampleRate !== undefined) args.push(`--sample-rate=${sampleRate}`)
     if (enforce) args.push(`--enforce=${enforce}`)
     if (metric) args.push(`--metric=${metric}`)
     if (threshold !== undefined) args.push(`--threshold=${threshold}`)

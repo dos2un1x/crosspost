@@ -20,6 +20,7 @@ import { parseFlags } from '../argv.mjs'
 import { getDraftsDir, parseDraftFile } from '../articles.mjs'
 import {
   budgetState,
+  cachePath,
   detectText,
   formatSnapshot,
   formatVerdictLine,
@@ -53,8 +54,8 @@ function configOverrideFrom(flags) {
   }
   if (typeof flags.metric === 'string') gate({ metric: flags.metric })
   if (typeof flags.mode === 'string') {
-    if (!['distribution', 'metric'].includes(flags.mode)) {
-      throw new Error('--mode 只能是 distribution 或 metric')
+    if (!['bands', 'distribution', 'metric'].includes(flags.mode)) {
+      throw new Error('--mode 只能是 bands / distribution / metric')
     }
     gate({ mode: flags.mode })
   }
@@ -71,7 +72,17 @@ function configOverrideFrom(flags) {
     }
     gate({ enforce: flags.enforce })
   }
+  if (flags['human-max'] !== undefined)
+    gate({ humanMax: ratio01('--human-max', flags['human-max']) })
+  if (flags['ai-min'] !== undefined) gate({ aiMin: ratio01('--ai-min', flags['ai-min']) })
+  if (flags['uncertain-min'] !== undefined) {
+    gate({ uncertainMin: ratio01('--uncertain-min', flags['uncertain-min']) })
+  }
   if (flags['min-chars'] !== undefined) override.minChars = Number(flags['min-chars'])
+  // 抽样率（省配额）：按正文哈希确定性放行
+  if (flags['sample-rate'] !== undefined) {
+    override.sampleRate = ratio01('--sample-rate', flags['sample-rate'])
+  }
   // 栏目白名单可临时覆盖（`--slots=noon,evening`；空串 = 不限）
   if (typeof flags.slots === 'string') {
     override.slots = flags.slots
@@ -121,6 +132,8 @@ function compactReport(result, cfg) {
     ...(result.ratios ? { ratios: result.ratios } : {}),
     ...(result.targets ? { targets: result.targets } : {}),
     ...(result.fails ? { fails: result.fails } : {}),
+    ...(result.bands ? { bands: result.bands } : {}),
+    ...(result.cached ? { cached: true, cachedAt: result.cachedAt } : {}),
     // enforce=observe 时只报不拦：调用方据此跳过重写循环（省配额）
     action: (cfg.gate && cfg.gate.enforce) === 'block' ? 'block' : 'observe',
     enforce: (cfg.gate && cfg.gate.enforce) || 'observe',
@@ -160,6 +173,8 @@ export async function runAiDetect(args) {
       hasKey: !!cred.apiKey,
       enabled: cfg.enabled,
       gate: cfg.gate,
+      sampleRate: cfg.sampleRate,
+      cacheFile: cachePath(),
       usageFile: usagePath(),
     }
   }

@@ -16,6 +16,7 @@ import {
   budgetState,
   detectText,
   formatSnapshot,
+  shouldSample,
   formatVerdictLine,
   judgeResult,
   normalizeResult,
@@ -662,14 +663,162 @@ test('runAiDetect：enforce 决定 action（observe 不重写，block 才进改�
         }),
       ),
     async () => {
-      const observed = await runAiDetect([`--file=${file}`, '--min-chars=1', '--enforce=observe'])
+      // 显式钉住口径：本用例验证的是 distribution 模式的动作分派，
+      // 不该被 config.json 的默认口径改动带偏
+      const observed = await runAiDetect([
+        `--file=${file}`,
+        '--min-chars=1',
+        '--enforce=observe',
+        '--mode=distribution',
+      ])
       assert.equal(observed.verdict, 'fail')
       assert.equal(observed.action, 'observe', 'observe 模式必须明确告知调用方不要重写')
       assert.deepEqual(observed.fails, ['human', 'uncertain'])
       assert.deepEqual(observed.rewriteTargets, [1, 2], '仍要给改写方向，且判 AI 的段排在疑似之前')
 
-      const blocked = await runAiDetect([`--file=${file}`, '--min-chars=1', '--enforce=block'])
+      const blocked = await runAiDetect([
+        `--file=${file}`,
+        '--min-chars=1',
+        '--enforce=block',
+        '--mode=distribution',
+      ])
       assert.equal(blocked.action, 'block')
+    },
+  )
+})
+
+/* ────────────────── ⑧ 区间口径（bands）────────────────── */
+
+const BANDS_CFG = {
+  ...AI_DETECT_DEFAULTS,
+  gate: {
+    mode: 'bands',
+    humanMin: 0.3,
+    humanMax: 0.5,
+    aiMin: 0.3,
+    aiMax: 0.5,
+    uncertainMin: 0.3,
+    uncertainMax: 0.5,
+    enforce: 'observe',
+  },
+  rewrite: { ...AI_DETECT_DEFAULTS.rewrite },
+}
+
+const bandResult = (human, ai, uncertain) => ({
+  ok: true,
+  verdict: 'unknown',
+  labelsRatio: { human, ai, uncertain },
+  segments: [],
+  chars: 1000,
+})
+
+test('区间口径：三段都落在 30%-50% → pass', () => {
+  const r = judgeResult(bandResult(0.34, 0.33, 0.33), BANDS_CFG)
+  assert.equal(r.verdict, 'pass')
+  assert.deepEqual(r.fails, [])
+  assert.equal(r.metric, 'bands')
+})
+
+test('区间口径：失败项带方向（below / above）', () => {
+  // 本次验证稿：人工 36.3%（在带内）、AI 0%（低于下界）、疑似 63.7%（高于上界）
+  const r = judgeResult(bandResult(0.363, 0, 0.637), BANDS_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['ai:below', 'uncertain:above'])
+})
+
+test('区间口径：过干净也会失败（AI 特征低于 30% 同样不达标）', () => {
+  // 这是区间口径与上一轮"越干净越好"最反直觉的差别：把 AI 特征压到 0% 反而不在带内
+  const r = judgeResult(bandResult(0.6, 0, 0.4), BANDS_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.ok(r.fails.includes('ai:below'))
+})
+
+test('区间口径：三者和为 1，故"每段都 ≥30%"实际把每段锁进 30%-40%', () => {
+  // 边界：给出一个三项都恰好 1/3 的分布必然通过；任一段 >50% 必然有另一段 <30%
+  const r = judgeResult(bandResult(1 / 3, 1 / 3, 1 / 3), BANDS_CFG)
+  assert.equal(r.verdict, 'pass')
+  const skewed = judgeResult(bandResult(0.5, 0.5, 0), BANDS_CFG)
+  assert.equal(skewed.verdict, 'fail')
+  assert.ok(skewed.fails.includes('uncertain:below'))
+})
+
+test('区间口径：日志与快照带上界下界', () => {
+  const r = judgeResult(bandResult(0.34, 0.33, 0.33), BANDS_CFG)
+  const line = formatVerdictLine(r)
+  assert.match(line, /口径=bands/)
+  assert.match(line, /人工=34\.0%\[30\.0%~50\.0%\]/)
+  assert.match(formatSnapshot(r), /口径=bands/)
+})
+
+/* ────────────────── ⑨ 省配额：确定性抽样 + 内容缓存 ────────────────── */
+
+test('抽样：按正文哈希确定性决定，且同一正文每次判定一致', () => {
+  const cfg = { ...AI_DETECT_DEFAULTS, sampleRate: 0.5 }
+  const a = shouldSample('同一段正文', cfg)
+  assert.equal(shouldSample('同一段正文', cfg), a, '同正文必须每次一致（否则排查变玄学）')
+  assert.equal(shouldSample('任意正文', { ...cfg, sampleRate: 1 }), true, 'rate=1 全检')
+  assert.equal(shouldSample('任意正文', { ...cfg, sampleRate: 0 }), false, 'rate=0 全不检')
+  // 抽样样本量足够时，命中率应接近设定值（允许较宽的容差）
+  let hit = 0
+  for (let i = 0; i < 2000; i += 1) if (shouldSample(`正文-${i}`, cfg)) hit += 1
+  assert.ok(hit > 800 && hit < 1200, `2000 条里应约 1000 条命中，实际 ${hit}`)
+})
+
+test('抽样：被抽掉的返回 skip/sampled-out，不发起请求且不计配额', async () => {
+  freshLocalRoot()
+  await withFetch(
+    () => {
+      throw new Error('被抽样挡下时不该发起请求')
+    },
+    async (calls) => {
+      const r = await detectText(longText(), {
+        config: { ...CFG, sampleRate: 0 },
+        apiKey: 'k',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r.verdict, 'skip')
+      assert.equal(r.reason, 'sampled-out')
+      assert.equal(calls.length, 0)
+    },
+  )
+})
+
+test('内容缓存：同一篇正文第二次检测不发请求、不重复计费', async () => {
+  freshLocalRoot()
+  await withFetch(
+    () => jsonResponse(successBody()),
+    async (calls) => {
+      const opts = { config: CFG, apiKey: 'k', gateway: 'https://gw.test' }
+      const first = await detectText(longText(), opts)
+      assert.equal(first.cached, undefined, '首次不应带 cached 标记')
+      assert.equal(calls.length, 1)
+
+      const second = await detectText(longText(), opts)
+      assert.equal(second.cached, true, '第二次应命中缓存')
+      assert.equal(calls.length, 1, '命中缓存不得再发请求')
+      assert.equal(second.labelsRatio.ai, first.labelsRatio.ai, '缓存结果应与首次一致')
+
+      // 正文改一个字 → 必须重新检测（缓存键含正文哈希）
+      const third = await detectText(`${longText()}多一个字。`, opts)
+      assert.equal(third.cached, undefined)
+      assert.equal(calls.length, 2)
+    },
+  )
+})
+
+test('内容缓存：命中缓存时不需要凭证（省的不只是 token）', async () => {
+  freshLocalRoot()
+  await withFetch(
+    () => jsonResponse(successBody({ labels_ratio: { 0: 0.34, 1: 0.33, 2: 0.33 } })),
+    async () => {
+      await detectText(longText(), { config: CFG, apiKey: 'k', gateway: 'https://gw.test' })
+      const r = await detectText(longText(), {
+        config: CFG,
+        apiKey: '',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r.cached, true, '缓存命中应优先于"无凭证"判定')
+      assert.equal(r.verdict, 'unknown')
     },
   )
 })

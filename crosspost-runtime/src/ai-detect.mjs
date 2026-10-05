@@ -25,6 +25,7 @@
  * 安全：API Key 只允许来自 env / `crosspost-runtime/.env`（均 gitignored）。
  *   与微信凭证同规矩——**绝不落 config.json**（该文件被 git 跟踪，写进去即泄露）。
  */
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,10 +66,19 @@ export const AI_DETECT_DEFAULTS = {
      *     且 `uncertain ≤ uncertainMax`。三项之和为 1，所以这是"要一半文本真的像人写的"，
      *     而不是"只要没被判 AI 就算过"（旧口径下把内容全赶进"疑似"也能过，是虚假达标）。
      */
-    mode: 'distribution',
-    humanMin: 0.5,
-    aiMax: 0.3,
-    uncertainMax: 0.2,
+    /**
+     * `distribution`：三条硬线（human≥humanMin、ai≤aiMax、uncertain≤uncertainMax）。
+     * `bands`：三段各给一个区间（见下面六个 min/max）。注意三者和为 1，
+     *   所以"每段都 ≥30%"实际等价于"每段都落在 30%-40%"——它要求文章**保留**一部分
+     *   AI 特征文本，与"把 AI 特征压到 0%"是相反的方向，切换前先想清楚。
+     */
+    mode: 'bands',
+    humanMin: 0.3,
+    humanMax: 0.5,
+    aiMin: 0.3,
+    aiMax: 0.5,
+    uncertainMin: 0.3,
+    uncertainMax: 0.5,
     /**
      * `observe` = 只报不拦（**不进入重写循环**，每篇仅 1 次调用，配额最优）；
      * `block` = 硬门禁（结构化改写 ≤rewrite.maxRounds，仍不达标则留存）。
@@ -102,6 +112,12 @@ export const AI_DETECT_DEFAULTS = {
    * 超预算即返回 `skip/budget-exhausted`（按"未检测"放行），不会把额度烧穿。
    */
   monthlyTokenBudget: 400000,
+  /**
+   * 抽样检测率（0-1，默认 1 = 全检）。按**正文内容哈希**确定性地抽样：
+   * 同一篇稿子每次判定结果一致，可复现、可审计；被抽掉的返回 `skip/sampled-out`。
+   * 这是额度紧张时最直接的省法（0.5 即省一半），代价是覆盖率下降。
+   */
+  sampleRate: 1,
   /**
    * 只检测哪些栏目（空数组 = 全部）。额度不够时的收口方式：
    * 例如只保留 `["noon","evening"]`（两班深度长文，约 39 万/月，落在额度内），
@@ -351,6 +367,77 @@ export function budgetState(cfg, now = new Date()) {
   }
 }
 
+/* ────────────────────────── 省配额：内容缓存 + 抽样 ──────────────────────────
+ * 一次检测 ≈1.7 × 字数 token，所以"同一篇稿子被检测两次"是纯浪费：
+ *   · 人工在 Console 复推、或同一篇既走手动又走定时，正文一个字没变 → 结果必然一样；
+ *   · block 模式下的复检，若某轮没改动正文，也没必要重问一遍。
+ * 因此按**剥离后正文 + 通道**做哈希缓存（缓存的是归一化结果，不是判定——
+ * 判定必须每次用当前 gate 重新算，否则改了阈值会拿到旧结论）。
+ */
+
+export function cachePath() {
+  return path.join(localRoot(), 'ai-detect-cache.json')
+}
+
+/** 缓存键：通道 + 网关 + 剥离后的正文（正文变了就不命中） */
+export function contentKey(plain, cfg) {
+  return crypto
+    .createHash('sha256')
+    .update(`${cfg.provider}|${cfg.gateway || DEFAULT_GATEWAY}|${plain}`)
+    .digest('hex')
+}
+
+function readCacheFile() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cachePath(), 'utf8'))
+    return raw && typeof raw === 'object' && raw.entries ? raw : { entries: {} }
+  } catch {
+    return { entries: {} }
+  }
+}
+
+/** 命中则返回归一化结果（含 cached 标记），未命中返回 null */
+export function readCachedResult(key) {
+  const f = readCacheFile()
+  const hit = f.entries[key]
+  if (!hit || !hit.result) return null
+  return { ...hit.result, cached: true, cachedAt: hit.at }
+}
+
+/** 写入缓存（按插入顺序保留最近 CACHE_MAX 条） */
+const CACHE_MAX = 300
+export function writeCachedResult(key, result, now = new Date()) {
+  const f = readCacheFile()
+  f.entries[key] = { at: now.toISOString(), result }
+  const keys = Object.keys(f.entries)
+  if (keys.length > CACHE_MAX) {
+    for (const k of keys.slice(0, keys.length - CACHE_MAX)) delete f.entries[k]
+  }
+  try {
+    const file = cachePath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = `${file}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, JSON.stringify(f), 'utf8')
+    fs.renameSync(tmp, file)
+  } catch {
+    /* 缓存写不进去不该让检测失败 */
+  }
+}
+
+/**
+ * 确定性抽样：按正文哈希决定检不检。
+ * 用哈希而不是随机数，是为了**同一篇稿子每次判定一致**（可复现、可审计），
+ * 否则排查"这篇为什么没检测"会变成玄学。
+ */
+export function shouldSample(plain, cfg) {
+  const rate = Number(cfg.sampleRate)
+  if (!Number.isFinite(rate) || rate >= 1) return true
+  if (rate <= 0) return false
+  const h = crypto.createHash('sha1').update(plain).digest()
+  const bucket = ((h[0] << 8) | h[1]) / 65536
+  return bucket < rate
+}
+
 /* ────────────────────────────── 检测 ────────────────────────────── */
 
 const num = (v) => {
@@ -397,6 +484,18 @@ export async function detectText(input, opts = {}) {
   const chars = plain.replace(/\s+/g, '').length
   if (chars < cfg.minChars) {
     return skipResult('text-too-short', cfg, startedAt, { chars, minChars: cfg.minChars })
+  }
+
+  // 抽样（省配额）：按正文哈希确定性放行，被抽掉的记为 skip，绝不当成通过
+  if (!opts.skipSample && !shouldSample(plain, cfg)) {
+    return skipResult('sampled-out', cfg, startedAt, { chars, sampleRate: cfg.sampleRate })
+  }
+
+  // 内容缓存：同一篇正文不重复花钱（判定仍用当前 gate 重算）
+  const ckey = contentKey(plain, cfg)
+  if (!opts.noCache) {
+    const hit = readCachedResult(ckey)
+    if (hit) return hit
   }
 
   const cred = resolveDetectCredentials()
@@ -495,6 +594,7 @@ export async function detectText(input, opts = {}) {
   // 与免费额度（50 万 token/月）对比时必须用同一把尺子，否则会低估 ~40%。
   const billed = result.usage.makerTokens ?? result.usage.totalTokens
   if (typeof billed === 'number') addUsage(billed)
+  if (!opts.noCache) writeCachedResult(ckey, result)
   return result
 }
 
@@ -576,7 +676,38 @@ export function normalizeResult(json, strip, cfg, startedAt = Date.now()) {
 export function judgeResult(result, cfg) {
   if (!result || result.verdict === 'skip') return result
   const gate = cfg.gate || {}
-  const mode = gate.mode === 'distribution' ? 'distribution' : 'metric'
+  const mode =
+    gate.mode === 'bands' ? 'bands' : gate.mode === 'distribution' ? 'distribution' : 'metric'
+
+  if (mode === 'bands') {
+    const lr = result.labelsRatio || {}
+    const got = { human: lr.human, ai: lr.ai, uncertain: lr.uncertain }
+    // 三段缺任一都无法判定——按"未检测"处理，绝不当成通过
+    if (Object.values(got).some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+      return { ...result, verdict: 'skip', reason: 'metric-unavailable', metric: 'bands' }
+    }
+    const bands = {
+      human: [Number(gate.humanMin), Number(gate.humanMax)],
+      ai: [Number(gate.aiMin), Number(gate.aiMax)],
+      uncertain: [Number(gate.uncertainMin), Number(gate.uncertainMax)],
+    }
+    // 失败项带方向：`human:below` = 低于下界 / `ai:above` = 高于上界
+    const fails = []
+    for (const [name, [lo, hi]] of Object.entries(bands)) {
+      if (Number.isFinite(lo) && got[name] < lo) fails.push(`${name}:below`)
+      if (Number.isFinite(hi) && got[name] > hi) fails.push(`${name}:above`)
+    }
+    return {
+      ...result,
+      verdict: fails.length ? 'fail' : 'pass',
+      metric: 'bands',
+      bands,
+      ratios: got,
+      fails,
+      value: got.ai,
+      threshold: bands.ai[1],
+    }
+  }
 
   if (mode === 'distribution') {
     const lr = result.labelsRatio || {}
@@ -660,6 +791,26 @@ export function formatVerdictLine(result) {
   if (!result) return 'AI检测=未执行'
   if (result.verdict === 'skip') return `AI检测=跳过(${result.reason})`
   const pct = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'n/a')
+  if (result.metric === 'bands' && result.ratios) {
+    const r = result.ratios
+    const b = result.bands || {}
+    return (
+      `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
+      ` 口径=bands 人工=${pct(r.human)}[${pct((b.human || [])[0])}~${pct((b.human || [])[1])}]` +
+      ` AI特征=${pct(r.ai)}[${pct((b.ai || [])[0])}~${pct((b.ai || [])[1])}]` +
+      ` 疑似=${pct(r.uncertain)}[${pct((b.uncertain || [])[0])}~${pct((b.uncertain || [])[1])}]` +
+      ` 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}`
+    )
+  }
+  if (result.metric === 'bands' && result.ratios) {
+    const r = result.ratios
+    return (
+      `AI检测=${result.verdict}(口径=bands 人工=${pct1(r.human)} AI特征=${pct1(r.ai)}` +
+      ` 疑似=${pct1(r.uncertain)} 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}` +
+      `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
+      `${extra.rolledBack ? ' 回退=1' : ''})`
+    )
+  }
   if (result.metric === 'distribution' && result.ratios) {
     const r = result.ratios
     const t = result.targets || {}
