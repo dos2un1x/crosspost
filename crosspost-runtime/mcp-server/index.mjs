@@ -896,27 +896,73 @@ server.registerTool(
         .string()
         .optional()
         .describe('目标项目 id（可选；缺省取会话级 CROSSPOST_PROJECT）'),
+      mode: z
+        .enum(['distribution', 'metric'])
+        .optional()
+        .describe(
+          '判定口径模式（缺省取 config.json → aiDetect.gate.mode）：' +
+            'distribution=三分布同时达标（人工≥humanMin、AI特征≤aiMax、疑似≤uncertainMax，三项之和为 1）；' +
+            'metric=旧的单指标口径（只看 metric/threshold）',
+        ),
+      humanMin: z
+        .number()
+        .optional()
+        .describe(
+          'distribution 模式：人工特征占比下限 0-1（缺省 config → aiDetect.gate.humanMin）',
+        ),
+      aiMax: z
+        .number()
+        .optional()
+        .describe('distribution 模式：AI 特征占比上限 0-1（缺省 config → aiDetect.gate.aiMax）'),
+      uncertainMax: z
+        .number()
+        .optional()
+        .describe(
+          'distribution 模式：疑似 AI 占比上限 0-1（缺省 config → aiDetect.gate.uncertainMax）',
+        ),
+      enforce: z
+        .enum(['observe', 'block'])
+        .optional()
+        .describe(
+          '门禁强度（缺省 config → aiDetect.gate.enforce）：observe=只报不拦（**不进入重写循环**，省配额）；' +
+            'block=硬门禁（按 rewriteTargets 定向改写，仍不达标则留存）。返回里 action 字段给出本次应执行的动作',
+        ),
       metric: z
         .enum(['confidence', 'labels_ai', 'both'])
         .optional()
         .describe(
-          '判定口径（缺省取 config.json → aiDetect.gate.metric）：' +
+          '旧口径的单指标（仅 mode=metric 时生效，缺省取 config.json → aiDetect.gate.metric）：' +
             'confidence=整体 AI 浓度（官网顶部那个数）/ labels_ai=AI 特征字符占比 / both=两者都低于阈值',
         ),
-      threshold: z
-        .number()
-        .optional()
-        .describe('判定阈值 0-1（缺省取 config.json → aiDetect.gate.threshold）'),
+      threshold: z.number().optional().describe('旧口径的判定阈值 0-1（仅 mode=metric 时生效）'),
       budget: z.boolean().optional().describe('只看当月用量与预算，不调用接口'),
     },
   },
-  async ({ file, id, text: rawText, metric, threshold, budget, project }) => {
+  async ({
+    file,
+    id,
+    text: rawText,
+    mode,
+    humanMin,
+    aiMax,
+    uncertainMax,
+    enforce,
+    metric,
+    threshold,
+    budget,
+    project,
+  }) => {
     const args = ['aiDetect']
     if (budget) args.push('--budget')
     else if (file) args.push(`--file=${file}`)
     else if (id) args.push(`--id=${id}`)
     else if (rawText !== undefined) args.push(`--text=${rawText}`)
     else return errText('缺少输入：file / id / text 至少给一个')
+    if (mode) args.push(`--mode=${mode}`)
+    if (humanMin !== undefined) args.push(`--human-min=${humanMin}`)
+    if (aiMax !== undefined) args.push(`--ai-max=${aiMax}`)
+    if (uncertainMax !== undefined) args.push(`--uncertain-max=${uncertainMax}`)
+    if (enforce) args.push(`--enforce=${enforce}`)
     if (metric) args.push(`--metric=${metric}`)
     if (threshold !== undefined) args.push(`--threshold=${threshold}`)
     try {

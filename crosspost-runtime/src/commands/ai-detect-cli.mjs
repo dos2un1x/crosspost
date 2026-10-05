@@ -43,11 +43,33 @@ function resolveDraftFileById(id) {
 /** 只允许覆盖少数几个键——避免调用方从命令行把阈值改得面目全非后无人察觉 */
 function configOverrideFrom(flags) {
   const override = {}
-  if (typeof flags.metric === 'string') override.gate = { metric: flags.metric }
-  if (flags.threshold !== undefined) {
-    const t = Number(flags.threshold)
-    if (!Number.isFinite(t) || t < 0 || t > 1) throw new Error('--threshold 必须是 0-1 之间的小数')
-    override.gate = { ...(override.gate || {}), threshold: t }
+  const gate = (patch) => {
+    override.gate = { ...(override.gate || {}), ...patch }
+  }
+  const ratio01 = (name, raw) => {
+    const v = Number(raw)
+    if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error(`${name} 必须是 0-1 之间的小数`)
+    return v
+  }
+  if (typeof flags.metric === 'string') gate({ metric: flags.metric })
+  if (typeof flags.mode === 'string') {
+    if (!['distribution', 'metric'].includes(flags.mode)) {
+      throw new Error('--mode 只能是 distribution 或 metric')
+    }
+    gate({ mode: flags.mode })
+  }
+  if (flags.threshold !== undefined) gate({ threshold: ratio01('--threshold', flags.threshold) })
+  if (flags['human-min'] !== undefined)
+    gate({ humanMin: ratio01('--human-min', flags['human-min']) })
+  if (flags['ai-max'] !== undefined) gate({ aiMax: ratio01('--ai-max', flags['ai-max']) })
+  if (flags['uncertain-max'] !== undefined) {
+    gate({ uncertainMax: ratio01('--uncertain-max', flags['uncertain-max']) })
+  }
+  if (typeof flags.enforce === 'string') {
+    if (!['observe', 'block'].includes(flags.enforce)) {
+      throw new Error('--enforce 只能是 observe 或 block')
+    }
+    gate({ enforce: flags.enforce })
   }
   if (flags['min-chars'] !== undefined) override.minChars = Number(flags['min-chars'])
   // 栏目白名单可临时覆盖（`--slots=noon,evening`；空串 = 不限）
@@ -60,7 +82,7 @@ function configOverrideFrom(flags) {
   return override
 }
 
-/** 压缩报告：整体判定 + 只列被判 AI 的片段（不返回全量分段，省调用方上下文） */
+/** 压缩报告：整体判定 + 只列被判 AI/疑似的片段（不返回全量分段，省调用方上下文） */
 function compactReport(result, cfg) {
   const base = {
     ok: result.ok,
@@ -84,16 +106,30 @@ function compactReport(result, cfg) {
       preview: s.preview,
     }))
 
+  const counts = {
+    human: (result.segments || []).filter((s) => s.label === 0).length,
+    ai: (result.segments || []).filter((s) => s.label === 1).length,
+    uncertain: (result.segments || []).filter((s) => s.label === 2).length,
+    total: (result.segments || []).length,
+  }
+
   return {
     ...base,
     metric: result.metric,
     value: result.value,
     threshold: result.threshold,
+    ...(result.ratios ? { ratios: result.ratios } : {}),
+    ...(result.targets ? { targets: result.targets } : {}),
+    ...(result.fails ? { fails: result.fails } : {}),
+    // enforce=observe 时只报不拦：调用方据此跳过重写循环（省配额）
+    action: (cfg.gate && cfg.gate.enforce) === 'block' ? 'block' : 'observe',
+    enforce: (cfg.gate && cfg.gate.enforce) || 'observe',
     confidence: result.confidence,
     ratioConfidence: result.ratioConfidence,
     labelsRatio: result.labelsRatio,
-    aiSegmentCount: aiSegments.filter((s) => s.label === 'ai').length,
-    suspectedSegmentCount: aiSegments.filter((s) => s.label === 'uncertain').length,
+    segmentCounts: counts,
+    aiSegmentCount: counts.ai,
+    suspectedSegmentCount: counts.uncertain,
     segments: aiSegments,
     rewriteTargets: pickRewriteTargets(result, cfg).map((s) => s.order),
     usage: result.usage,

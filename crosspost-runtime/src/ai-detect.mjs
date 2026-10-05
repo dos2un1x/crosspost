@@ -57,7 +57,27 @@ export const AI_DETECT_DEFAULTS = {
    *     改动强度单调相关。官网给这一档的标签就叫"AI特征"，与业务口径同词。
    * 仍保留 `confidence` / `both` 两个取值，供需要时切换（config 改一行，无需改代码）。
    */
-  gate: { metric: 'labels_ai', threshold: 0.3 },
+  gate: {
+    /**
+     * 门禁口径。
+     *   · `metric`（旧口径）：只看 `labels_ai`（AI 特征占比）是否低于 `threshold`。
+     *   · `distribution`（现用）：三条同时成立 —— `human ≥ humanMin` 且 `ai ≤ aiMax`
+     *     且 `uncertain ≤ uncertainMax`。三项之和为 1，所以这是"要一半文本真的像人写的"，
+     *     而不是"只要没被判 AI 就算过"（旧口径下把内容全赶进"疑似"也能过，是虚假达标）。
+     */
+    mode: 'distribution',
+    humanMin: 0.5,
+    aiMax: 0.3,
+    uncertainMax: 0.2,
+    /**
+     * `observe` = 只报不拦（**不进入重写循环**，每篇仅 1 次调用，配额最优）；
+     * `block` = 硬门禁（结构化改写 ≤rewrite.maxRounds，仍不达标则留存）。
+     * 目标刚上调时应先观察，确认真实产出能落在目标区间后再切 block。
+     */
+    enforce: 'observe',
+    metric: 'labels_ai',
+    threshold: 0.3,
+  },
   rewrite: {
     /**
      * 改写轮数上限。为什么是 3 而不是 2：实测同一篇 4000 字深度长文，
@@ -67,8 +87,11 @@ export const AI_DETECT_DEFAULTS = {
     maxRounds: 3,
     maxSegmentsPerRound: 5,
     minSegmentConf: 0.5,
-    /** 是否把"疑似AI"（label=2）也纳入定向改写；默认只改明确判 AI 的段 */
-    includeSuspected: false,
+    /**
+     * 是否把"疑似AI"（label=2）也纳入定向改写。默认 **true**：
+     * 分布口径要求"人工 ≥50%"，而改写前的文本大多落在"疑似"档，不把疑似段纳入就等于没得改。
+     */
+    includeSuspected: true,
   },
   /** 凭证缺失/接口故障/配额不足时的行为：skip（放行但显式标注）——不静默、不阻断出稿 */
   onError: 'skip',
@@ -539,16 +562,54 @@ export function normalizeResult(json, strip, cfg, startedAt = Date.now()) {
 }
 
 /**
- * 判定通过与否。
- * metric 取三值之一（config.json → aiDetect.gate.metric）：
- *   confidence —— 整体 AI 浓度（官网顶部那个数，站点源码 `aiGenerated = data.confidence`）
- *   labels_ai  —— "AI 特征"字符占比（官网分布图里 AI 特征那块）
- *   both       —— 两个都要低于阈值（取最大值比阈值）
+ * 判定通过与否。两种口径（config.json → aiDetect.gate.mode）：
+ *
+ * `distribution`（现用）—— 三条同时成立才算过：
+ *   `human ≥ humanMin`、`ai ≤ aiMax`、`uncertain ≤ uncertainMax`（三项之和为 1）。
+ *   为什么要有这个口径：旧口径只卡 `ai`，把内容从"AI特征"赶进"疑似"就能过——指标好看、
+ *   文章并没有更像人写的。加上 `human` 下限才逼出真正的目标；`uncertain` 上限则防止
+ *   整篇躲进中间档。失败的项逐个列在 `fails[]` 里，日志与改写才有方向。
+ *
+ * `metric`（旧口径，保留兼容）—— 只比一个数：
+ *   confidence（整体 AI 浓度，官网顶部那个数）/ labels_ai（AI 特征占比）/ both（取最大值）。
  */
 export function judgeResult(result, cfg) {
   if (!result || result.verdict === 'skip') return result
-  const metric = (cfg.gate && cfg.gate.metric) || 'confidence'
-  const threshold = Number(cfg.gate && cfg.gate.threshold)
+  const gate = cfg.gate || {}
+  const mode = gate.mode === 'distribution' ? 'distribution' : 'metric'
+
+  if (mode === 'distribution') {
+    const lr = result.labelsRatio || {}
+    const need = {
+      human: Number(gate.humanMin),
+      ai: Number(gate.aiMax),
+      uncertain: Number(gate.uncertainMax),
+    }
+    const got = { human: lr.human, ai: lr.ai, uncertain: lr.uncertain }
+    // 三项里缺任何一个都无法判定——按"未检测"处理，绝不当成通过
+    if (Object.values(got).some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+      return { ...result, verdict: 'skip', reason: 'metric-unavailable', metric: 'distribution' }
+    }
+    const fails = []
+    if (got.human < need.human) fails.push('human')
+    if (got.ai > need.ai) fails.push('ai')
+    if (got.uncertain > need.uncertain) fails.push('uncertain')
+    return {
+      ...result,
+      verdict: fails.length ? 'fail' : 'pass',
+      metric: 'distribution',
+      // 报告口径：目标与实测三项，便于日志/面板直接展示
+      targets: need,
+      ratios: got,
+      fails,
+      // 兼容既有消费方：value/threshold 取 binding 项（人工缺口或超限最多的那项）
+      value: got.ai,
+      threshold: need.ai,
+    }
+  }
+
+  const metric = gate.metric || 'confidence'
+  const threshold = Number(gate.threshold)
 
   const cands = []
   if (metric === 'confidence' || metric === 'both') {
@@ -571,19 +632,27 @@ export function judgeResult(result, cfg) {
   }
 }
 
-/** 挑出本轮要定向改写的片段（明确判 AI，按置信度降序，上限 maxSegmentsPerRound） */
+/** 挑出本轮要定向改写的片段（判 AI 优先，其次"疑似"，按置信度降序，上限 maxSegmentsPerRound） */
 export function pickRewriteTargets(result, cfg) {
   if (!result || !Array.isArray(result.segments)) return []
   const min = Number(cfg.rewrite.minSegmentConf)
   const includeSuspected = !!cfg.rewrite.includeSuspected
-  return result.segments
-    .filter((s) => {
-      if (s.label === 1) return true
-      return includeSuspected && s.label === 2
-    })
-    .filter((s) => typeof s.conf !== 'number' || !Number.isFinite(min) || s.conf >= min)
-    .sort((a, b) => (Number(b.conf) || 0) - (Number(a.conf) || 0))
-    .slice(0, Math.max(1, Number(cfg.rewrite.maxSegmentsPerRound) || 5))
+  return (
+    result.segments
+      .filter((s) => {
+        if (s.label === 1) return true
+        return includeSuspected && s.label === 2
+      })
+      .filter((s) => typeof s.conf !== 'number' || !Number.isFinite(min) || s.conf >= min)
+      // 判 AI 的段先改（危害最大），同为判 AI 再按置信度降序
+      .sort((a, b) => {
+        const la = a.label === 1 ? 0 : 1
+        const lb = b.label === 1 ? 0 : 1
+        if (la !== lb) return la - lb
+        return (Number(b.conf) || 0) - (Number(a.conf) || 0)
+      })
+      .slice(0, Math.max(1, Number(cfg.rewrite.maxSegmentsPerRound) || 5))
+  )
 }
 
 /** 一行式人读摘要（日志/通知用） */
@@ -591,6 +660,18 @@ export function formatVerdictLine(result) {
   if (!result) return 'AI检测=未执行'
   if (result.verdict === 'skip') return `AI检测=跳过(${result.reason})`
   const pct = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'n/a')
+  if (result.metric === 'distribution' && result.ratios) {
+    const r = result.ratios
+    const t = result.targets || {}
+    return (
+      `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
+      ` 口径=distribution` +
+      ` 人工=${pct(r.human)}(目标≥${pct(t.human)} 缺口=${pct(r.human - t.human)})` +
+      ` AI特征=${pct(r.ai)}(目标≤${pct(t.ai)} 超出=${pct(r.ai - t.ai)})` +
+      ` 疑似=${pct(r.uncertain)}(目标≤${pct(t.uncertain)} 超出=${pct(r.uncertain - t.uncertain)})` +
+      ` 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}`
+    )
+  }
   return (
     `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
     ` 口径=${result.metric} 值=${pct(result.value)} 阈值=${pct(result.threshold)}` +
@@ -598,15 +679,37 @@ export function formatVerdictLine(result) {
   )
 }
 
+/** 片段数统计：判 AI / 疑似 / 人工 各几段（分布口径下日志与面板都要看段落结构） */
+function segmentCounts(result) {
+  const segs = result.segments || []
+  return {
+    ai: segs.filter((s) => s.label === 1).length,
+    uncertain: segs.filter((s) => s.label === 2).length,
+    human: segs.filter((s) => s.label === 0).length,
+    total: segs.length,
+  }
+}
+
 /** 检测报告快照（写进文章库记录/历史，供事后复盘；纯文本，不含密钥） */
 export function formatSnapshot(result, extra = {}) {
   if (!result) return ''
   if (result.verdict === 'skip')
     return `AI检测=跳过(${result.reason})${extra.rounds ? ` 重写=${extra.rounds}` : ''}`
-  const segs = (result.segments || []).filter((s) => s.label === 1).length
+  const pct1 = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'n/a')
+  const c = segmentCounts(result)
+  const segPart = ` 段=${c.human}人工/${c.ai}AI/${c.uncertain}疑似`
+  if (result.metric === 'distribution' && result.ratios) {
+    const r = result.ratios
+    return (
+      `AI检测=${result.verdict}(口径=distribution 人工=${pct1(r.human)} AI特征=${pct1(r.ai)}` +
+      ` 疑似=${pct1(r.uncertain)} 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}` +
+      `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
+      `${extra.rolledBack ? ' 回退=1' : ''})`
+    )
+  }
   return (
-    `AI检测=${result.verdict}(口径=${result.metric} 值=${(result.value * 100).toFixed(1)}%` +
-    ` 阈值=${(result.threshold * 100).toFixed(1)}% AI特征占比=${((result.labelsRatio.ai ?? 0) * 100).toFixed(1)}%` +
-    ` AI段=${segs} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''})`
+    `AI检测=${result.verdict}(口径=${result.metric} 值=${pct1(result.value)}` +
+    ` 阈值=${pct1(result.threshold)} AI特征占比=${pct1(result.labelsRatio && result.labelsRatio.ai)}` +
+    `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''})`
   )
 }

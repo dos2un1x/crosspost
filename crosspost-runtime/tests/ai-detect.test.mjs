@@ -15,6 +15,8 @@ import {
   addUsage,
   budgetState,
   detectText,
+  formatSnapshot,
+  formatVerdictLine,
   judgeResult,
   normalizeResult,
   pickRewriteTargets,
@@ -497,4 +499,177 @@ test('用量台账：按月累计、跨月归零、超预算即 exhausted', () =
   // 下个月：账目重新从零起算（不把上个月的用量算进新周期）
   const nextMonth = new Date('2026-11-01T00:00:00Z')
   assert.equal(readUsage(nextMonth).tokens, 0)
+})
+
+/* ────────────────── ⑥ 三分布口径（人工 50% / AI 30% / 疑似 20%） ────────────────── */
+
+/** 分布口径配置（与 config.json 默认一致，测试里显式写死以免被默认值变更带偏） */
+const DIST_CFG = {
+  ...AI_DETECT_DEFAULTS,
+  gate: { mode: 'distribution', humanMin: 0.5, aiMax: 0.3, uncertainMax: 0.2, enforce: 'observe' },
+  rewrite: { ...AI_DETECT_DEFAULTS.rewrite },
+}
+
+/** 造一个已归一化的结果（只带判定需要的字段） */
+function distResult(human, ai, uncertain) {
+  return {
+    ok: true,
+    verdict: 'unknown',
+    metric: 'distribution',
+    labelsRatio: { human, ai, uncertain },
+    segments: [],
+    chars: 1000,
+  }
+}
+
+test('分布口径：三项全达标 → pass（50/30/20 正好是边界）', () => {
+  const r = judgeResult(distResult(0.5, 0.3, 0.2), DIST_CFG)
+  assert.equal(r.verdict, 'pass')
+  assert.deepEqual(r.fails, [])
+  assert.equal(r.metric, 'distribution')
+})
+
+test('分布口径：人工不足 → fail（且必然连带 AI 或疑似超限）', () => {
+  // 三项之和恒为 1：人工 <50% ⇒ AI+疑似 >50%；又因疑似 ≤20%，故 AI 必然 >30%。
+  // 也就是说「只有人工不达标」在算术上不存在——这条不变量本身就是门禁设计的一部分。
+  const r = judgeResult(distResult(0.45, 0.35, 0.2), DIST_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['human', 'ai'])
+})
+
+test('分布口径不变量：人工不达标时，ai 与 uncertain 至少有一项也不达标', () => {
+  for (let h = 0; h <= 0.5; h += 0.05) {
+    for (let u = 0; u <= 0.2; u += 0.05) {
+      const a = Number((1 - h - u).toFixed(4))
+      if (a < 0) continue
+      const r = judgeResult(distResult(Number(h.toFixed(2)), a, Number(u.toFixed(2))), DIST_CFG)
+      if (r.fails.includes('human')) {
+        assert.ok(
+          r.fails.includes('ai') || r.fails.includes('uncertain'),
+          `h=${h} a=${a} u=${u} 时不该出现"只有人工不达标"`,
+        )
+      }
+    }
+  }
+})
+
+test('分布口径：AI 特征超限 → fail（即使人工达标）', () => {
+  const r = judgeResult(distResult(0.6, 0.35, 0.05), DIST_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['ai'])
+})
+
+test('分布口径：疑似超限 → fail（即便只把内容赶进疑似也过不了）', () => {
+  const r = judgeResult(distResult(0.55, 0.25, 0.2 + 0.001), DIST_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['uncertain'])
+})
+
+test('分布口径：多项失败时 fails 全部列出（改写方向才明确）', () => {
+  const r = judgeResult(distResult(0.1, 0.35, 0.55), DIST_CFG)
+  assert.equal(r.verdict, 'fail')
+  assert.deepEqual(r.fails, ['human', 'ai', 'uncertain'])
+})
+
+test('分布口径：任一项缺失 → skip（不当成通过）', () => {
+  const r = judgeResult(distResult(0.6, null, 0.2), DIST_CFG)
+  assert.equal(r.verdict, 'skip')
+  assert.equal(r.reason, 'metric-unavailable')
+})
+
+test('分布口径：日志与快照都带三占比与失败项', () => {
+  const r = judgeResult(distResult(0, 0.2594, 0.7406), DIST_CFG)
+  const line = formatVerdictLine(r)
+  assert.match(line, /人工=0\.0%/)
+  assert.match(line, /AI特征=25\.9%/)
+  assert.match(line, /疑似=74\.1%/)
+  assert.match(line, /失败项=human\|uncertain/)
+
+  const snap = formatSnapshot(r)
+  assert.match(snap, /口径=distribution/)
+  assert.match(snap, /失败项=human\|uncertain/)
+})
+
+test('旧口径（metric 模式）行为不变，避免老配置静默改语义', () => {
+  const legacy = {
+    ...AI_DETECT_DEFAULTS,
+    gate: { metric: 'labels_ai', threshold: 0.3 },
+    rewrite: { ...AI_DETECT_DEFAULTS.rewrite },
+  }
+  const r = judgeResult(distResult(0.2, 0.31, 0.49), legacy)
+  assert.equal(r.verdict, 'fail') // 只看 ai
+  assert.equal(r.metric, 'labels_ai')
+  assert.equal(r.fails, undefined, '旧口径不应产生 fails 字段')
+})
+
+test('includeSuspected 默认 true：分布口径下必须能改"疑似"段', () => {
+  assert.equal(AI_DETECT_DEFAULTS.rewrite.includeSuspected, true)
+  const picked = pickRewriteTargets(
+    {
+      segments: [
+        { order: 1, label: 2, conf: 0.9 },
+        { order: 2, label: 2, conf: 0.4 },
+        { order: 3, label: 0, conf: 0.99 },
+      ],
+    },
+    { ...DIST_CFG, rewrite: { ...DIST_CFG.rewrite, minSegmentConf: 0.5 } },
+  )
+  assert.deepEqual(
+    picked.map((s) => s.order),
+    [1],
+    '疑似段默认纳入；人工段不纳入',
+  )
+})
+
+test('改写目标排序：判 AI 的段排在疑似之前（危害大的先改）', () => {
+  const picked = pickRewriteTargets(
+    {
+      segments: [
+        { order: 1, label: 2, conf: 0.99 },
+        { order: 2, label: 1, conf: 0.2 },
+        { order: 3, label: 2, conf: 0.3 },
+      ],
+    },
+    { ...DIST_CFG, rewrite: { ...DIST_CFG.rewrite, minSegmentConf: 0, maxSegmentsPerRound: 5 } },
+  )
+  assert.deepEqual(
+    picked.map((s) => s.order),
+    [2, 1, 3],
+  )
+})
+
+/* ────────────────── ⑦ enforce=observe/block 的动作分派 ────────────────── */
+
+test('runAiDetect：enforce 决定 action（observe 不重写，block 才进改写循环）', async () => {
+  freshLocalRoot()
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-drafts-'))
+  const file = path.join(dir, '2026-01-01-noon-some-topic.md')
+  fs.writeFileSync(file, longText(), 'utf8')
+  const { runAiDetect } = await import('../src/commands/ai-detect-cli.mjs')
+
+  // 人工 0% / AI 26% / 疑似 74% → 分布口径下 fail（人工、疑似两项不达标）
+  // 分段里同时给"判 AI"与"疑似"，验证改写目标把判 AI 的排在前面
+  await withFetch(
+    () =>
+      jsonResponse(
+        successBody({
+          softmax_confidence: 0.99,
+          labels_ratio: { 0: 0, 1: 0.2594, 2: 0.7406 },
+          segment_labels: [
+            { text: '疑似段', label: 2, conf: 0.8, order: 2, position: [0, 10] },
+            { text: '判AI段', label: 1, conf: 0.9, order: 1, position: [10, 20] },
+          ],
+        }),
+      ),
+    async () => {
+      const observed = await runAiDetect([`--file=${file}`, '--min-chars=1', '--enforce=observe'])
+      assert.equal(observed.verdict, 'fail')
+      assert.equal(observed.action, 'observe', 'observe 模式必须明确告知调用方不要重写')
+      assert.deepEqual(observed.fails, ['human', 'uncertain'])
+      assert.deepEqual(observed.rewriteTargets, [1, 2], '仍要给改写方向，且判 AI 的段排在疑似之前')
+
+      const blocked = await runAiDetect([`--file=${file}`, '--min-chars=1', '--enforce=block'])
+      assert.equal(blocked.action, 'block')
+    },
+  )
 })
