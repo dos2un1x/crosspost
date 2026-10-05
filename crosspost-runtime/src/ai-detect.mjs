@@ -105,7 +105,8 @@ export const AI_DETECT_DEFAULTS = {
     minSegmentConf: 0.5,
     /**
      * 是否把"疑似AI"（label=2）也纳入定向改写。默认 **true**：
-     * 分布口径要求"人工 ≥50%"，而改写前的文本大多落在"疑似"档，不把疑似段纳入就等于没得改。
+     * 区间口径（bands）要求人工特征 ≥30% 且疑似 ≤40%，而改写前的文本大多落在"疑似"档——
+     * 不把疑似段纳入改写，就没有可动的对象。
      */
     includeSuspected: true,
   },
