@@ -29,28 +29,42 @@ import {
 /* ────────────────── 测试脚手架 ────────────────── */
 
 /**
- * 凭证必须是**测试自己钉的**，不许来自开发机的 `crosspost-runtime/.env`。
+ * 入口级用例（`runAiDetect`）必须**完全自洽**，不许读开发机的三样东西：
+ * `crosspost-runtime/.env`、`config.json`、`~/.dsh`。
  *
- * `runAiDetect` 走的是真实入口（内部 `resolveDetectCredentials()`：env > .env），
- * 而 `.env` 是 gitignored 的本机文件——于是"本机有 key"时 `detectText` 才被调到，
- * CI / 干净 clone 上则先撞 `no-api-key` 变成 `verdict:'skip'`，用例报
- * `'skip' !== 'fail'`（2026-10-05 CI 实测）。
- * 这与本文件里直接调 `detectText` 的用例一致——那些都显式传 `apiKey:'k'`；
- * `runAiDetect` 没有 apiKey 入参，只能在 env 这一层钉。
- * 显式传 `apiKey:''` 的"凭证缺失"用例不受影响（显式值优先，含空串）。
+ * 为什么：`runAiDetect` 走真实入口，凭证由 `resolveDetectCredentials()` 解析
+ * （env > `.env`，见 src/ai-detect.mjs:163），配置由 `readAiDetectConfig()` 读
+ * `readConfig()`（`CROSSPOST_CONFIG` > `<runtime>/config.json`）。而 `.env` 与
+ * `config.json` 都是 gitignored / 本机文件——于是本机有 key、且 `aiDetect.slots`
+ * 恰好放行 `noon` 时才绿；CI / 干净 clone 上先撞 `no-api-key` 或 `slot-not-enabled`，
+ * 变成 `verdict:'skip'`，用例报 `'skip' !== 'fail'`（2026-10-05 CI 实测）。
+ *
+ * 这与 publish.test.mjs 的做法一致（那边也叫"沙箱 config.json"，并写明
+ * "读真实 config.json 会让使用者在 Console 改一次设置就变红"）。本文件里直接调
+ * `detectText` 的用例本来就是自洽的（显式传 config/apiKey），这里补齐入口级的两样。
+ *
+ * 键值直接取自 `AI_DETECT_DEFAULTS`（而不是另抄一份字面量）：既钉住当前行为，
+ * 又不会在默认值演进后与源码脱节。显式传 `apiKey:''` 的"凭证缺失"用例不受影响
+ * （显式值优先，含空串）。
  */
 const TEST_API_KEY = 'test-key'
 const TEST_GATEWAY = 'https://gw.test'
-const prevApiKey = process.env.ZHUQUE_API_KEY
-const prevGateway = process.env.EDGEONE_AI_GATEWAY_BASE
+const testEnvKeys = ['ZHUQUE_API_KEY', 'EDGEONE_AI_GATEWAY_BASE', 'CROSSPOST_CONFIG']
+const prevEnv = Object.fromEntries(testEnvKeys.map((k) => [k, process.env[k]]))
+process.on('exit', () => {
+  for (const k of testEnvKeys) {
+    if (prevEnv[k] === undefined) delete process.env[k]
+    else process.env[k] = prevEnv[k]
+  }
+})
 process.env.ZHUQUE_API_KEY = TEST_API_KEY
 process.env.EDGEONE_AI_GATEWAY_BASE = TEST_GATEWAY
-process.on('exit', () => {
-  if (prevApiKey === undefined) delete process.env.ZHUQUE_API_KEY
-  else process.env.ZHUQUE_API_KEY = prevApiKey
-  if (prevGateway === undefined) delete process.env.EDGEONE_AI_GATEWAY_BASE
-  else process.env.EDGEONE_AI_GATEWAY_BASE = prevGateway
-})
+
+/** 沙箱 config.json：钉住 aiDetect（值 = 内置默认），使入口级用例与开发机配置无关 */
+const SANDBOX_CONFIG = path.join(os.tmpdir(), `cp-aidetect-config-${process.pid}.json`)
+fs.writeFileSync(SANDBOX_CONFIG, JSON.stringify({ aiDetect: AI_DETECT_DEFAULTS }), 'utf8')
+process.env.CROSSPOST_CONFIG = SANDBOX_CONFIG
+process.on('exit', () => fs.rmSync(SANDBOX_CONFIG, { force: true }))
 
 /** 每个用例一套独立的用量台账（否则前一个用例的记账会污染后一个） */
 function freshLocalRoot() {
