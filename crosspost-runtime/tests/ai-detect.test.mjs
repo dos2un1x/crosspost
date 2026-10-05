@@ -28,6 +28,30 @@ import {
 
 /* ────────────────── 测试脚手架 ────────────────── */
 
+/**
+ * 凭证必须是**测试自己钉的**，不许来自开发机的 `crosspost-runtime/.env`。
+ *
+ * `runAiDetect` 走的是真实入口（内部 `resolveDetectCredentials()`：env > .env），
+ * 而 `.env` 是 gitignored 的本机文件——于是"本机有 key"时 `detectText` 才被调到，
+ * CI / 干净 clone 上则先撞 `no-api-key` 变成 `verdict:'skip'`，用例报
+ * `'skip' !== 'fail'`（2026-10-05 CI 实测）。
+ * 这与本文件里直接调 `detectText` 的用例一致——那些都显式传 `apiKey:'k'`；
+ * `runAiDetect` 没有 apiKey 入参，只能在 env 这一层钉。
+ * 显式传 `apiKey:''` 的"凭证缺失"用例不受影响（显式值优先，含空串）。
+ */
+const TEST_API_KEY = 'test-key'
+const TEST_GATEWAY = 'https://gw.test'
+const prevApiKey = process.env.ZHUQUE_API_KEY
+const prevGateway = process.env.EDGEONE_AI_GATEWAY_BASE
+process.env.ZHUQUE_API_KEY = TEST_API_KEY
+process.env.EDGEONE_AI_GATEWAY_BASE = TEST_GATEWAY
+process.on('exit', () => {
+  if (prevApiKey === undefined) delete process.env.ZHUQUE_API_KEY
+  else process.env.ZHUQUE_API_KEY = prevApiKey
+  if (prevGateway === undefined) delete process.env.EDGEONE_AI_GATEWAY_BASE
+  else process.env.EDGEONE_AI_GATEWAY_BASE = prevGateway
+})
+
 /** 每个用例一套独立的用量台账（否则前一个用例的记账会污染后一个） */
 function freshLocalRoot() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-aidetect-'))
