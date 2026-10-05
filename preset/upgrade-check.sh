@@ -95,6 +95,19 @@ bad()  { printf '  \033[31m✖\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }
 warn() { printf '  \033[33m⚠\033[0m %s\n' "$*"; WARN=$((WARN+1)); }
 sec()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 hint() { printf '      ↳ %s\n' "$*"; }
+# 会话文件按 mtime 倒序（最新在前）。
+#
+# 为什么不用 `find … | xargs -0 ls -t`：**GNU xargs 在空输入时仍会执行一次 `ls -t`**，
+# 于是它列的是**当前目录**——干净环境（会话目录不存在/为空）下"最新会话"会变成
+# ./config.json，第 8 节当场假红（2026-10-04 CI 实测）。BSD xargs 空输入不执行命令，
+# 所以这个坑只在 Linux 上炸。自己按 mtime 排：空集合就是空输出，与平台无关。
+# `stat` 两套写法互斥：GNU `-c %Y` / BSD `-f %m`，先 GNU 后 BSD。
+session_files_by_mtime() {
+  find "$DSH_HOME/sessions" -name 'session*.jsonl*' -type f 2>/dev/null | while IFS= read -r f; do
+    mt="$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null || echo 0)"
+    printf '%s\t%s\n' "$mt" "$f"
+  done | sort -rn | cut -f2-
+}
 realpath_py() { python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"; }
 
 # ── 0. 部署与启动链 ──────────────────────────────────────────────────────
@@ -652,7 +665,8 @@ fi
 
 # ── 8. 会话日志格式（费用报表依赖）────────────────────────────────────
 sec "8. 会话日志格式（费用报表依赖）"
-newest="$(find "$DSH_HOME/sessions" -name 'session*.jsonl*' -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
+# 排序不许经 `xargs -0 ls -t`（GNU 空输入会列当前目录 → 见 session_files_by_mtime 注释）
+newest="$(session_files_by_mtime | head -1)"
 if [ -z "$newest" ]; then
   warn "未找到会话日志（跳过）"
 else
@@ -697,7 +711,7 @@ else
       m="$(grep -c '"assistant/message"' "$TMP/s.jsonl" 2>/dev/null || true)"; m="${m:-0}"
       if [ "$m" -gt 0 ]; then probe="$cand"; probe_msg="$m"; break; fi
       probe_skipped=$((probe_skipped + 1))
-    done < <(find "$DSH_HOME/sessions" -name 'session*.jsonl*' -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -8)
+    done < <(session_files_by_mtime | head -8)
     if [ -n "$probe" ]; then
       n_use="$(grep -c '"usage":' "$TMP/s.jsonl" 2>/dev/null || true)"; n_use="${n_use:-0}"
       if [ "${n_use:-0}" -gt 0 ]; then

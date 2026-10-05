@@ -20,6 +20,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -34,6 +35,21 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-upgrade-check-'))
  */
 const stripAnsi = (s) => s.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '')
 process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }))
+
+/**
+ * `@deepseek-ai/dsh-tools` 是 **DSH 宿主提供的包**：只有装了 DSH 才可解析。
+ * 与 deployment-consistency.test.mjs 同一实现与同一取舍（干净环境跳过，不判失败）。
+ */
+function canResolveDshTools() {
+  try {
+    createRequire(path.join(REPO, 'preset', 'crosspost', 'plugins', 'x.js')).resolve(
+      '@deepseek-ai/dsh-tools',
+    )
+    return true
+  } catch {
+    return false
+  }
+}
 
 /** 经由**软链**调用（模拟 ~/.dsh/upgrade-check.sh 的真实用法），DSH_HOME 指向空目录 */
 function runViaSymlink(env = {}, prepare = null) {
@@ -104,6 +120,23 @@ test('静态护栏：bundle 解析必须覆盖 profile 自己的 node_modules（
     '应查共享的 profiles/node_modules',
   )
   assert.ok(/"\$DEPLOY\/node_modules\/\$b"/.test(src), '最后才查 DSH 部署目录')
+})
+
+test('静态护栏：会话文件排序不得经 `xargs ls`（GNU 空输入会列当前目录）', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8')
+  const offenders = src
+    .split('\n')
+    .map((line, i) => ({ line, i: i + 1 }))
+    .filter(({ line }) => !line.trim().startsWith('#'))
+    .filter(({ line }) => /xargs[^\n|]*\bls\b/.test(line))
+  // 现场（2026-10-04 CI）：`find … -print0 | xargs -0 ls -t` 在会话目录为空时，
+  // GNU xargs 仍执行一次 `ls -t` → 列出**当前目录** → "最新会话"成了 config.json，
+  // 第 8 节假红。BSD xargs 不执行，所以本机（macOS）永远测不出来——只能静态盯住。
+  assert.deepEqual(
+    offenders.map(({ line, i }) => `${i}: ${line.trim()}`),
+    [],
+    '会话排序请用 session_files_by_mtime()（或任何不经 xargs ls 的等价实现）',
+  )
 })
 
 /**
@@ -307,7 +340,7 @@ test('相对行名：预设里的 ./plugins/… 必须判错并指明正确写�
  * “未发现预设本地插件（跳过）”——**检查还在、覆盖却没了**，比不检查更危险（它给的是 ✔ 的错觉）。
  * 这条测试直接对着**真仓库**的 preset 跑：两个插件都必须被导入，且不许出现那句“未发现”。
  */
-test('预设本地插件发现面：仓库里的每个插件都要被第 3 节真的导入（不得静默跳过）', () => {
+test('预设本地插件发现面：仓库里的每个插件都要被第 3 节真的导入（不得静默跳过）', (t) => {
   const { stdout } = runViaSymlink({ CROSSPOST_NODE: process.execPath })
   const out = stripAnsi(stdout)
 
@@ -316,6 +349,15 @@ test('预设本地插件发现面：仓库里的每个插件都要被第 3 节�
     /未发现预设本地插件/,
     '第 3 节没发现任何插件——它的发现规则又和行名写法脱节了（检查会变成空转的 ✔）',
   )
+  // `preset/crosspost/plugins/crosspost.js` 顶层 `import '@deepseek-ai/dsh-tools'`——
+  // 那是 **DSH 宿主提供的包**，干净环境（CI / 干净 clone）没有它，裸 node 的 fresh import
+  // 必失败（ERR_MODULE_NOT_FOUND），与"发现规则对不对"无关。此时**跳过而不是失败**：
+  // 与 deployment-consistency.test.mjs 同一条取舍（那边已踩过同一个误报）。
+  // 本测试要守的判据仍然成立：上面 `未发现预设本地插件` 那句一次都不许出现。
+  if (!canResolveDshTools()) {
+    t.skip('当前环境无 @deepseek-ai/dsh-tools（未安装 DSH），跳过插件导入断言')
+    return
+  }
   for (const base of ['crosspost.js', 'commands.js']) {
     assert.match(
       out,
