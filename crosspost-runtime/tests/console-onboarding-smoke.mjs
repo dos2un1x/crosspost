@@ -150,21 +150,32 @@ try {
       wrapW: Math.round(wrap.getBoundingClientRect().width),
       deadSpace: Math.round(contentRight - wrap.getBoundingClientRect().right),
       cols: getComputedStyle(wrap).gridTemplateColumns.split(' ').length,
+      // 每张卡是否独占一行、是否铺满栅格（2026-10-06：单栏后"两栏生效"不再是判据）
+      cardRows: [...wrap.querySelectorAll(':scope > .card')].map((c) => {
+        const r = c.getBoundingClientRect()
+        return { id: c.id || '', w: Math.round(r.width), left: Math.round(r.left) }
+      }),
       hOver: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     }
   })
   // v2.89：判据由"宽度 ≤1120"改成"**铺满内容区**"。
   // 为什么翻过来：v2.88 的 1120 上限让 1426px 窗口右侧空 258px，使用者直接反馈
   // "宽度不够、没填满整个页面"——当时的断言恰恰把那个上限**钉死**了。
-  // 现在断言"右边缘与内容区右边缘对齐（死白 ≤2px）"且 ≥1200px 时两栏生效。
+  // 2026-10-06：版式改为**每个模块独占一行、横向填满**（用户决策，与设置页同款），
+  // 判据随之从"两栏生效"改成"单栏 + 每张可见卡都铺满栅格宽度"——两栏时代的
+  // `:has([hidden])` 跨栏补丁也随之删除。
+  const visibleCards = layout.cardRows.filter((c) => c.w > 0)
+  const allFullWidth =
+    visibleCards.length > 0 && visibleCards.every((c) => Math.abs(c.w - layout.wrapW) <= 2)
   check(
-    '接线台·铺满内容区（无右侧死白）+ 两栏生效 + 按钮不折行 + 无横向溢出',
+    '接线台·铺满内容区（无右侧死白）+ 每模块独占一行铺满 + 按钮不折行 + 无横向溢出',
     layout.btnH <= 40 &&
       !layout.btnWrapped &&
       Math.abs(layout.deadSpace) <= 2 &&
-      layout.cols >= 2 &&
+      layout.cols === 1 &&
+      allFullWidth &&
       !layout.hOver,
-    JSON.stringify(layout),
+    JSON.stringify({ ...layout, cols: layout.cols, cards: visibleCards.length }),
   )
 
   // 2d) 「⟳ 重新检查」的反馈（v2.90）

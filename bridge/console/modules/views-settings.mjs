@@ -79,6 +79,8 @@ export async function loadSettings() {
     syncThresholdDial('num')
     renderRiskChips('strong')
     renderRiskChips('weak')
+    // AI 检测（朱雀）门禁：口径/强度/覆盖/抽样/额度（项目级键，见 config-layers.PROJECT_KEYS）
+    loadAiDetectFields(cfg.aiDetect || {})
     // 品牌图标（2026-09-02）：回显当前 icon 路径 + 预览
     const icon = (cfg.branding && cfg.branding.icon) || ''
     $('#brand-icon-url').value = icon
@@ -97,6 +99,9 @@ export async function loadSettings() {
     // 备份状态（v2.96：改成"读数 + 发丝线行"，此前是 5 个文件名各占一个边框盒子）
     renderBackup(backup || {})
     store.settingsLoaded = true
+    // 进设置页（含切项目触发的重放）时重算吸顶偏移与当前分组高亮
+    syncSetNavOffset()
+    syncSetNavActive()
   } catch (e) {
     $('#schedule-list').innerHTML =
       `<div style="color:var(--fail)">加载失败: ${escapeHtml(e.message)}</div>`
@@ -1114,6 +1119,144 @@ async function testNotify() {
   }
 }
 
+/* ══ AI 检测（朱雀）门禁 ══════════════════════════════════════════════════
+   为什么要有这张卡片：`aiDetect` 是**项目级**写作政策键，但此前只能手改 config.json ——
+   面板里看不到当前口径，也改不了强度/覆盖/抽样，而这三项直接决定"检测跑不跑、算不算过"。
+   凭证（`ZHUQUE_API_KEY`）与用量（台账）**不在这里**：前者走 `.env`，后者看自检页与
+   `aiDetect --budget`（额度是账号级、全引擎一份台账，所以不放进按项目切换的面板）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** 0-1 的读数格式化：留两位小数，避免浮点尾巴显示成 0.30000000000000004 */
+function fmtRatio(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : ''
+}
+
+/** 区间口径（bands/distribution）才显示三段占比；metric 只显示一个阈值 */
+function syncAiDetectRows() {
+  const mode = ($('#ai-mode') || {}).value || 'metric'
+  const bounds = $('#ai-bounds-row')
+  if (bounds) bounds.classList.toggle('is-off', mode === 'metric')
+  const thr = $('#ai-threshold-row')
+  if (thr) thr.classList.toggle('is-off', mode !== 'metric')
+}
+
+function loadAiDetectFields(ai) {
+  const gate = ai.gate || {}
+  $('#ai-enforce').value = gate.enforce === 'block' ? 'block' : 'observe'
+  $('#ai-mode').value = ['bands', 'distribution', 'metric'].includes(gate.mode)
+    ? gate.mode
+    : 'metric'
+  const thr = $('#ai-threshold')
+  if (thr) thr.value = fmtRatio(gate.threshold === undefined ? 0.3 : gate.threshold)
+  const d = {
+    '#ai-human-min': gate.humanMin,
+    '#ai-human-max': gate.humanMax,
+    '#ai-ai-min': gate.aiMin,
+    '#ai-ai-max': gate.aiMax,
+    '#ai-unc-min': gate.uncertainMin,
+    '#ai-unc-max': gate.uncertainMax,
+  }
+  for (const [sel, v] of Object.entries(d)) {
+    const el = $(sel)
+    if (el) el.value = fmtRatio(v)
+  }
+  $('#ai-slots').value = Array.isArray(ai.slots) ? ai.slots.join(',') : ''
+  $('#ai-sample-rate').value = fmtRatio(ai.sampleRate === undefined ? 1 : ai.sampleRate)
+  $('#ai-budget').value = Number.isFinite(Number(ai.monthlyTokenBudget))
+    ? Number(ai.monthlyTokenBudget)
+    : ''
+  $('#ai-anchor-day').value = Number.isFinite(Number(ai.quotaAnchorDay))
+    ? Number(ai.quotaAnchorDay)
+    : 1
+  const requireSel = $('#ai-require-snapshot')
+  if (requireSel) requireSel.value = ai.requireSnapshotOnPublish === true ? 'on' : 'off'
+  const sgSel = $('#ai-style-guard')
+  if (sgSel) sgSel.value = (ai.styleGuard && ai.styleGuard.enabled) === true ? 'on' : 'off'
+  $('#ai-detect-msg').textContent = ''
+  syncAiDetectRows()
+}
+
+/** 保存 AI 检测门禁（独立卡片；只发 aiDetect，别的键一个不动） */
+async function saveAiDetect() {
+  const msg = $('#ai-detect-msg')
+  msg.className = 'repub-result'
+  msg.innerHTML =
+    '<span class="spinner" style="border-color:rgba(180,67,47,.3);border-top-color:#b4432f"></span>保存中…'
+  // 0-1 校验放在前端，后端还有一道规范化（越界不落盘）
+  const ratio = (sel, label) => {
+    const raw = ($(sel) || {}).value
+    const n = Number(raw)
+    if (raw === '' || !Number.isFinite(n) || n < 0 || n > 1) {
+      throw new Error(`${label} 必须是 0-1 之间的数`)
+    }
+    return n
+  }
+  try {
+    const mode = $('#ai-mode').value
+    const slots = String($('#ai-slots').value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const sampleRate = Number($('#ai-sample-rate').value)
+    if (!Number.isFinite(sampleRate) || sampleRate < 0 || sampleRate > 1) {
+      throw new Error('抽样率必须是 0-1 之间的数')
+    }
+    const budget = Number($('#ai-budget').value)
+    if (!Number.isFinite(budget) || budget < 0) throw new Error('周期 token 硬闸必须是非负数')
+    const anchor = Number($('#ai-anchor-day').value)
+    if (!Number.isInteger(anchor) || anchor < 1 || anchor > 31) {
+      throw new Error('周期锚点日必须是 1-31 的整数')
+    }
+    const gate = {
+      mode,
+      enforce: $('#ai-enforce').value,
+      // 按口径只提交它用得上的边界，避免把无关数字（甚至是被误读成下界的 0）写进配置：
+      //   metric        → 只有 threshold
+      //   distribution  → humanMin（下界）/ aiMax 与 uncertainMax（两条上界）
+      //   bands         → 六个边界全提交
+      ...(mode === 'metric'
+        ? {
+            metric: 'labels_ai',
+            threshold: ratio('#ai-threshold', 'AI 特征阈值'),
+          }
+        : mode === 'distribution'
+          ? {
+              humanMin: ratio('#ai-human-min', '人工特征下界'),
+              aiMax: ratio('#ai-ai-max', 'AI 特征上界'),
+              uncertainMax: ratio('#ai-unc-max', '疑似 AI 上界'),
+            }
+          : {
+              humanMin: ratio('#ai-human-min', '人工特征下界'),
+              humanMax: ratio('#ai-human-max', '人工特征上界'),
+              aiMin: ratio('#ai-ai-min', 'AI 特征下界'),
+              aiMax: ratio('#ai-ai-max', 'AI 特征上界'),
+              uncertainMin: ratio('#ai-unc-min', '疑似 AI 下界'),
+              uncertainMax: ratio('#ai-unc-max', '疑似 AI 上界'),
+              // `gate.exclusive`（哪些边界是开区间）卡片不编辑：省略即由后端深合并保留原值
+            }),
+    }
+    const r = await postJSON('/proxy/config', {
+      aiDetect: {
+        gate,
+        slots,
+        sampleRate,
+        monthlyTokenBudget: budget,
+        quotaAnchorDay: anchor,
+        requireSnapshotOnPublish: $('#ai-require-snapshot').value === 'on',
+        // 风格护栏只提交开关：阈值沿用引擎默认（要在 Console 调阈值就改 config.json）
+        styleGuard: { enabled: $('#ai-style-guard').value === 'on' },
+      },
+    })
+    if (r.error) throw new Error(r.error)
+    msg.className = 'repub-result ok'
+    msg.textContent = '已保存 ✓'
+  } catch (e) {
+    msg.className = 'repub-result err'
+    msg.textContent = '保存失败: ' + String(e.message || e)
+  }
+}
+
 /** 保存评分阈值 + 投资风险词（独立卡片；只发 scoring，不影响 notify） */
 async function saveScoring() {
   const msg = $('#scoring-msg')
@@ -1160,7 +1303,103 @@ async function backupNow() {
 }
 
 /** 视图初始化：绑定设置页事件 */
+/* ══ 设置页分组导航（2026-10-06）═════════════════════════════════════════
+   这一页有五组、十张卡：不吸顶的目录等于没有目录。三个边界条件值得写下来：
+   · **不能用 <a href="#…">**：这个 Console 的地址栏归 hash 路由（`#/settings`），
+     锚点跳转会把它顶掉、进而触发一次视图重放；
+   · 吸顶位置要躲开 `.topbar`（它自己也 sticky，窄屏换行后高度会变）——
+     所以每进设置页量一次 topbar 高度，写进 `--set-nav-top`；
+   · 高亮是"当前视口里最靠上的那一组"，用滚动位置算，不引入 IntersectionObserver
+     （分组只有 5 个，算一遍比观察器便宜，也不会有回调时序的坑）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** 量 topbar 高度并写 `--set-nav-top`（吸顶导航的 top 偏移） */
+function syncSetNavOffset() {
+  const topbar = document.querySelector('.topbar')
+  if (!topbar) return
+  const h = Math.round(topbar.getBoundingClientRect().height) + 10
+  document.documentElement.style.setProperty('--set-nav-top', `${h}px`)
+  // 导航自身高度也写成变量：窄屏它会换行（两行 ~64px），组头的 scroll-margin 要跟着长
+  const nav = document.querySelector('#set-nav')
+  if (nav) {
+    document.documentElement.style.setProperty(
+      '--set-nav-h',
+      `${Math.round(nav.getBoundingClientRect().height)}px`,
+    )
+  }
+}
+
+/** 当前视口顶部所在的组（返回 data-target） */
+function currentSetGroup() {
+  const items = [...document.querySelectorAll('#set-nav .set-nav-item')]
+  const line =
+    window.scrollY +
+    (parseInt(getComputedStyle(document.documentElement).getPropertyValue('--set-nav-top'), 10) ||
+      118) +
+    80
+  let best = items[0]
+  for (const it of items) {
+    const g = document.getElementById(it.dataset.target)
+    if (g && g.getBoundingClientRect().top + window.scrollY <= line) best = it
+  }
+  return best && best.dataset.target
+}
+
+function syncSetNavActive() {
+  const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8
+  const items = [...document.querySelectorAll('#set-nav .set-nav-item')]
+  const cur = atBottom ? items[items.length - 1].dataset.target : currentSetGroup()
+  document.querySelectorAll('#set-nav .set-nav-item').forEach((el) => {
+    el.classList.toggle('is-active', el.dataset.target === cur)
+  })
+}
+
+let setNavBound = false
+/** 绑定分组导航（只绑一次；入口在 initSettingsView） */
+function initSetNav() {
+  const nav = document.querySelector('#set-nav')
+  if (!nav) return
+  syncSetNavOffset()
+  syncSetNavActive()
+  if (setNavBound) return
+  setNavBound = true
+  nav.querySelectorAll('.set-nav-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const g = document.getElementById(btn.dataset.target)
+      if (!g) return
+      const offset = parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue('--set-nav-top'),
+        10,
+      )
+      const top = g.getBoundingClientRect().top + window.scrollY - (offset || 118) - 54
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+      // 平滑滚动期间先点亮，不等滚动结束（否则点完没反馈）
+      nav.querySelectorAll('.set-nav-item').forEach((el) => {
+        el.classList.toggle('is-active', el === btn)
+      })
+    })
+  })
+  let raf = 0
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (!document.querySelector('#view-settings.active')) return
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        syncSetNavActive()
+      })
+    },
+    { passive: true },
+  )
+  window.addEventListener('resize', () => {
+    syncSetNavOffset()
+    syncSetNavActive()
+  })
+}
+
 export function initSettingsView() {
+  initSetNav()
   $('#btn-sched-all-on').addEventListener('click', () => setAllSchedule(true))
   $('#btn-sched-all-off').addEventListener('click', () => setAllSchedule(false))
   // 新增槽位（v2.84）：id 是技术键（= 流水线 模式=<id>），名称只影响显示
@@ -1193,6 +1432,11 @@ export function initSettingsView() {
   const testNotifyBtn = $('#btn-test-notify')
   if (testNotifyBtn) testNotifyBtn.addEventListener('click', testNotify)
   $('#btn-save-scoring').addEventListener('click', saveScoring)
+  // AI 检测门禁（朱雀）：保存 + 口径切换时收起/展开三段区间
+  const aiSaveBtn = $('#btn-save-ai-detect')
+  if (aiSaveBtn) aiSaveBtn.addEventListener('click', saveAiDetect)
+  const aiModeSel = $('#ai-mode')
+  if (aiModeSel) aiModeSel.addEventListener('change', syncAiDetectRows)
   $('#btn-brand-apply').addEventListener('click', saveBrandIcon)
   $('#btn-brand-reset').addEventListener('click', resetBrandIcon)
   // v2.96.1：这两个按钮此前**只改勾选框、既不刷新读数、也不管过滤**——

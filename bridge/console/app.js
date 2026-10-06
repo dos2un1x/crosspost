@@ -9,7 +9,7 @@ import { initDetailView } from './modules/views-detail-actions.mjs'
 import { initTopicsView, loadTopics, stopTopicsPoll } from './modules/views-topics.mjs'
 import { initRetainedView, loadRetained } from './modules/views-retained.mjs'
 import { initArchiveView, loadArchive } from './modules/views-archive.mjs'
-import { initReportsView, loadReports } from './modules/views-reports.mjs'
+import { loadReports } from './modules/views-reports.mjs'
 import { initSettingsView, loadSettings, stopSettingsPoll } from './modules/views-settings.mjs'
 import { initEditorView, loadEditor } from './modules/views-editor.mjs'
 import { initOnboardingView, loadOnboarding } from './modules/views-onboarding.mjs'
@@ -75,7 +75,6 @@ window.addEventListener('load', async () => {
   initTopicsView()
   initRetainedView()
   initArchiveView()
-  initReportsView()
   initSettingsView()
   initEditorView()
   initOnboardingView()

@@ -97,14 +97,7 @@ function deriveSteps(status, registry) {
         : '本项目前尚未接入 Console 的工作台。引擎的平台域功能（登录态/发布/渲染/样式）无需接入即可使用；' +
           '文章、选题库、留存等视图需要接入一个写作项目。',
       ...(hasProjects
-        ? {
-            extra: activeId
-              ? `v2.22 起内容域已接线：文章/留存/归档/选题/报表的请求都会带上当前项目，` +
-                `草稿读自该项目的 dataDir，引擎簿记记录写在 <引擎 localRoot>/project-state/${activeId}/。` +
-                `标注「数据源不可达」的项目其 dataDir 路径当前不存在。`
-              : '在「项目」下拉框切换；标注「数据源不可达」的项目其 dataDir 路径当前不存在。' +
-                '（未选择具体项目时，内容域沿用默认路径——单项目部署行为不变。）',
-          }
+        ? {}
         : {
             action:
               '接入方式见 docs/integration.md §1：项目侧放 .crosspost/project.json，无需改动引擎。',
@@ -340,13 +333,6 @@ function renderProjectScope(p) {
     list.appendChild(row)
   }
   box.appendChild(list)
-  box.appendChild(
-    el(
-      'div',
-      { class: 'ob-doctor-hint' },
-      '这些路径来自项目自己的 manifest 与工作区推导（v2.76 起周边资源按项目解析）；下面的引擎自检是机器级的，两者作用域不同。',
-    ),
-  )
 }
 
 /* ── 常驻 worker 车道（2026-09-21 v2.101.1）─────────────────────────
@@ -413,14 +399,6 @@ function renderWorkerLanes(health) {
   }
   box.innerHTML = ''
   box.appendChild(list)
-  box.appendChild(
-    el(
-      'div',
-      { class: 'ob-doctor-hint' },
-      '「冷」= 该车道的请求会退化成每次冷启动 cli.mjs（约 1.2s）。车道会在请求到达时自动重新拉起；' +
-        '连续退出达上限则进入 60s 冷却，到期自动重试。',
-    ),
-  )
 }
 
 /* ── v2.90 检查状态：忙碌态 + 回执 + 单飞 ────────────────────────────

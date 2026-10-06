@@ -1049,16 +1049,16 @@ tbody tr:last-child td {
 }
 
 /* ── 设置页 ───────────────────────── */
+/* 单栏：**每个模块独占一行、横向填满**（2026-10-06 用户决策）。
+   两栏时代的账：同排两张卡高度差最大 527px（如「AI 检测 803 + 品牌图标 276」），
+   右缘常空出半张卡；把高度差压到最小也只是"洞小一点"，仍然要靠眼睛对齐两列。
+   现在一卡一行：分组头 + 吸顶导航负责"找得到"，横向空间全部还给控件本身
+   （状态条、定义格、样式卡都能多排几列、少折几行，整页反而更矮）。 */
 .settings-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
-  align-items: stretch;
-}
-@media (max-width: 1000px) {
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
+  align-items: start;
 }
 .card {
   background: var(--glass);
@@ -1720,29 +1720,17 @@ html[data-theme='dark'] .batch-count {
   margin-left: 6px;
 }
 
-/* ── 页头 / 网格（报表、设置等视图共用） ─────────────────── */
-.wf-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-.wf-title {
-  font-family: var(--serif);
-  font-size: 21px;
-  margin-bottom: 2px;
-}
+/* 报表视图页头（`.wf-head` / `.wf-title`）已随"切视图即自动刷新"删除（2026-10-06），
+   这里只留栅格。 */
 
+/* 单栏：**每个模块独占一行、横向填满**（2026-10-06，与设置页 / 接入与自检同款）。
+   两栏时代这里还被拆成三段 grid（每周+平台 / 栏目+状态 / 费用+7 日），
+   每段再补一条 inline `margin-top: 18px`；合并成一段后间距由 gap 统一给。 */
 .wf-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
-  align-items: stretch;
-}
-@media (max-width: 1000px) {
-  .wf-grid {
-    grid-template-columns: 1fr;
-  }
+  align-items: start;
 }
 
 /* ── 质量评分（2026-08-20） ── */
@@ -3976,19 +3964,13 @@ html[data-theme='dark'] .cm-host .cm-activeLineGutter {
      内容区（实测 gap=0），所以只有这一页需要改。 */
   max-width: none;
 }
-/* ≥1200px：报格式两栏。四张卡按 **DOM 顺序自动落格**（四步 | 矩阵 ／ 项目 | 自检），
-   刻意**不用显式 grid-area**：`#onboarding-project-card` 靠 hidden 切换显隐，
-   显式定位会在未选项目时留一个空洞；自动流会让后面的卡自动补位。 */
-@media (min-width: 1200px) {
-  .ob-wrap {
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  }
-  /* 未选项目时项目卡是 hidden，只剩 3 张卡 → 最后一张（引擎自检）落在左下，
-     右下会剩一块空纸（实测 565×159）。这里让它在无项目卡时**横跨两栏**；
-     选中项目后 2×2 完整，横跨规则自动不生效（`:has()` 只在 hidden 时匹配）。 */
-  .ob-wrap:has(#onboarding-project-card[hidden]) #onboarding-doctor-card {
-    grid-column: 1 / -1;
-  }
+/* 单栏：**每个模块独占一行、横向填满**（2026-10-06，与设置页同一版式决策）。
+   两栏时代的账：四张卡按 DOM 顺序落格（四步 | 矩阵 ／ 项目 | 自检），
+   而未选项目时项目卡是 hidden——于是"自检"那张要么单独占半栏留一块空纸（实测 565×159），
+   要么靠 `:has([hidden])` 补一张跨栏规则。单栏后这些补丁全部删掉：
+   每张卡各占一行，矩阵的 27 片芯片、doctor 的检查行、worker 的四条车道都能铺开。 */
+.ob-wrap {
+  grid-template-columns: minmax(0, 1fr);
 }
 #view-onboarding .card {
   box-shadow: none; /* 报告面：扁平、靠发丝线与排版分层，不再一片重投影 */
@@ -4709,8 +4691,9 @@ html[data-theme='dark'] .cm-host .cm-activeLineGutter {
    `input[data-time]` / `button[data-save]` / `button[data-del]` 全部保留。
    ══════════════════════════════════════════════════════════════════════ */
 
-/* 这一节需要横向空间（5 列 + 时刻线），**任何宽度都跨满**（≥1200px 时即跨两栏；
-   1000–1200 之间若只占左栏，479px 塞 5 列会把行挤成两行 —— 实测踩到）。 */
+/* `.card-wide` 保留为语义标记（"这张卡要横向空间"）：单栏栅格下它不再改变布局，
+   但 `.card-wide .def-cell select` 这类**卡内**宽度规则仍以它为作用域。
+   （两栏时代它的作用是 `grid-column: 1 / -1`——那一版 5 列时刻表挤在 680px 里会折行。） */
 .settings-grid > .card-wide {
   grid-column: 1 / -1;
 }
@@ -5123,12 +5106,152 @@ html[data-theme='dark'] .cm-host .cm-activeLineGutter {
    `#backup-status` / `#backup-files` / `#brand-icon-*` / `#btn-*`。
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* ── ① 版面：卡片不再被拉平到同高 ─────────────────────────────────────────
-   `align-items: stretch`（grid 默认）把同排两张卡拉到一样高：改前「通知方式」
-   内容 ~440px、边框却 816px。改成 start 后每张卡只有它内容那么高，
-   卡与卡之间的空白回到页面底色上（读起来是留白，而不是"这张卡没写完"）。 */
+/* ── ① 版面：卡片按内容高度排（单栏下仅剩"不被拉平"这一条） ───────────────
+   两栏时代 `align-items: stretch`（grid 默认）会把同排两张卡拉成一样高：
+   「通知方式」内容 ~440px、边框却 816px。现在单栏，卡片本就各占一行，
+   这条 `start` 只保证卡片高度等于内容高度。 */
 .settings-grid {
   align-items: start;
+}
+
+/* ══ 视图内分组（2026-10-06；设置页与接入与自检页共用）══════════════════
+   十张卡曾按两栏平铺：同排高度差最大 527px（右缘空半张卡的洞），且两张无关的卡并排，
+   读起来是"一堆卡片"而不是"一份设置"。
+   这一版：① 按"什么时候动它"分五组，组头独占一行；② 每个模块独占一行、横向填满。
+   组头不是装饰——它是这一页的目录；设置页的组头带序号并与吸顶导航 #set-nav 对应，
+   接入与自检页用不带序号的头（那一页已有"四步"编号，再编一套会打架）。 */
+.view-group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 6px 0 -4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  /* 吸顶导航高度 + 它自己的高度 + 一点呼吸，避免跳过去时组头被导航压住 */
+  scroll-margin-top: calc(var(--set-nav-top, 118px) + var(--set-nav-h, 48px) + 14px);
+}
+.view-group:first-child {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+.view-group-no {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  background: var(--accent-soft, rgba(180, 67, 47, 0.09));
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.view-group-title {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+.view-group-sub {
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── 分组导航（吸顶）──────────────────────────────────────────────── */
+.set-nav {
+  position: sticky;
+  top: var(--set-nav-top, 118px);
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--topbar-bg, var(--glass));
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+.set-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.set-nav-item:hover {
+  color: var(--accent);
+  border-color: var(--line);
+}
+.set-nav-item.is-active {
+  color: var(--accent);
+  background: var(--accent-soft, rgba(180, 67, 47, 0.09));
+  border-color: transparent;
+  font-weight: 600;
+}
+.set-nav-no {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+/* AI 检测卡的定义栅格：卡片独占一行后卡内还有 ~1350px，固定两列会把每个单元撑到
+   680px（数字输入却只有 190px 宽，右边一大片空）。改成按内容宽度自适应：
+   ≥1200px 4 列 / ≥820px 3 列 / 更窄 2 列。 */
+.def-grid.ai-grid {
+  /* 两段类名：`.def-grid` 的固定两列在文件更靠后，同优先级会盖掉这一段 */
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+/* 评分与风险卡：两个词表（强煽动 / 弱业务）平级，卡片独占一行后并排放，各自 ~660px；
+   窄屏（≤1000px）自动叠回单列。 */
+.rw-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 0 20px;
+}
+.rw-pair > .risk-block {
+  border-bottom: 0;
+}
+
+/* 品牌图标卡：两个入口（上传 / URL）并排，避免 1300px 宽的单行输入框。
+   用 `#card-brand` 加权重——`.brand-fields` 的原始规则（纵向 flex）在文件更靠后，
+   同优先级会盖掉这里。四个子元素按"标签在上、控件在下"显式归位。 */
+#card-brand .brand-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 3px 20px;
+  align-items: end;
+}
+#card-brand .brand-fields > *:nth-child(1) {
+  grid-area: 1 / 1;
+}
+#card-brand .brand-fields > *:nth-child(2) {
+  grid-area: 2 / 1;
+}
+#card-brand .brand-fields > *:nth-child(3) {
+  grid-area: 1 / 2;
+}
+#card-brand .brand-fields > *:nth-child(4) {
+  grid-area: 2 / 2;
+}
+
+/* 定义栅格里的隐藏单元（按口径收起用不上的设置项） */
+.def-cell.is-off {
+  display: none;
 }
 
 /* 视觉隐藏但仍可达（真值载体：渠道 select / 风险词 textarea / 平台 checkbox） */
@@ -5585,6 +5708,13 @@ html[data-theme='dark'] .cm-host .cm-activeLineGutter {
   align-items: center;
   padding: 4px 0 14px;
   border-bottom: 1px solid var(--hairline);
+}
+/* 按当前口径隐藏用不上的行（AI 检测卡片：metric 不收三段占比、bands 不收单指标阈值）。
+   为什么不靠 [hidden]：`.dial-row` 自己带 `display: grid`，作者样式压得住 UA 的 [hidden]。
+   选择器用两段类名（.dial-row.is-off）就是为了稳赢 `.dial-row` 的单类名。 */
+.dial-row.is-off,
+.risk-block.is-off {
+  display: none;
 }
 .dial-main {
   min-width: 0;

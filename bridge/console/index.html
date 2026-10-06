@@ -300,13 +300,13 @@
     </main>
 
     <main id="view-reports" class="view">
-      <div class="wf-head">
-        <div>
-          <h2 class="wf-title">发布报表</h2>
-          <p class="card-sub">基于文章库的本地聚合（前端计算,零 token）</p>
-        </div>
-        <button class="btn ghost" id="rp-refresh">⟳ 刷新</button>
-      </div>
+      <!-- 页头整块删除（2026-10-06）：切到本视图时 `switchView('reports')` 一定会调
+           `loadReports()`（立即画一遍 + 三库到货后再画一遍），所以
+           标题（顶栏已标「报表」）、副标题（"前端计算,零 token" 是实现细节）、
+           以及那个只是再调一次 `loadReports()` 的「⟳ 刷新」按钮，三者都没有存在必要。
+           要看最新数据：切走再切回来，或刷新页面。 -->
+      <!-- 单栏：**每个模块独占一行、横向填满**（2026-10-06，与设置页 / 接入与自检同款）。
+           改前是三段 `wf-grid` 两栏并排，还各带一条 inline `margin-top` 补间距。 -->
       <div class="wf-grid">
         <section class="card">
           <h2>每周产出量</h2>
@@ -317,8 +317,6 @@
           <h2>平台成功率排行</h2>
           <div id="rp-platforms" class="rp-list"></div>
         </section>
-      </div>
-      <div class="wf-grid" style="margin-top: 18px">
         <section class="card">
           <h2>栏目产量</h2>
           <p class="card-sub">
@@ -330,15 +328,12 @@
           <h2>状态构成</h2>
           <div id="rp-status" class="rp-donut"></div>
         </section>
-      </div>
-      <div class="wf-grid" style="margin-top: 18px">
         <section class="card">
           <h2>今日生成费用（token 估算）</h2>
           <!-- 计价口径由接口给（meta.pricing）：型号/价格表版本/峰谷规则都写在引擎里，
                这里是**中性兜底**——绝不写型号与份数这类会漂的字面量（2026-09-25）。 -->
           <p class="card-sub" id="rp-cost-sub">
-            统计今日全量产出费用（文章 + 留存 + 归档）。按引擎内置价格表 × 会话 usage 事件逐 step
-            计费（仅可追溯会话）
+            统计今日全量产出费用（文章 + 留存 + 归档）。只算能追到会话的产出；单价随峰谷时段变化
           </p>
           <div id="rp-cost" class="rp-list">计算中…（首次需解压会话缓存）</div>
         </section>
@@ -352,7 +347,35 @@
     <main id="view-settings" class="view">
       <!-- v2.77：设置是分层的（引擎级 + 项目级），这里显示"正在编辑哪个域" -->
       <div id="cfg-scope" class="cfg-scope"></div>
+      <!-- 分组导航（2026-10-06）：十张卡分五组后，这一页仍然要滚很久；吸顶导航
+           让"想改哪一块"不用靠滚。**用按钮而不是 <a href="#…">** —— 这个 Console 的
+           地址栏归 hash 路由（`#/settings`），锚点跳转会把它顶掉。 -->
+      <nav class="set-nav" id="set-nav" aria-label="设置分组导航">
+        <button class="set-nav-item is-active" type="button" data-target="set-g-dispatch">
+          <span class="set-nav-no">01</span>发布与调度
+        </button>
+        <button class="set-nav-item" type="button" data-target="set-g-quality">
+          <span class="set-nav-no">02</span>内容质量
+        </button>
+        <button class="set-nav-item" type="button" data-target="set-g-connect">
+          <span class="set-nav-no">03</span>通知与连接
+        </button>
+        <button class="set-nav-item" type="button" data-target="set-g-look">
+          <span class="set-nav-no">04</span>外观与素材
+        </button>
+        <button class="set-nav-item" type="button" data-target="set-g-ops">
+          <span class="set-nav-no">05</span>数据与运维
+        </button>
+      </nav>
       <div class="settings-grid">
+        <!-- 分组（2026-10-06）：把十张卡按"什么时候动它"分成五组，组头跨满两栏。
+             分组导航见 #set-nav（吸顶），点击滚动到对应组头。 -->
+        <div class="view-group" id="set-g-dispatch">
+          <span class="view-group-no">01</span>
+          <h2 class="view-group-title">发布与调度</h2>
+          <p class="view-group-sub">什么时候发、发到哪些平台 —— 日常最常改的两项</p>
+        </div>
+
         <section class="card card-wide" id="card-schedule">
           <h2>
             <span class="cicon">⏰</span>自动推送调度
@@ -481,6 +504,287 @@
             <span id="pf-msg" class="repub-result"></span>
           </div>
         </section>
+        <!-- 分组（2026-10-06）：把十张卡按"什么时候动它"分成五组，组头跨满两栏。
+             分组导航见 #set-nav（吸顶），点击滚动到对应组头。 -->
+        <div class="view-group" id="set-g-quality">
+          <span class="view-group-no">02</span>
+          <h2 class="view-group-title">内容质量门槛</h2>
+          <p class="view-group-sub">什么算合格：评分与风险、AI 特征与结构红线</p>
+        </div>
+
+        <section class="card" id="scoring-card">
+          <h2><span class="cicon">🎯</span>评分与风险</h2>
+          <p class="card-sub">文章质量评分门槛与投资风险词（config.json → scoring.investment）</p>
+
+          <!-- v2.96：阈值从"一个 80px 数字框 + 两行长说明"改成"刻度盘"——
+               68 在 0–100 上没有量感，滑一下就知道松紧；数字框保留（要精确输入时用），
+               两者双向同步，真值仍是 #s-threshold。 -->
+          <div class="dial-row">
+            <div class="dial-main">
+              <div class="dial-label">评分阈值</div>
+              <div class="dial-hint">score ≥ 阈值才推送；低于则按参考类型重写，最多 2 次</div>
+            </div>
+            <div class="dial-ctl">
+              <input
+                type="range"
+                id="s-threshold-range"
+                min="0"
+                max="100"
+                step="1"
+                aria-label="评分阈值滑块"
+              />
+              <input
+                type="number"
+                id="s-threshold"
+                min="0"
+                max="100"
+                step="1"
+                aria-label="评分阈值"
+              />
+            </div>
+          </div>
+
+          <!-- v2.96：风险词从"两个逗号串文本框"改成词卡编辑器。
+               改前实测：强煽动词一行 26 个词挤在 textarea 里，中文长串读不出边界、也数不清几个；
+               而这两个清单直接决定文章被判 risk=investment 与否。
+               现在一个词一张卡（× 删），下方输入框回车/逗号追加。
+               真值仍是 #inv-strong / #inv-weak 两个 textarea（视觉隐藏），保存逻辑一行未改。 -->
+          <!-- 两个词表平级并排（2026-10-06）：卡片独占一行后各占半幅 -->
+          <div class="rw-pair">
+            <div class="risk-block">
+              <div class="risk-head">
+                <span class="risk-title">强投资煽动词</span>
+                <span class="risk-count" id="inv-strong-count">—</span>
+                <span class="risk-note">命中即判 <code>risk=investment</code></span>
+              </div>
+              <div class="rw-chips" id="inv-strong-chips"></div>
+              <input
+                type="text"
+                class="rw-add"
+                id="inv-strong-add"
+                placeholder="加一个词，回车或逗号确认"
+                aria-label="添加强投资煽动词"
+              />
+              <textarea id="inv-strong" class="sr-only" rows="2" tabindex="-1"></textarea>
+            </div>
+            <div class="risk-block">
+              <div class="risk-head">
+                <span class="risk-title">弱业务词（不触发）</span>
+                <span class="risk-count" id="inv-weak-count">—</span>
+                <span class="risk-note">单独出现不判风险</span>
+              </div>
+              <div class="rw-chips" id="inv-weak-chips"></div>
+              <input
+                type="text"
+                class="rw-add"
+                id="inv-weak-add"
+                placeholder="加一个词，回车或逗号确认"
+                aria-label="添加弱业务词"
+              />
+              <textarea id="inv-weak" class="sr-only" rows="2" tabindex="-1"></textarea>
+            </div>
+          </div>
+          <p class="foot-note">
+            分词符号 <code>,</code> <code>、</code> <code>|</code>
+            <code>;</code> 换行均可；保存时自动去重。
+          </p>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-save-scoring">保存评分设置</button>
+            <span id="scoring-msg" class="repub-result"></span>
+          </div>
+        </section>
+
+        <!-- AI 检测（朱雀）门禁卡片：此前 aiDetect 只能手改 config.json ——
+             面板里既看不到口径，也改不了强度/覆盖/抽样，而这三项直接决定
+             "检测跑不跑、跑多少、算不算过"。写入走 /proxy/config（项目级键，按当前项目分层）。
+             凭证与用量**不在这里**：凭证走 crosspost-runtime/.env，用量看 doctor 与 `aiDetect --budget`。 -->
+        <section class="card" id="ai-detect-card">
+          <h2><span class="cicon">🛡️</span>AI 检测（朱雀）</h2>
+          <p class="card-sub">
+            AI 生成浓度门禁（config.json → aiDetect）。凭证不在这里：走
+            <code>crosspost-runtime/.env</code> 的 <code>ZHUQUE_API_KEY</code>；用量看自检页或
+            <code>aiDetect --budget</code>。
+          </p>
+
+          <!-- 2026-10-06：这一卡原本是 9 条等重的 .dial-row（实测 803px 高），
+               标签长短不一时左缘参差、像一列随手粘上的注释。改成「一条主开关 + 定义栅格」：
+               口径/阈值/快照/护栏/抽样/额度/锚点都是"一个值"的设置，用与 Bridge 卡同款的
+               `.def-grid`（两列）承载，读数左标签右上，一眼能扫完。 -->
+          <div class="dial-row">
+            <div class="dial-main">
+              <div class="dial-label">门禁强度</div>
+              <div class="dial-hint">
+                observe = 只报不拦（每篇 1 次调用，配额最优）；block =
+                硬门禁（按片段定向改写，不达标则留存）
+              </div>
+            </div>
+            <div class="dial-ctl">
+              <select id="ai-enforce" aria-label="AI 检测门禁强度">
+                <option value="observe">observe（只报不拦）</option>
+                <option value="block">block（硬门禁）</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="def-grid ai-grid">
+            <div class="def-cell" id="ai-threshold-row">
+              <label class="def-label" for="ai-threshold">AI 特征阈值（metric 口径）</label>
+              <div class="unit-in">
+                <input type="number" id="ai-threshold" min="0" max="1" step="0.01" />
+              </div>
+              <div class="def-hint">
+                AI 特征占比<b>低于</b>此值即达标（默认 0.30）；人工/疑似只观察
+              </div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-mode">判定口径</label>
+              <select id="ai-mode" aria-label="AI 检测判定口径">
+                <option value="metric">metric（单指标阈值）</option>
+                <option value="distribution">distribution（一限两上限）</option>
+                <option value="bands">bands（三段区间）</option>
+              </select>
+              <div class="def-hint">
+                默认只有上界：越干净越好；bands 会要求"保留"一部分机器腔，慎用
+              </div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-style-guard">风格护栏（碎句）</label>
+              <select id="ai-style-guard" aria-label="AI 检测风格护栏">
+                <option value="off">关（只观察）</option>
+                <option value="on">开（碎句判不达标）</option>
+              </select>
+              <div class="def-hint">开：≤10 字句 ≤35% · 连续短句 ≤3 句 · 每段至少一句 ≥25 字</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-require-snapshot">缺检测快照时</label>
+              <select id="ai-require-snapshot" aria-label="AI 检测快照门禁">
+                <option value="off">照常派发（默认）</option>
+                <option value="on">不派发</option>
+              </select>
+              <div class="def-hint">不派发时仍落草稿，回执给原因，补上快照即可重试</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-sample-rate">抽样率</label>
+              <div class="unit-in">
+                <input type="number" id="ai-sample-rate" min="0" max="1" step="0.05" />
+              </div>
+              <div class="def-hint">0-1（1 = 全检）；按正文哈希确定性抽样，同一篇判定一致</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-anchor-day">周期锚点日</label>
+              <div class="unit-in">
+                <input type="number" id="ai-anchor-day" min="1" max="31" step="1" />
+              </div>
+              <div class="def-hint">1-31；对齐额度开通日即可与台账归零点一致（1 = 自然月）</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-budget">周期 token 硬闸</label>
+              <div class="unit-in">
+                <input type="number" id="ai-budget" min="0" step="1000" />
+              </div>
+              <div class="def-hint">累计超过即不再调用（只记"未检测"，不阻断出稿）</div>
+            </div>
+            <div class="def-cell">
+              <label class="def-label" for="ai-slots">覆盖栏目</label>
+              <input type="text" id="ai-slots" placeholder="留空 = 全检，例：noon,evening" />
+              <div class="def-hint">逗号分隔的栏目 id；被挡下返回 skip/slot-not-enabled</div>
+            </div>
+          </div>
+
+          <div class="risk-block" id="ai-bounds-row">
+            <div class="risk-head">
+              <span class="risk-title">三段占比（0-1，三项和恒为 100%）</span>
+              <span class="risk-note">
+                metric 口径不用这三行；<b>不设下界填 0</b>、<b>不设上界填 1</b>；bands 的 AI
+                特征上界是<b>开区间</b>
+              </span>
+            </div>
+            <div class="dial-row">
+              <div class="dial-main">
+                <div class="dial-label">人工特征</div>
+                <div class="dial-hint">下界 ≤ 占比 ≤ 上界</div>
+              </div>
+              <div class="dial-ctl">
+                <input
+                  type="number"
+                  id="ai-human-min"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="人工特征下界"
+                />
+                <input
+                  type="number"
+                  id="ai-human-max"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="人工特征上界"
+                />
+              </div>
+            </div>
+            <div class="dial-row">
+              <div class="dial-main">
+                <div class="dial-label">AI 特征</div>
+                <div class="dial-hint">上界为开区间（&lt;）</div>
+              </div>
+              <div class="dial-ctl">
+                <input
+                  type="number"
+                  id="ai-ai-min"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="AI 特征下界"
+                />
+                <input
+                  type="number"
+                  id="ai-ai-max"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="AI 特征上界"
+                />
+              </div>
+            </div>
+            <div class="dial-row">
+              <div class="dial-main">
+                <div class="dial-label">疑似 AI</div>
+                <div class="dial-hint">防止整篇躲进中间档</div>
+              </div>
+              <div class="dial-ctl">
+                <input
+                  type="number"
+                  id="ai-unc-min"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="疑似 AI 下界"
+                />
+                <input
+                  type="number"
+                  id="ai-unc-max"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label="疑似 AI 上界"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-save-ai-detect">保存 AI 检测设置</button>
+            <span id="ai-detect-msg" class="repub-result"></span>
+          </div>
+        </section>
+        <!-- 分组（2026-10-06）：把十张卡按"什么时候动它"分成五组，组头跨满两栏。
+             分组导航见 #set-nav（吸顶），点击滚动到对应组头。 -->
+        <div class="view-group" id="set-g-connect">
+          <span class="view-group-no">03</span>
+          <h2 class="view-group-title">通知与连接</h2>
+          <p class="view-group-sub">跑完谁收到结果；引擎怎么连上你的浏览器</p>
+        </div>
 
         <section class="card" id="card-notify">
           <h2><span class="cicon">🔔</span>通知方式</h2>
@@ -580,130 +884,6 @@
             message_id），若你没看到请确认自己在该会话内、且未设免打扰。
           </p>
         </section>
-        <section class="card" id="scoring-card">
-          <h2><span class="cicon">🎯</span>评分与风险</h2>
-          <p class="card-sub">文章质量评分门槛与投资风险词（config.json → scoring.investment）</p>
-
-          <!-- v2.96：阈值从"一个 80px 数字框 + 两行长说明"改成"刻度盘"——
-               68 在 0–100 上没有量感，滑一下就知道松紧；数字框保留（要精确输入时用），
-               两者双向同步，真值仍是 #s-threshold。 -->
-          <div class="dial-row">
-            <div class="dial-main">
-              <div class="dial-label">评分阈值</div>
-              <div class="dial-hint">score ≥ 阈值才推送；低于则按参考类型重写，最多 2 次</div>
-            </div>
-            <div class="dial-ctl">
-              <input
-                type="range"
-                id="s-threshold-range"
-                min="0"
-                max="100"
-                step="1"
-                aria-label="评分阈值滑块"
-              />
-              <input
-                type="number"
-                id="s-threshold"
-                min="0"
-                max="100"
-                step="1"
-                aria-label="评分阈值"
-              />
-            </div>
-          </div>
-
-          <!-- v2.96：风险词从"两个逗号串文本框"改成词卡编辑器。
-               改前实测：强煽动词一行 26 个词挤在 textarea 里，中文长串读不出边界、也数不清几个；
-               而这两个清单直接决定文章被判 risk=investment 与否。
-               现在一个词一张卡（× 删），下方输入框回车/逗号追加。
-               真值仍是 #inv-strong / #inv-weak 两个 textarea（视觉隐藏），保存逻辑一行未改。 -->
-          <div class="risk-block">
-            <div class="risk-head">
-              <span class="risk-title">强投资煽动词</span>
-              <span class="risk-count" id="inv-strong-count">—</span>
-              <span class="risk-note">命中即判 <code>risk=investment</code></span>
-            </div>
-            <div class="rw-chips" id="inv-strong-chips"></div>
-            <input
-              type="text"
-              class="rw-add"
-              id="inv-strong-add"
-              placeholder="加一个词，回车或逗号确认"
-              aria-label="添加强投资煽动词"
-            />
-            <textarea id="inv-strong" class="sr-only" rows="2" tabindex="-1"></textarea>
-          </div>
-          <div class="risk-block">
-            <div class="risk-head">
-              <span class="risk-title">弱业务词（不触发）</span>
-              <span class="risk-count" id="inv-weak-count">—</span>
-              <span class="risk-note">单独出现不判风险</span>
-            </div>
-            <div class="rw-chips" id="inv-weak-chips"></div>
-            <input
-              type="text"
-              class="rw-add"
-              id="inv-weak-add"
-              placeholder="加一个词，回车或逗号确认"
-              aria-label="添加弱业务词"
-            />
-            <textarea id="inv-weak" class="sr-only" rows="2" tabindex="-1"></textarea>
-          </div>
-          <p class="foot-note">
-            分词符号 <code>,</code> <code>、</code> <code>|</code>
-            <code>;</code> 换行均可；保存时自动去重。
-          </p>
-          <div class="schedule-actions">
-            <button class="btn primary" id="btn-save-scoring">保存评分设置</button>
-            <span id="scoring-msg" class="repub-result"></span>
-          </div>
-        </section>
-
-        <!-- v2.96：品牌图标此前**长在「通知方式」卡里**——它和通知没有任何关系，
-             只是 2026-09-02 加功能时手边最近的空位。搬出来单独成卡：一条信息归属一张卡，
-             顺带把"通知方式"从 816px 压回它该有的高度。
-             卡序：放在「评分与风险」之后 —— 两栏 grid 里它与「文章库备份」同排（276 / 366），
-             而「通知方式」与「评分与风险」同排（452 / 506）—— 同排两张卡的高度差从 176px
-             降到 54px，页面右缘不再出现一个空半张卡的洞。 -->
-        <section class="card" id="card-brand">
-          <h2><span class="cicon">🎛️</span>品牌图标</h2>
-          <p class="card-sub">左上角品牌图标 + 浏览器标签 favicon；保存后全局生效</p>
-          <div class="brand-row">
-            <img
-              id="brand-icon-preview"
-              class="brand-preview"
-              alt="当前图标"
-              src="/console/favicon.ico"
-            />
-            <div class="brand-fields">
-              <label class="def-label" for="brand-icon-file">上传图片（png/jpg/svg/ico）</label>
-              <input type="file" id="brand-icon-file" accept="image/*" />
-              <label class="def-label" for="brand-icon-url">或粘贴 URL / 路径</label>
-              <input
-                type="text"
-                id="brand-icon-url"
-                placeholder="/console/favicon.ico 或 https://…"
-              />
-            </div>
-          </div>
-          <div class="schedule-actions">
-            <button class="btn primary" id="btn-brand-apply">应用图标</button>
-            <button class="btn" id="btn-brand-reset">恢复默认</button>
-            <span id="brand-msg" class="repub-result"></span>
-          </div>
-          <p class="foot-note">留空并点「应用图标」即恢复默认图标。</p>
-        </section>
-        <section class="card" id="card-backup">
-          <h2><span class="cicon">📦</span>文章库备份</h2>
-          <!-- 保留份数由接口给（`/proxy/backup` 的 `keep`）；这里不写数字（2026-09-25） -->
-          <p class="card-sub" id="backup-sub">每日自动备份 articles/ 到 backups/（tar.gz）</p>
-          <div class="backup-status" id="backup-status">加载中…</div>
-          <div class="backup-files" id="backup-files"></div>
-          <div class="schedule-actions backup-actions">
-            <button class="btn" id="btn-backup-now">立即备份</button>
-            <span id="backup-msg" class="repub-result"></span>
-          </div>
-        </section>
 
         <section class="card" id="card-bridge">
           <h2><span class="cicon">🔌</span>Bridge 与代理配置</h2>
@@ -779,6 +959,13 @@
             <span id="px-msg" class="repub-result"></span>
           </div>
         </section>
+        <!-- 分组（2026-10-06）：把十张卡按"什么时候动它"分成五组，组头跨满两栏。
+             分组导航见 #set-nav（吸顶），点击滚动到对应组头。 -->
+        <div class="view-group" id="set-g-look">
+          <span class="view-group-no">04</span>
+          <h2 class="view-group-title">外观与素材</h2>
+          <p class="view-group-sub">正文样式、封面与结束语、品牌图标</p>
+        </div>
 
         <section class="card" id="card-styles">
           <h2><span class="cicon">🎨</span>样式库</h2>
@@ -818,6 +1005,41 @@
             <button class="btn" id="btn-style-delete">🗑️ 删除选中样式</button>
             <span id="style-msg" class="repub-result"></span>
           </div>
+        </section>
+
+        <!-- v2.96：品牌图标此前**长在「通知方式」卡里**——它和通知没有任何关系，
+             只是 2026-09-02 加功能时手边最近的空位。搬出来单独成卡：一条信息归属一张卡，
+             顺带把"通知方式"从 816px 压回它该有的高度。
+             卡序：放在「评分与风险」之后 —— 两栏 grid 里它与「文章库备份」同排（276 / 366），
+             而「通知方式」与「评分与风险」同排（452 / 506）—— 同排两张卡的高度差从 176px
+             降到 54px，页面右缘不再出现一个空半张卡的洞。 -->
+        <section class="card" id="card-brand">
+          <h2><span class="cicon">🎛️</span>品牌图标</h2>
+          <p class="card-sub">左上角品牌图标 + 浏览器标签 favicon；保存后全局生效</p>
+          <div class="brand-row">
+            <img
+              id="brand-icon-preview"
+              class="brand-preview"
+              alt="当前图标"
+              src="/console/favicon.ico"
+            />
+            <div class="brand-fields">
+              <label class="def-label" for="brand-icon-file">上传图片（png/jpg/svg/ico）</label>
+              <input type="file" id="brand-icon-file" accept="image/*" />
+              <label class="def-label" for="brand-icon-url">或粘贴 URL / 路径</label>
+              <input
+                type="text"
+                id="brand-icon-url"
+                placeholder="/console/favicon.ico 或 https://…"
+              />
+            </div>
+          </div>
+          <div class="schedule-actions">
+            <button class="btn primary" id="btn-brand-apply">应用图标</button>
+            <button class="btn" id="btn-brand-reset">恢复默认</button>
+            <span id="brand-msg" class="repub-result"></span>
+          </div>
+          <p class="foot-note">留空并点「应用图标」即恢复默认图标。</p>
         </section>
 
         <!-- v2.96：这一节的「默认项」本来就是**一行排开**的六个控件（默认封面/默认结束语/
@@ -882,6 +1104,25 @@
               <span id="cover-tpl-disabled-count" class="pf-group-count"></span>
             </div>
             <div id="cover-tpl-disabled-lib" class="cover-tpl-lib"></div>
+          </div>
+        </section>
+        <!-- 分组（2026-10-06）：把十张卡按"什么时候动它"分成五组，组头跨满两栏。
+             分组导航见 #set-nav（吸顶），点击滚动到对应组头。 -->
+        <div class="view-group" id="set-g-ops">
+          <span class="view-group-no">05</span>
+          <h2 class="view-group-title">数据与运维</h2>
+          <p class="view-group-sub">文章库备份与恢复入口</p>
+        </div>
+
+        <section class="card card-wide" id="card-backup">
+          <h2><span class="cicon">📦</span>文章库备份</h2>
+          <!-- 保留份数由接口给（`/proxy/backup` 的 `keep`）；这里不写数字（2026-09-25） -->
+          <p class="card-sub" id="backup-sub">每日自动备份 articles/ 到 backups/（tar.gz）</p>
+          <div class="backup-status" id="backup-status">加载中…</div>
+          <div class="backup-files" id="backup-files"></div>
+          <div class="schedule-actions backup-actions">
+            <button class="btn" id="btn-backup-now">立即备份</button>
+            <span id="backup-msg" class="repub-result"></span>
           </div>
         </section>
       </div>

@@ -193,9 +193,11 @@ async function renderReportCosts() {
     // 后端 listCosts 现在返回 meta（可见会话按代际计数 + 零 usage 会话数），这里把它变成一个
     // 只在"有文章却一篇都没匹配上"时出现的提示行。
     const meta = (r && r.meta) || null
-    // 计价口径按接口渲染（2026-09-25）：型号/价格表版本/峰谷规则都是引擎的事实
-    // （`token-cost.mjs` 的 `PRICING`）。这里**不再自己写型号**——副本会漂，而且改前
-    // 那句"按 DeepSeek deepseek-v4-flash 官方价"还漏了"按峰谷计价"。
+    // 计价口径按接口渲染（2026-09-25）：峰谷时段是引擎的事实（`token-cost.mjs` 的 `PRICING`），
+    // 这里**只写"读者会追问的那两件事"**：算的是哪些产出、为什么同样字数花的钱不同。
+    // 型号名、价格表版本（`2026-08-22 版`）、"逐 step 计费"这类实现细节不再上屏——
+    // 它们是引擎的元数据，随版本漂，读者看了也无从核对；要查费率与峰谷规则，
+    // 事实在 `crosspost-runtime/src/token-cost.mjs` 的 `PRICING`。
     const sub = $('#rp-cost-sub')
     if (sub) {
       const p = meta && meta.pricing
@@ -203,10 +205,8 @@ async function renderReportCosts() {
         ? p.peakHours.map(([a, b]) => `${a}-${b} 时`).join('、')
         : ''
       sub.textContent = p
-        ? `统计今日全量产出费用（文章 + 留存 + 归档）。按 ${p.model} 价格表` +
-          `${p.version ? `（${p.version} 版` : '（'}` +
-          `${peak ? ` · 高峰 ${peak}` : ''}${p.weekendIdleFrom ? ` · 周末 ${p.weekendIdleFrom} 起全天低谷` : ''}）` +
-          ` × 会话 usage 事件逐 step 计费（仅可追溯会话）`
+        ? '统计今日全量产出费用（文章 + 留存 + 归档）。只算能追到会话的产出' +
+          (peak ? `；单价随峰谷时段变化（高峰 ${peak}，周末全天低谷）` : '')
         : sub.textContent // 旧桥没有 pricing → 保留中性兜底文案（宁缺不假）
     }
     const genText =
@@ -279,9 +279,4 @@ async function renderReportCosts() {
     $('#rp-cost').innerHTML =
       '<div style="color:var(--ink-faint);font-size:13px">费用数据加载失败</div>'
   }
-}
-
-/** 视图初始化：绑定报表事件 */
-export function initReportsView() {
-  $('#rp-refresh').addEventListener('click', loadReports)
 }

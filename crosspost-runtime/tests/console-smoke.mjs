@@ -258,17 +258,25 @@ try {
         const r = await (await fetch('/proxy/costs', { headers: h })).json()
         return {
           model: (r.meta && r.meta.pricing && r.meta.pricing.model) || null,
+          version: (r.meta && r.meta.pricing && r.meta.pricing.version) || null,
           peak: (r.meta && r.meta.pricing && r.meta.pricing.peakHours) || null,
           sub: ((document.querySelector('#rp-cost-sub') || {}).textContent || '').trim(),
         }
       })
+      // 2026-10-06：判据从"把型号也印上去"改成"**只印读者能核对的口径**"。
+      // 副标题要写清"算哪些产出"与"为什么同样字数花的钱不同"（峰谷，来自接口），
+      // 但不再上屏型号名、价格表版本（`2026-08-22 版`）与"逐 step 计费"这类实现细节——
+      // 它们随版本漂、读者无从核对；费率与峰谷的事实见 `crosspost-runtime/src/token-cost.mjs`
+      // 的 `PRICING`。所以这里反过来按住"别写进去"。
       results.push([
-        '费用卡副标题·计价口径来自接口（型号与峰谷都写上）',
-        !!priceProbe.model &&
-          priceProbe.sub.includes(priceProbe.model) &&
-          !!priceProbe.peak &&
-          priceProbe.sub.includes('高峰'),
-        `model=${priceProbe.model} 副标题="${priceProbe.sub.slice(0, 120)}"`,
+        '费用卡副标题·只写可核对口径（峰谷来自接口，不写型号/版本/实现细节）',
+        !!priceProbe.peak &&
+          priceProbe.sub.includes('高峰') &&
+          priceProbe.sub.includes('文章 + 留存 + 归档') &&
+          !(priceProbe.model && priceProbe.sub.includes(priceProbe.model)) &&
+          !(priceProbe.version && priceProbe.sub.includes(priceProbe.version)) &&
+          !priceProbe.sub.includes('逐 step'),
+        `model=${priceProbe.model} version=${priceProbe.version} 副标题="${priceProbe.sub.slice(0, 120)}"`,
       ])
     }
   }
