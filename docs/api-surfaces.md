@@ -64,7 +64,7 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 ## 2. CLI（`node crosspost-runtime/src/cli.mjs <method> [args…]`）
 
 输出恒为 **stdout 单行 JSON**；出错走统一包装（`{"error":…}`）。
-**50 个方法**，按域分组：
+**54 个方法**，按域分组：
 
 | 域          | 方法                                                                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,6 +74,8 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 | 分诊 / 留存 | `classifyArticles` `setArticleRisk` `archiveArticle` `retainArticle` `listRetained` `listArchive` `retainedAction`                                                                          |
 | 发布        | `publishArticle` `syncArticle` `syncStyledArticle` `publishDouyin` `markPublished` `markAllPublished` `wechatDraft` `wechatDrafts` `wechatDraftDelete`                                      |
 | 渲染 / 素材 | `listStyles` `styles` `renderPreview` `analyzeStyle` `listCoverTemplates` `generateCover` `generateCoverGallery` `generateEndingCard` `uploadImageFile` `extractArticle` `extractActiveTab` |
+| 内容质量    | `aiDetect`（朱雀 AIGC 检测；AI 会话侧的写入口是 MCP 工具 `ai_detect`，同一个实现。见 [`ai-detect.md`](ai-detect.md)）                                                                       |
+| 选题库      | `topicPoolUpsert`（MCP 面 `topic_pool_upsert`，同一个实现）`topicPoolValidate` `topicPoolShow`                                                                                              |
 | 平台        | `listPlatforms` `checkAuth`                                                                                                                                                                 |
 | 通知        | `notify` `notifyTest`                                                                                                                                                                       |
 | 费用        | `listCosts` `articleCost` `prewarmCosts`                                                                                                                                                    |

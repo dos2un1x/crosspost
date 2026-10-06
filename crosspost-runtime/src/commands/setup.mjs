@@ -32,6 +32,8 @@ import { loadPaths, localRoot, pathsPath } from '../paths.mjs'
 import { configPath } from '../config-path.mjs'
 import { checkNodeVersion, SEVERITY, checkWritableDir } from '../preflight.mjs'
 import { SUBPACKAGES, missingDeps, manualInstallCommands, coreBuilt } from '../deps.mjs'
+// 只为取 AI 检测的出厂默认值（该模块及其依赖同样只用 node 内置模块，见文件头的"只装依赖"约束）
+import { AI_DETECT_DEFAULTS } from '../ai-detect.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -62,6 +64,11 @@ export function defaultConfig() {
     scheduler: { labelPrefix: 'com.crosspost' },
     autoPush: { enabled: false },
     scoring: { threshold: 68 },
+    // AI 检测（朱雀）门禁的出厂值 —— 与 `src/ai-detect.mjs` 的 `AI_DETECT_DEFAULTS` 同一份事实。
+    // 为什么必须写进 setup 生成的 config：这一段的键（口径/强度/覆盖/额度/周期锚点）是
+    // Console 设置卡片与 `aiDetect --budget` 的读入口；文件里没有它，面板就只能显示空白，
+    // 使用者也无从知道"默认口径到底是什么"。凭证不在这里（走 `.env`）。
+    aiDetect: structuredClone(AI_DETECT_DEFAULTS),
     platforms: {
       default: [
         'zhihu',

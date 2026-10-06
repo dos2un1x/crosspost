@@ -6,7 +6,11 @@
  *   node cli.mjs aiDetect --id=<草稿文件名去.md> [--project=…]
  *   node cli.mjs aiDetect --text='<正文>'          # 裸文本（基线回测/排查）
  *   node cli.mjs aiDetect --stdin < draft.md       # 管道输入
- *   node cli.mjs aiDetect --budget                 # 只看当月用量与预算，不调用接口
+ *   node cli.mjs aiDetect --budget                 # 只看本周期用量与预算，不调用接口
+ *
+ * 口径/强度/覆盖可临时覆盖：`--mode` / `--enforce` / `--human-min` / `--human-max` /
+ * `--ai-min` / `--ai-max` / `--uncertain-min` / `--uncertain-max` / `--threshold` /
+ * `--sample-rate` / `--slots=a,b` / `--quota-anchor-day=1..31`。
  *
  * 失败语义分两层（有意不统一）：
  *   · **输入错误 / 文件不存在 → throw**（CLI 退出码 1）：这是调用方写错了，必须当场停住；
@@ -83,6 +87,14 @@ function configOverrideFrom(flags) {
   if (flags['sample-rate'] !== undefined) {
     override.sampleRate = ratio01('--sample-rate', flags['sample-rate'])
   }
+  // 计费周期锚点日（对齐朱雀"按开通日刷新"的额度周期；缺省 1 = 自然月）
+  if (flags['quota-anchor-day'] !== undefined) {
+    const day = Number(flags['quota-anchor-day'])
+    if (!Number.isInteger(day) || day < 1 || day > 31) {
+      throw new Error('--quota-anchor-day 必须是 1-31 的整数')
+    }
+    override.quotaAnchorDay = day
+  }
   // 栏目白名单可临时覆盖（`--slots=noon,evening`；空串 = 不限）
   if (typeof flags.slots === 'string') {
     override.slots = flags.slots
@@ -103,7 +115,11 @@ function compactReport(result, cfg) {
     ...(result.error ? { error: result.error } : {}),
     ...(result.chars !== undefined ? { chars: result.chars } : {}),
   }
-  if (result.verdict === 'skip') return base
+  // skip 也要给 `line`/`snapshot`：调用方要靠它把"未检测 + 原因"写进日志/通知/文章库记录。
+  // 只回 reason 的话，三态里的第三态在快照面上是空的，事后无法区分"跳过"与"没跑过"。
+  if (result.verdict === 'skip') {
+    return { ...base, line: formatVerdictLine(result), snapshot: formatSnapshot(result) }
+  }
 
   const aiSegments = (result.segments || [])
     .filter((s) => s.label === 1 || s.label === 2)
@@ -146,6 +162,21 @@ function compactReport(result, cfg) {
     segments: aiSegments,
     rewriteTargets: pickRewriteTargets(result, cfg).map((s) => s.order),
     usage: result.usage,
+    // 结构指标（风格护栏）：压缩成几个数——调用方要据此判断"这篇是不是被写成了碎句"，
+    // 并定位到段（越界项带段号）。`styleGuard.enabled=false` 时它也只是观察值。
+    ...(result.style
+      ? {
+          style: {
+            shortRatio: result.style.shortRatio,
+            maxConsecShort: result.style.maxConsecShort,
+            longSentCount: result.style.longSentCount,
+            noCommaRatio: result.style.noCommaRatio,
+            judgedParagraphs: result.style.judgedParagraphs,
+            fails: result.style.fails,
+            guarded: (cfg.styleGuard && cfg.styleGuard.enabled) === true,
+          },
+        }
+      : {}),
     line: formatVerdictLine(result),
     snapshot: formatSnapshot(result),
   }
@@ -165,8 +196,11 @@ export async function runAiDetect(args) {
     return {
       ok: true,
       month: b.month,
+      periodStart: b.periodStart,
+      periodAnchorDay: b.periodAnchorDay,
       tokens: b.tokens,
       calls: b.calls,
+      avgTokensPerCall: b.calls > 0 ? Math.round(b.tokens / b.calls) : null,
       budget: b.budget,
       remaining: b.remaining,
       exhausted: b.exhausted,
@@ -174,6 +208,7 @@ export async function runAiDetect(args) {
       enabled: cfg.enabled,
       gate: cfg.gate,
       sampleRate: cfg.sampleRate,
+      styleGuard: { enabled: !!(cfg.styleGuard && cfg.styleGuard.enabled) },
       cacheFile: cachePath(),
       usageFile: usagePath(),
     }

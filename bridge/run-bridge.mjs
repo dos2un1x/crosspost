@@ -619,8 +619,90 @@ function readRuntimeConfig() {
  * · 返回**生效配置**，前端拿到的就是合并后的值
  *
  * 合并规则沿用历史：`scoring`/`autoPush` 键内浅合并（只改一个子字段不清掉另一个），
- * 其余整键覆盖；越界值仍在落盘前 clamp。
+ * `aiDetect` 键内对 `gate`/`rewrite` 再深一层（v2.106）；其余整键覆盖；越界值仍在落盘前 clamp。
  */
+/**
+ * `aiDetect` 的键内深合并（2026-10-05）：设置页按卡片分别保存口径/强度/覆盖，
+ * 浅合并会把没提交的同级键清掉（例如只切 enforce 却丢了整个 gate 区间）。
+ * 只做 gate / rewrite 两层——这两层是嵌套对象，其余键仍整键覆盖。
+ */
+function mergeAiDetect(base, patch) {
+  const out = { ...(base || {}), ...patch }
+  for (const k of ['gate', 'rewrite', 'styleGuard']) {
+    if (patch[k] && typeof patch[k] === 'object')
+      out[k] = { ...((base || {})[k] || {}), ...patch[k] }
+  }
+  return out
+}
+
+/** `aiDetect` 落盘前规范化：越界值不写进 config.json（与 platformsPollMs 同一规矩） */
+function normalizeAiDetect(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg
+  const gate = { ...(cfg.gate || {}) }
+  const ratio = (v, fallback) => {
+    const n = Number(v)
+    if (!Number.isFinite(n) || n < 0 || n > 1) return fallback
+    return n
+  }
+  if (gate.humanMin !== undefined) gate.humanMin = ratio(gate.humanMin, 0.3)
+  if (gate.humanMax !== undefined) gate.humanMax = ratio(gate.humanMax, 0.5)
+  if (gate.aiMin !== undefined) gate.aiMin = ratio(gate.aiMin, 0.3)
+  if (gate.aiMax !== undefined) gate.aiMax = ratio(gate.aiMax, 0.5)
+  if (gate.uncertainMin !== undefined) gate.uncertainMin = ratio(gate.uncertainMin, 0.2)
+  if (gate.uncertainMax !== undefined) gate.uncertainMax = ratio(gate.uncertainMax, 0.4)
+  if (gate.mode !== undefined && !['bands', 'distribution', 'metric'].includes(gate.mode)) {
+    gate.mode = 'metric'
+  }
+  if (gate.enforce !== undefined && !['observe', 'block'].includes(gate.enforce)) {
+    gate.enforce = 'observe'
+  }
+  // metric 口径的两个键：指标名是枚举，阈值是 0-1
+  if (gate.metric !== undefined && !['confidence', 'labels_ai', 'both'].includes(gate.metric)) {
+    gate.metric = 'labels_ai'
+  }
+  if (gate.threshold !== undefined) gate.threshold = ratio(gate.threshold, 0.3)
+  if (Array.isArray(gate.exclusive)) {
+    gate.exclusive = gate.exclusive.filter((k) => typeof k === 'string')
+  }
+  const out = { ...cfg, gate }
+  if (out.sampleRate !== undefined) out.sampleRate = ratio(out.sampleRate, 1)
+  if (Array.isArray(out.slots)) out.slots = out.slots.map((s) => String(s).trim()).filter(Boolean)
+  if (out.quotaAnchorDay !== undefined) {
+    const d = Math.floor(Number(out.quotaAnchorDay))
+    out.quotaAnchorDay = Number.isFinite(d) && d >= 1 && d <= 31 ? d : 1
+  }
+  if (out.monthlyTokenBudget !== undefined) {
+    const b = Math.round(Number(out.monthlyTokenBudget))
+    out.monthlyTokenBudget = Number.isFinite(b) && b >= 0 ? b : 400000
+  }
+  if (out.requireSnapshotOnPublish !== undefined) {
+    out.requireSnapshotOnPublish = out.requireSnapshotOnPublish === true
+  }
+  // 风格护栏：开关是布尔，阈值是 0-1 / 正整数（只做类型与范围兜底，阈值给缺省）
+  if (out.styleGuard && typeof out.styleGuard === 'object') {
+    const sg = { ...out.styleGuard }
+    if (sg.enabled !== undefined) sg.enabled = sg.enabled === true
+    if (sg.shortRatioMax !== undefined) sg.shortRatioMax = ratio(sg.shortRatioMax, 0.35)
+    if (sg.noCommaRatioWarn !== undefined) sg.noCommaRatioWarn = ratio(sg.noCommaRatioWarn, 0.6)
+    for (const k of [
+      'minSentencesToJudge',
+      'shortSentLen',
+      'consecutiveShortMax',
+      'longSentLen',
+      'minLongSentPerPara',
+      'minParaChars',
+    ]) {
+      if (sg[k] !== undefined) {
+        const n = Math.floor(Number(sg[k]))
+        sg[k] = Number.isFinite(n) && n >= 1 ? n : undefined
+        if (sg[k] === undefined) delete sg[k]
+      }
+    }
+    out.styleGuard = sg
+  }
+  return out
+}
+
 function writeRuntimeConfig(patch) {
   const projectId = currentProject() || ''
   const engineCfg = { ...readEngineConfigFile() }
@@ -645,6 +727,7 @@ function writeRuntimeConfig(patch) {
     'coverSettings',
     'branding',
     'autoPush',
+    'aiDetect',
   ]) {
     if (patch[k] !== undefined) {
       // 落到哪一层：项目级键 + 有项目 → 项目覆盖层；否则引擎文件
@@ -655,12 +738,21 @@ function writeRuntimeConfig(patch) {
       } else if (k === 'autoPush' && patch.autoPush && typeof patch.autoPush === 'object') {
         // autoPush 深浅合并（2026-09-09）：enabled/includeWechat 独立更新，避免只切一个清掉另一个
         target.autoPush = { ...target.autoPush, ...patch.autoPush }
+      } else if (k === 'aiDetect' && patch.aiDetect && typeof patch.aiDetect === 'object') {
+        // aiDetect 深浅合并（2026-10-05）：设置页按卡片分别保存，别把没提交的键清掉
+        target.aiDetect = mergeAiDetect(target.aiDetect, patch.aiDetect)
       } else {
         target[k] = patch[k]
       }
     }
   }
   // 2026-09-11：新配置项落盘前规范化，避免前端/手工写入越界值污染 config.json
+  if (engineCfg.aiDetect !== undefined) {
+    engineCfg.aiDetect = normalizeAiDetect(engineCfg.aiDetect)
+  }
+  if (projectCfg.aiDetect !== undefined) {
+    projectCfg.aiDetect = normalizeAiDetect(projectCfg.aiDetect)
+  }
   if (engineCfg.platformsCheckConcurrency !== undefined) {
     engineCfg.platformsCheckConcurrency = clampCheckConcurrency(engineCfg.platformsCheckConcurrency)
   }

@@ -14,16 +14,21 @@ import {
   AI_DETECT_DEFAULTS,
   addUsage,
   budgetState,
+  clampAnchorDay,
   detectText,
   formatSnapshot,
   shouldSample,
   formatVerdictLine,
   judgeResult,
+  measureStyle,
   normalizeResult,
   pickRewriteTargets,
   plainRangeToSrc,
+  quotaPeriod,
+  readAiDetectConfig,
   readUsage,
   stripMarkdown,
+  usagePath,
 } from '../src/ai-detect.mjs'
 
 /* ────────────────── 测试脚手架 ────────────────── */
@@ -540,6 +545,63 @@ test('用量台账：按月累计、跨月归零、超预算即 exhausted', () =
   assert.equal(readUsage(nextMonth).tokens, 0)
 })
 
+/* ────────────── ⑤-b 计费周期锚点（对齐朱雀"按开通日刷新"的额度周期） ────────────── */
+
+test('周期锚点：跨锚点即新周期（上期用量不带入），锚点=1 仍是自然月键', () => {
+  freshLocalRoot()
+  const before = new Date(2026, 9, 19, 12)
+  const after = new Date(2026, 9, 20, 12)
+
+  assert.equal(readUsage(before, 20).tokens, 0)
+  addUsage(100, before, 20)
+  assert.equal(readUsage(before, 20).tokens, 100)
+  assert.equal(readUsage(before, 20).periodStart, '2026-09-20')
+
+  // 跨过锚点：新周期从 0 起算，上一期的 100 不带入
+  addUsage(200, after, 20)
+  assert.equal(readUsage(after, 20).tokens, 200)
+  assert.equal(readUsage(after, 20).calls, 1)
+  assert.equal(readUsage(after, 20).periodStart, '2026-10-20')
+
+  // 同一个台账文件按默认锚点（1 = 自然月）读是另一个周期 → 不会被 20 号那本账污染
+  assert.equal(readUsage(after, 1).periodStart, '2026-10')
+  assert.equal(readUsage(after, 1).tokens, 0)
+})
+
+test('周期锚点：锚点日大于当月天数时夹到当月最后一天', () => {
+  // 锚点 31：2 月只有 28 天 → 2 月周期从 28 日起算；2 月 27 日仍属 1 月 31 日那个周期
+  assert.equal(quotaPeriod(new Date(2026, 1, 28, 12), 31).key, '2026-02-28')
+  assert.equal(quotaPeriod(new Date(2026, 1, 27, 12), 31).key, '2026-01-31')
+  // 闰年 2 月 29 日
+  assert.equal(quotaPeriod(new Date(2028, 1, 29, 12), 31).key, '2028-02-29')
+})
+
+test('周期锚点：旧台账（只有 month）在锚点=1 时直接认账，不需要迁移', () => {
+  freshLocalRoot()
+  fs.writeFileSync(
+    usagePath(),
+    JSON.stringify({ month: '2026-10', tokens: 1234, calls: 3 }),
+    'utf8',
+  )
+  const u = readUsage(new Date(2026, 9, 5, 12), 1)
+  assert.equal(u.tokens, 1234)
+  assert.equal(u.calls, 3)
+  assert.equal(u.periodStart, '2026-10')
+  // 换成锚点 20 就是另一个周期：旧的自然月账不该被当成本周期用量
+  // （周期语义不同，混用会让硬闸判断失真；换锚点等于重新起算，以控制台为准对账）
+  assert.equal(readUsage(new Date(2026, 9, 25, 12), 20).tokens, 0)
+})
+
+test('周期锚点：越界/非数字一律回落到自然月', () => {
+  assert.equal(clampAnchorDay(0), 1)
+  assert.equal(clampAnchorDay(32), 1)
+  assert.equal(clampAnchorDay('x'), 1)
+  assert.equal(clampAnchorDay(15), 15)
+  const b = budgetState({ monthlyTokenBudget: 1000, quotaAnchorDay: 99 }, new Date(2026, 9, 5, 12))
+  assert.equal(b.periodAnchorDay, 1)
+  assert.equal(b.periodStart, '2026-10')
+})
+
 /* ────────────────── ⑥ 三分布口径（人工 50% / AI 30% / 疑似 20%） ────────────────── */
 
 /** 分布口径配置（与 config.json 默认一致，测试里显式写死以免被默认值变更带偏） */
@@ -566,6 +628,116 @@ test('分布口径：三项全达标 → pass（50/30/20 正好是边界）', ()
   assert.equal(r.verdict, 'pass')
   assert.deepEqual(r.fails, [])
   assert.equal(r.metric, 'distribution')
+})
+
+test('容受口径：distribution 只设 AI 上界时，人工/疑似多低都不算失败', () => {
+  // 只压上界是"越干净越好"的口径：人工 0%、疑似 70% 也不该产生失败项，
+  // 否则写作者又会去找最廉价的方式把"人工特征"凑出来（实测代价是文章被拆成碎句）。
+  const cfg = { ...AI_DETECT_DEFAULTS, gate: { mode: 'distribution', aiMax: 0.3 } }
+  const ok = judgeResult(distResult(0, 0.2, 0.8), cfg)
+  assert.equal(ok.verdict, 'pass', JSON.stringify(ok.fails))
+  assert.deepEqual(ok.fails, [])
+  const bad = judgeResult(distResult(0, 0.45, 0.55), cfg)
+  assert.equal(bad.verdict, 'fail')
+  assert.deepEqual(bad.fails, ['ai'])
+})
+
+test('容受口径：缺省边界在日志里打 n/a，不许印成 NaN%', () => {
+  const cfg = { ...AI_DETECT_DEFAULTS, gate: { mode: 'distribution', aiMax: 0.3 } }
+  const r = judgeResult(distResult(0.1, 0.2, 0.7), cfg)
+  const line = formatVerdictLine(r)
+  assert.match(line, /人工=10\.0%/)
+  assert.match(line, /目标≥n\/a/)
+  assert.ok(!/NaN/.test(line), line)
+  const snap = formatSnapshot(r)
+  assert.ok(!/NaN/.test(snap), snap)
+})
+
+test('默认口径是 metric + labels_ai<30%：只压上界，没有下界陷阱', () => {
+  const cfg = AI_DETECT_DEFAULTS
+  assert.equal(cfg.gate.mode, 'metric')
+  assert.equal(cfg.gate.metric, 'labels_ai')
+  assert.equal(cfg.gate.threshold, 0.3)
+  // AI 特征 29% 达标、30% 不达标（边界是严格小于）；人工/疑似多少都不影响判定
+  const pass = judgeResult(distResult(0.0, 0.29, 0.71), cfg)
+  assert.equal(pass.verdict, 'pass', JSON.stringify(pass))
+  const fail = judgeResult(distResult(0.0, 0.3, 0.7), cfg)
+  assert.equal(fail.verdict, 'fail')
+  assert.match(formatVerdictLine(fail), /口径=labels_ai 值=30\.0% 阈值=30\.0%/)
+})
+
+/* ────────────── ⑥ 风格护栏（碎了句子的文章不该比正常文章更容易过门禁） ────────────── */
+
+const TELEGRAPH_TEXT = [
+  '去年 329 美元。',
+  '今年 3399。',
+  '同一根条子。',
+  '128GB 的那种。',
+  '维修师傅接了个活。',
+  '两条内存。',
+  '一条 128GB。',
+].join('\n')
+
+const PROSE_TEXT = [
+  '去年这根内存条卖 329 美元，今年同一规格的报价已经涨到 3399 美元，同一根条子涨了十倍。',
+  '维修师傅接到的活儿也更难做了：两条从服务器上拆下来的 ECC 内存，一条 128GB、一条 256GB，报价合计一万六千美元。',
+].join('\n')
+
+/** 造一个只带判定所需字段的网侧响应（AI 特征 10% → 网侧口径本身是 pass） */
+const netJson = () => ({
+  softmax_confidence: 0.99,
+  ratio_confidence: 0.1,
+  labels_ratio: { 0: 0.5, 1: 0.1, 2: 0.4 },
+  segment_labels: [],
+  usage: {},
+  makers_models_usage: {},
+})
+
+test('风格护栏：结构指标能区分电报体与正常散文', () => {
+  const t = measureStyle(TELEGRAPH_TEXT)
+  assert.equal(t.shortRatio, 1, JSON.stringify(t))
+  assert.ok(t.maxConsecShort >= 7, JSON.stringify(t))
+  assert.ok(
+    t.fails.some((f) => f.startsWith('short-sent')) &&
+      t.fails.some((f) => f.startsWith('short-run')),
+    JSON.stringify(t.fails),
+  )
+  const p = measureStyle(PROSE_TEXT)
+  assert.deepEqual(p.fails, [], JSON.stringify(p))
+})
+
+test('风格护栏：默认关（判定只看网侧口径），开了才把碎句判成 fail', () => {
+  const strip = stripMarkdown(TELEGRAPH_TEXT)
+  const off = judgeResult(normalizeResult(netJson(), strip, AI_DETECT_DEFAULTS), AI_DETECT_DEFAULTS)
+  assert.equal(off.verdict, 'pass', '默认关时不得改变既有判定')
+  assert.ok(off.style.fails.length > 0, '但结构越界必须作为观测量返回')
+
+  const cfg = {
+    ...AI_DETECT_DEFAULTS,
+    styleGuard: { ...AI_DETECT_DEFAULTS.styleGuard, enabled: true },
+  }
+  const on = judgeResult(normalizeResult(netJson(), strip, cfg), cfg)
+  assert.equal(on.verdict, 'fail')
+  assert.ok(
+    on.fails.some((f) => f.startsWith('style:short-sent')),
+    JSON.stringify(on.fails),
+  )
+  assert.match(formatSnapshot(on), /风格=碎句/)
+
+  // 正常散文：开了也不误伤，且快照写"风格=ok"
+  const ok = judgeResult(normalizeResult(netJson(), stripMarkdown(PROSE_TEXT), cfg), cfg)
+  assert.equal(ok.verdict, 'pass')
+  assert.match(formatSnapshot(ok), /风格=ok/)
+})
+
+test('风格护栏：配置深合并（只给 enabled 也不会把阈值清成 undefined）', () => {
+  const merged = readAiDetectConfig({ styleGuard: { enabled: true } })
+  assert.equal(merged.styleGuard.enabled, true)
+  assert.equal(merged.styleGuard.shortRatioMax, AI_DETECT_DEFAULTS.styleGuard.shortRatioMax)
+  assert.equal(
+    merged.styleGuard.consecutiveShortMax,
+    AI_DETECT_DEFAULTS.styleGuard.consecutiveShortMax,
+  )
 })
 
 test('分布口径：人工不足 → fail（且必然连带 AI 或疑似超限）', () => {

@@ -60,19 +60,30 @@ export const AI_DETECT_DEFAULTS = {
    */
   gate: {
     /**
-     * 门禁口径。
-     *   · `metric`（旧口径）：只看 `labels_ai`（AI 特征占比）是否低于 `threshold`。
-     *   · `distribution`（现用）：三条同时成立 —— `human ≥ humanMin` 且 `ai ≤ aiMax`
-     *     且 `uncertain ≤ uncertainMax`。三项之和为 1，所以这是"要一半文本真的像人写的"，
-     *     而不是"只要没被判 AI 就算过"（旧口径下把内容全赶进"疑似"也能过，是虚假达标）。
+     * 门禁口径（三种，按"要不要设下界"区分）：
+     *
+     *   · `metric`（**默认**）：只看一个指标是否**低于** `threshold`。
+     *     默认取 `metric: 'labels_ai'` + `threshold: 0.3`，即"AI 特征占比 < 30%"——
+     *     单向上界，**越干净越好**，不要求任何一段必须像机器。
+     *
+     *   · `distribution`（可选，双侧）：`human ≥ humanMin` 且 `ai ≤ aiMax` 且 `uncertain ≤ uncertainMax`。
+     *     边界**可以不设**：缺省的边界（NaN/未定义）不参与判定，例如只写 `{mode:'distribution', aiMax:0.3}`
+     *     就是"只压 AI 特征上界、人工与疑似只观察"。
+     *
+     *   · `bands`（可选，严格区间）：三段各给一个区间（见下面六个 min/max）。三者和为 1，所以
+     *     "每段都 ≥30%"实际等价于"每段都落在 30%-40%"——它要求文章**保留**一部分 AI 特征文本，
+     *     与"把 AI 特征压到 0%"是相反的方向。**它会同时逼出两个方向的凑指标行为**（凑"人工体"、
+     *     补"机器腔"），只有确实需要"三种特征三分天下"时才用。
+     *
+     * 为什么默认是 `metric`：门禁的用途是"别让机器腔过半"，而下界一旦存在，写作者就会去找
+     * 最廉价的方式满足它（实测：把段落拆成一行一句的碎句去凑"人工特征"，代价是文章不可读）。
+     * 上界是单调的——它只会把人往"更干净"推。
      */
+    mode: 'metric',
     /**
-     * `distribution`：三条硬线（human≥humanMin、ai≤aiMax、uncertain≤uncertainMax）。
-     * `bands`：三段各给一个区间（见下面六个 min/max）。注意三者和为 1，
-     *   所以"每段都 ≥30%"实际等价于"每段都落在 30%-40%"——它要求文章**保留**一部分
-     *   AI 特征文本，与"把 AI 特征压到 0%"是相反的方向，切换前先想清楚。
+     * `bands`/`distribution` 的六个边界（**可选模式的参数**，`metric` 模式下不参与判定）。
+     * 默认值给成一组"标准区间"，切到那两种模式时作为起点。
      */
-    mode: 'bands',
     humanMin: 0.3,
     humanMax: 0.5,
     aiMin: 0.3,
@@ -91,6 +102,7 @@ export const AI_DETECT_DEFAULTS = {
      * 目标刚上调时应先观察，确认真实产出能落在目标区间后再切 block。
      */
     enforce: 'observe',
+    /** `metric` 模式的指标与阈值：`labels_ai` = AI 特征占比（越小越好） */
     metric: 'labels_ai',
     threshold: 0.3,
   },
@@ -105,20 +117,27 @@ export const AI_DETECT_DEFAULTS = {
     minSegmentConf: 0.5,
     /**
      * 是否把"疑似AI"（label=2）也纳入定向改写。默认 **true**：
-     * 区间口径（bands）要求人工特征 ≥30% 且疑似 ≤40%，而改写前的文本大多落在"疑似"档——
-     * 不把疑似段纳入改写，就没有可动的对象。
+     * 疑似段是"机器腔的下游"——只改已判 AI 的段，疑似段下一轮常常就地转成 AI 特征。
+     * 注意它只影响**改写目标清单**，不影响判定口径（`metric` 模式仍只看 AI 特征占比）。
      */
     includeSuspected: true,
   },
   /** 凭证缺失/接口故障/配额不足时的行为：skip（放行但显式标注）——不静默、不阻断出稿 */
   onError: 'skip',
   /**
-   * 当月 token 硬闸（记账口径见 §用量）。**为什么默认 40 万而不是 50 万**：
-   * 免费额度是账号级 50 万/周期，实测**每天 5 篇的流水线一个月要约 80 万**（≈1.7 × 字数，
-   * 均篇 ~5.5k）——额度本来就不够跑满，必须留出余量给基线重跑与人工抽检。
+   * 计费周期内的 token 硬闸（记账口径见 §用量）。**为什么默认 40 万而不是 50 万**：
+   * 免费额度是账号级 50 万/周期，而按接入方字数「5 篇/天」一个月约 40–55 万
+   * （估算口径见 `docs/ai-detect.md` §4；实测均篇看台账的 tokens/calls）——
+   * 额度本来就不够跑满，必须留出余量给基线重跑与人工抽检。
    * 超预算即返回 `skip/budget-exhausted`（按"未检测"放行），不会把额度烧穿。
    */
   monthlyTokenBudget: 400000,
+  /**
+   * 台账的计费周期锚点日（1-31，缺省 1 = 自然月）。朱雀的免费额度是**按开通日**
+   * 为起点刷新的，与自然月错位时把它设成开通日即可对齐（小月自动夹到当月最后一天）。
+   * 只影响台账的归零点，不影响单次检测的额度判断口径。
+   */
+  quotaAnchorDay: 1,
   /**
    * 抽样检测率（0-1，默认 1 = 全检）。按**正文内容哈希**确定性地抽样：
    * 同一篇稿子每次判定结果一致，可复现、可审计；被抽掉的返回 `skip/sampled-out`。
@@ -127,22 +146,58 @@ export const AI_DETECT_DEFAULTS = {
   sampleRate: 1,
   /**
    * 只检测哪些栏目（空数组 = 全部）。额度不够时的收口方式：
-   * 例如只保留 `["noon","evening"]`（两班深度长文，约 39 万/月，落在额度内），
-   * 或用 `["hotspot","noon"]` 之类抽样。`--text`/`--stdin` 这类无栏目输入不受此限制。
+   * 例如只保留 `["noon","evening"]`（两班深度长文），或用 `["hotspot","noon"]` 之类抽样。
+   * `--text`/`--stdin` 这类无栏目输入不受此限制。
    */
   slots: [],
-  recheckAfterRevise: true,
+  /**
+   * 风格护栏（可选，默认关）。检测结果的 `style` 字段**总是**算出来（纯字符串运算、零成本），
+   * 但只有当 `styleGuard.enabled=true` 时，越界才会把 `verdict` 判成 `fail`
+   * （`fails[]` 里以 `style:` 前缀列出），并进快照/日志。
+   *
+   * 为什么需要它：门禁只压"AI 特征占比"这一个上界，而**把文章拆成一行一句的碎句**
+   * 恰好能把这个指标压低（接入方 4 篇里，碎句版有 2 篇的 AI 特征掉到 0%/18.5%，
+   * 反而"过关"）。也就是说，单靠 AI 特征这道门，**读不成句的文章比正常文章更容易达标**。
+   * 这不是写作政策，是判定口径的可被绕过面，所以护栏放在引擎里、可跨项目复用。
+   *
+   * 阈值与接入方的零配额脚本同源（`STYLE_GUARD`），含义见各字段注释。
+   */
+  styleGuard: {
+    enabled: false,
+    /** 句数少于这个数的段落不参与判定（样本太小） */
+    minSentencesToJudge: 3,
+    /** ≤10 字句占比上限 */
+    shortRatioMax: 0.35,
+    /** 「短句」判据（比 shortRatioMax 的 ≤10 略宽）：用来抓连珠碎句 */
+    shortSentLen: 12,
+    /** 连续短句的最大连数 */
+    consecutiveShortMax: 3,
+    /** 「长句」判据：够长的段落里至少要有这么一句 */
+    longSentLen: 25,
+    /** 每个够长的段落至少几句长句 */
+    minLongSentPerPara: 1,
+    /** 触发"每段至少一句长句"的段落字数门槛 */
+    minParaChars: 60,
+    /** 无逗号句占比只观察：超过这个值在 `style.warn` 里提一句，不判 fail */
+    noCommaRatioWarn: 0.6,
+  },
 }
 
-/** 深合并（只处理 gate/rewrite 两层，其余键平铺覆盖） */
+/** 深合并（只处理 gate/rewrite/styleGuard 三层，其余键平铺覆盖） */
 function mergeConfig(base, ...layers) {
-  const out = { ...base, gate: { ...base.gate }, rewrite: { ...base.rewrite } }
+  const out = {
+    ...base,
+    gate: { ...base.gate },
+    rewrite: { ...base.rewrite },
+    styleGuard: { ...base.styleGuard },
+  }
   for (const layer of layers) {
     if (!layer || typeof layer !== 'object') continue
     for (const [k, v] of Object.entries(layer)) {
       if (v === undefined || v === null) continue
-      if ((k === 'gate' || k === 'rewrite') && typeof v === 'object') Object.assign(out[k], v)
-      else out[k] = v
+      if ((k === 'gate' || k === 'rewrite' || k === 'styleGuard') && typeof v === 'object') {
+        Object.assign(out[k], v)
+      } else out[k] = v
     }
   }
   return out
@@ -317,7 +372,12 @@ export function plainRangeToSrc(strip, start, end) {
   return { charStart: map[s], charEnd: map[e - 1] + 1 }
 }
 
-/* ────────────────────────────── 用量台账（月累计，防打爆免费额度） ────────────────────────────── */
+/* ─────────────────── 用量台账（计费周期累计，防打爆免费额度） ───────────────────
+ * 朱雀的免费额度是**按开通日**为起点刷新的（见 docs/ai-detect.md §1），而台账最初按自然月
+ * 归零——两者错位时会出现"账面还有余量、实际已被停"或反之。所以周期起点可配：
+ * `aiDetect.quotaAnchorDay`（1-31，缺省 1 = 自然月）。锚点为 1 时周期键就是 `YYYY-MM`，
+ * 与旧台账（只存 `month`）天然兼容，不需要迁移。
+ */
 
 export function usagePath() {
   return path.join(localRoot(), 'ai-detect-usage.json')
@@ -327,24 +387,66 @@ export function monthKey(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export function readUsage(now = new Date()) {
-  const month = monthKey(now)
+/** 某年某月的天数（用"下月第 0 天"求，闰年自动正确） */
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate()
+}
+
+/** 锚点日夹到 1-31；非数字/越界一律回落到 1（自然月） */
+export function clampAnchorDay(raw) {
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 1 || n > 31) return 1
+  return n
+}
+
+/**
+ * 含 `now` 的计费周期。锚点为 1 时返回自然月键（`YYYY-MM`）；否则返回周期**起始日**
+ * （`YYYY-MM-DD`）。锚点日大于当月天数时夹到当月最后一天（例如锚点 31 → 2 月从 28/29 起算）。
+ */
+export function quotaPeriod(now = new Date(), anchorDay = 1) {
+  const day = clampAnchorDay(anchorDay)
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  if (day === 1) return { key: monthKey(now), anchorDay: 1 }
+  const thisAnchor = Math.min(day, daysInMonth(y, m))
+  let sy = y
+  let sm = m
+  let sd = thisAnchor
+  if (now.getDate() < thisAnchor) {
+    sm = m === 0 ? 11 : m - 1
+    sy = m === 0 ? y - 1 : y
+    sd = Math.min(day, daysInMonth(sy, sm))
+  }
+  const key = `${sy}-${String(sm + 1).padStart(2, '0')}-${String(sd).padStart(2, '0')}`
+  return { key, anchorDay: day }
+}
+
+export function readUsage(now = new Date(), anchorDay = 1) {
+  const period = quotaPeriod(now, anchorDay)
   try {
     const raw = JSON.parse(fs.readFileSync(usagePath(), 'utf8'))
-    if (raw && raw.month === month) {
-      return { month, tokens: Number(raw.tokens) || 0, calls: Number(raw.calls) || 0 }
+    // 新台账存 periodStart；旧台账只有 month —— 锚点为 1 时两者同形，直接认
+    const key = raw && (raw.periodStart ?? (period.anchorDay === 1 ? raw.month : undefined))
+    if (raw && key === period.key) {
+      return {
+        month: period.key,
+        periodStart: period.key,
+        tokens: Number(raw.tokens) || 0,
+        calls: Number(raw.calls) || 0,
+      }
     }
   } catch {
-    /* 文件不存在/损坏 → 当月从零起算 */
+    /* 文件不存在/损坏 → 本周期从零起算 */
   }
-  return { month, tokens: 0, calls: 0 }
+  return { month: period.key, periodStart: period.key, tokens: 0, calls: 0 }
 }
 
 /** 记账（tmp + rename 原子写；写失败不影响检测结果） */
-export function addUsage(tokens, now = new Date()) {
-  const cur = readUsage(now)
+export function addUsage(tokens, now = new Date(), anchorDay = 1) {
+  const cur = readUsage(now, anchorDay)
   const next = {
     month: cur.month,
+    periodStart: cur.periodStart,
     tokens: cur.tokens + (Number(tokens) || 0),
     calls: cur.calls + 1,
     updatedAt: now.toISOString(),
@@ -363,11 +465,13 @@ export function addUsage(tokens, now = new Date()) {
 
 /** 预算状态：超了就不再调用（避免把额度烧穿后连"为什么没检测"都查不到） */
 export function budgetState(cfg, now = new Date()) {
-  const usage = readUsage(now)
+  const anchorDay = clampAnchorDay(cfg.quotaAnchorDay)
+  const usage = readUsage(now, anchorDay)
   const budget = Number(cfg.monthlyTokenBudget) || 0
   const exhausted = budget > 0 && usage.tokens >= budget
   return {
     ...usage,
+    periodAnchorDay: anchorDay,
     budget,
     exhausted,
     remaining: budget > 0 ? Math.max(0, budget - usage.tokens) : null,
@@ -502,7 +606,9 @@ export async function detectText(input, opts = {}) {
   const ckey = contentKey(plain, cfg)
   if (!opts.noCache) {
     const hit = readCachedResult(ckey)
-    if (hit) return hit
+    // 结构指标**每次现算**：它不花钱，而且必须用"当前"的 styleGuard 阈值与当前正文来算——
+    // 缓存里那份可能是旧版本引擎（甚至还没有 style 字段）写下的，直接复用会让护栏静默失效。
+    if (hit) return { ...hit, style: measureStyle(strip.plain, cfg.styleGuard) }
   }
 
   const cred = resolveDetectCredentials()
@@ -600,7 +706,7 @@ export async function detectText(input, opts = {}) {
   // 记账用 Makers 口径（网关自己的计费口径，实测 ≈ 1.67 × 字数），没有才退回 usage 口径。
   // 与免费额度（50 万 token/月）对比时必须用同一把尺子，否则会低估 ~40%。
   const billed = result.usage.makerTokens ?? result.usage.totalTokens
-  if (typeof billed === 'number') addUsage(billed)
+  if (typeof billed === 'number') addUsage(billed, new Date(), cfg.quotaAnchorDay)
   if (!opts.noCache) writeCachedResult(ckey, result)
   return result
 }
@@ -664,23 +770,151 @@ export function normalizeResult(json, strip, cfg, startedAt = Date.now()) {
     segments,
     usage,
     chars: strip.plain.replace(/\s+/g, '').length,
+    // 结构指标（零成本、纯字符串运算）：随结果一起返回，`styleGuard.enabled` 决定它是否参与判定
+    style: measureStyle(strip.plain, cfg.styleGuard),
     elapsedMs: Date.now() - startedAt,
   }
+}
+
+/* ───────────────────────── 风格护栏（结构指标，零成本） ─────────────────────────
+ * 一句话：**别让"碎句"成为通过门禁的捷径**。
+ *
+ * 门禁只有"AI 特征占比"这一个上界，而把段落拆成一行一句、砍掉逗号与长句，恰好能把这个
+ * 占比压低——接入方的 4 篇成稿里，碎句版有 2 篇的 AI 特征掉到 0%/18.5%，反而是正常散文
+ * 那两篇更高。也就是说单靠这道门，**读不成句的文章比正常文章更容易达标**。
+ *
+ * 所以引擎自己也算一组风格指标（纯字符串运算，不花钱、不调接口），随结果返回：
+ *   · `shortRatio`     ≤10 字句占比（上限）、`maxConsecShort` 连续短句数（上限）
+ *   · `longSentCount`  够长的段落里的长句条数（下限）
+ *   · `noCommaRatio`   无逗号句占比（**只观察**：正常中文短陈述句本来就不带逗号）
+ * `styleGuard.enabled=true` 时越界会把它判成 `fail`（`fails[]` 前缀 `style:`）；
+ * 默认关——判定口径的收紧应该由接入方显式打开，而不是悄悄改变既有判定的含义。
+ */
+
+/** 切句：中文句末标点与换行（逗号不算断句——碎句稿的特征正是"用换行代替逗号"） */
+function splitSentences(text) {
+  return String(text ?? '')
+    .split(/[。！？!?；;\n]+/)
+    .map((s) =>
+      s
+        .replace(/^[#>*\-\s|]+/, '')
+        .replace(/[*`]/g, '')
+        .trim(),
+    )
+    .filter((s) => s.length > 0)
+}
+
+/**
+ * 量一篇文章的结构指标（入参是**剥离 markdown 后的纯文本**）。
+ * 段落按空行切；标题行会自然落成"1 句的段落"而被句数门槛排除，不需要额外识别。
+ */
+export function measureStyle(plain, spec = AI_DETECT_DEFAULTS.styleGuard) {
+  const g = { ...AI_DETECT_DEFAULTS.styleGuard, ...(spec || {}) }
+  const paragraphs = String(plain ?? '')
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((text) => {
+      const sents = splitSentences(text)
+      const lens = sents.map((s) => s.length)
+      const chars = text.replace(/\s/g, '').length
+      let run = 0
+      let maxConsecShort = 0
+      for (const l of lens) {
+        if (l <= g.shortSentLen) {
+          run += 1
+          if (run > maxConsecShort) maxConsecShort = run
+        } else run = 0
+      }
+      return {
+        chars,
+        sentences: lens.length,
+        shortRatio: lens.length ? lens.filter((l) => l <= 10).length / lens.length : 0,
+        noCommaRatio: lens.length
+          ? sents.filter((s) => !s.includes('，') && !s.includes(',')).length / lens.length
+          : 0,
+        maxConsecShort,
+        longSentCount: lens.filter((l) => l >= g.longSentLen).length,
+        avgSentLen: lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0,
+      }
+    })
+  const judged = paragraphs.filter((p) => p.sentences >= g.minSentencesToJudge)
+  const totalSents = paragraphs.reduce((a, p) => a + p.sentences, 0)
+  const weighted = (pick) =>
+    totalSents ? paragraphs.reduce((a, p) => a + pick(p) * p.sentences, 0) / totalSents : 0
+  const round = (v) => Number(v.toFixed(3))
+  return {
+    paragraphs: paragraphs.length,
+    judgedParagraphs: judged.length,
+    sentences: totalSents,
+    chars: paragraphs.reduce((a, p) => a + p.chars, 0),
+    // 句级加权：短文本与长段落一起统计时，按句数加权比按段平均更贴近"整篇读起来什么节奏"
+    avgSentLen: round(weighted((p) => p.avgSentLen)),
+    shortRatio: round(weighted((p) => p.shortRatio)),
+    noCommaRatio: round(weighted((p) => p.noCommaRatio)),
+    maxConsecShort: paragraphs.reduce((a, p) => Math.max(a, p.maxConsecShort), 0),
+    longSentCount: paragraphs.reduce((a, p) => a + p.longSentCount, 0),
+    /** 逐段越界项（`styleGuard.enabled=false` 时只作为观测量返回） */
+    fails: styleFails(paragraphs, g),
+    spec: {
+      shortRatioMax: g.shortRatioMax,
+      shortSentLen: g.shortSentLen,
+      consecutiveShortMax: g.consecutiveShortMax,
+      longSentLen: g.longSentLen,
+      minLongSentPerPara: g.minLongSentPerPara,
+      minParaChars: g.minParaChars,
+    },
+  }
+}
+
+/** 逐段判越界：返回 `['short-sent:段2', 'short-run:段2', …]`（带段号，便于定位） */
+function styleFails(paragraphs, g) {
+  const out = []
+  paragraphs.forEach((p, i) => {
+    if (p.sentences < g.minSentencesToJudge) return
+    if (p.shortRatio > g.shortRatioMax) out.push(`short-sent:段${i + 1}`)
+    if (p.maxConsecShort > g.consecutiveShortMax) out.push(`short-run:段${i + 1}`)
+    if (p.chars >= g.minParaChars && p.longSentCount < g.minLongSentPerPara) {
+      out.push(`no-long-sent:段${i + 1}`)
+    }
+  })
+  return out
 }
 
 /**
  * 判定通过与否。两种口径（config.json → aiDetect.gate.mode）：
  *
- * `distribution`（现用）—— 三条同时成立才算过：
- *   `human ≥ humanMin`、`ai ≤ aiMax`、`uncertain ≤ uncertainMax`（三项之和为 1）。
- *   为什么要有这个口径：旧口径只卡 `ai`，把内容从"AI特征"赶进"疑似"就能过——指标好看、
- *   文章并没有更像人写的。加上 `human` 下限才逼出真正的目标；`uncertain` 上限则防止
- *   整篇躲进中间档。失败的项逐个列在 `fails[]` 里，日志与改写才有方向。
+ * `metric`（默认）—— 只比一个数：`labels_ai`（AI 特征占比）低于 `threshold` 即达标。
+ *   只有上界、越干净越好；人工与疑似只作观察（它们仍随结果返回）。
  *
- * `metric`（旧口径，保留兼容）—— 只比一个数：
- *   confidence（整体 AI 浓度，官网顶部那个数）/ labels_ai（AI 特征占比）/ both（取最大值）。
+ * `distribution` / `bands`（可选，双侧）—— 见 docs/ai-detect.md §2；
+ *   未设的边界不参与判定。
  */
 export function judgeResult(result, cfg) {
+  return applyStyleGuard(judgeNetResult(result, cfg), cfg)
+}
+
+/**
+ * 风格护栏的落地点：`styleGuard.enabled=true` 且存在逐段越界项时，把判定降为 `fail`，
+ * 并把越界项以 `style:` 前缀并进 `fails[]`（日志/面板沿用它，新增字段 `styleFails` 给机器读）。
+ * 关闭时原样返回——判定口径的收紧必须由接入方显式打开。
+ */
+function applyStyleGuard(result, cfg) {
+  const g = (cfg && cfg.styleGuard) || {}
+  if (g.enabled !== true) return result
+  if (!result || result.verdict === 'skip') return result
+  const styleFails = (result.style && result.style.fails) || []
+  if (!styleFails.length) return result
+  return {
+    ...result,
+    verdict: 'fail',
+    fails: [...(result.fails || []), ...styleFails.map((f) => `style:${f}`)],
+    styleFails,
+  }
+}
+
+/** 网侧判定（不含风格护栏）——口径与边界语义见 docs/ai-detect.md §2 */
+function judgeNetResult(result, cfg) {
   if (!result || result.verdict === 'skip') return result
   const gate = cfg.gate || {}
   const mode =
@@ -803,7 +1037,10 @@ export function pickRewriteTargets(result, cfg) {
 export function formatVerdictLine(result) {
   if (!result) return 'AI检测=未执行'
   if (result.verdict === 'skip') return `AI检测=跳过(${result.reason})`
-  const pct = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'n/a')
+  // 非有限值一律打 `n/a`：容受口径下"没设这个边界"是合法状态（边界为 NaN/undefined），
+  // 直接 toFixed 会印出 `NaN%`，读日志的人会以为检测坏了
+  const pct = (v) =>
+    typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'n/a'
   if (result.metric === 'bands' && result.ratios) {
     const r = result.ratios
     const b = result.bands || {}
@@ -860,21 +1097,36 @@ export function formatSnapshot(result, extra = {}) {
   if (!result) return ''
   if (result.verdict === 'skip')
     return `AI检测=跳过(${result.reason})${extra.rounds ? ` 重写=${extra.rounds}` : ''}`
-  const pct1 = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'n/a')
+  const pct1 = (v) =>
+    typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'n/a'
   const c = segmentCounts(result)
   const segPart = ` 段=${c.human}人工/${c.ai}AI/${c.uncertain}疑似`
+  // 风格护栏：开了才写进快照（没开时不加噪音，但 `style` 仍随返回值给调用方）
+  const stylePart = styleSnapshotPart(result)
   if (result.metric === 'distribution' && result.ratios) {
     const r = result.ratios
     return (
       `AI检测=${result.verdict}(口径=distribution 人工=${pct1(r.human)} AI特征=${pct1(r.ai)}` +
       ` 疑似=${pct1(r.uncertain)} 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}` +
-      `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
+      `${segPart} 字符=${result.chars || 0}${stylePart}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
       `${extra.rolledBack ? ' 回退=1' : ''})`
     )
   }
   return (
     `AI检测=${result.verdict}(口径=${result.metric} 值=${pct1(result.value)}` +
     ` 阈值=${pct1(result.threshold)} AI特征占比=${pct1(result.labelsRatio && result.labelsRatio.ai)}` +
-    `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''})`
+    `${segPart} 字符=${result.chars || 0}${stylePart}${extra.rounds ? ` 重写=${extra.rounds}` : ''})`
   )
+}
+
+/**
+ * 快照里的风格片段：只在"有 `style` 且确实越界过"时出现。
+ * 形如 ` 风格=碎句(短句比=100% 连短=7)`；正常散文写 ` 风格=ok`。
+ */
+function styleSnapshotPart(result) {
+  const s = result && result.style
+  if (!s || !s.spec) return ''
+  const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`
+  if (!s.fails || !s.fails.length) return ' 风格=ok'
+  return ` 风格=碎句(短句比=${pct(s.shortRatio)} 连短=${s.maxConsecShort} 越界=${s.fails.length}处)`
 }

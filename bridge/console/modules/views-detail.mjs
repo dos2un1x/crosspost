@@ -326,6 +326,20 @@ function renderRecordGrid(rec) {
       `<div class="rg-item"><span class="k">独立审稿</span><div class="v" style="font-size:11.5px;color:var(--ink-soft);line-height:1.5">${escapeHtml(rec.review || '—')}</div></div>`,
     )
   }
+  // AI 检测快照（朱雀）：与发布通知里那句原文同源（§5.55 门禁行）。
+  // 为什么要显式区分"跳过"：skip 是"未检测"而不是"通过"——两者在面板上必须一眼可辨，
+  // 否则事后复盘会把"key 没配/额度用尽"当成"这篇达标"。
+  if (rec.aiDetect) {
+    const txt = String(rec.aiDetect)
+    const skipped = /跳过|skip/.test(txt)
+    const bad = !skipped && /超标|fail/.test(txt)
+    const color = bad ? 'var(--fail)' : skipped ? 'var(--ink-faint)' : ''
+    items.push(
+      `<div class="rg-item"><span class="k">AI 检测</span><div class="v" style="font-size:11.5px;line-height:1.5${color ? `;color:${color}` : ''}">${escapeHtml(txt)}${
+        skipped ? '<br><span style="font-size:11px">未检测（不是通过）</span>' : ''
+      }</div></div>`,
+    )
+  }
   // 发布产物 HTML 归档（2026-08-26 阶段 C-2）
   const htmlEntry = (rec.history || [])
     .slice()
@@ -385,6 +399,7 @@ function renderTimeline(rec) {
       <div class="tl-head">${h.action === 'dryRun' ? '渲染测试' : '发布'} · 微信 ${h.wechat || '—'} · 平台 ${h.platforms || '—'}${h.score !== undefined ? ` · 评分 ${h.score}` : ''}${failedTxt}</div>
       <div class="tl-time">${fmtTime(h.at)}</div>
       ${h.style ? `<div class="tl-detail">样式: ${escapeHtml(styleDisplayName(h.style))}</div>` : ''}
+      ${h.aiDetect ? `<div class="tl-detail">${escapeHtml(String(h.aiDetect))}</div>` : ''}
       <div class="tl-detail">${escapeHtml(h.note || '')}</div>${errTxt}
     </li>`
     })

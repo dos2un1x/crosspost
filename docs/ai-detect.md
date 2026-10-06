@@ -5,14 +5,14 @@
 
 ## 1. 通道与凭证
 
-| 项       | 值                                                                                 |
-| -------- | ---------------------------------------------------------------------------------- |
-| 模型     | 腾讯朱雀（EdgeOne Makers 内置模型 `@makers/zhuque-text`）                          |
-| 端点     | `POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify`           |
-| 鉴权     | `Authorization: Bearer <API_KEY>`，Key 在控制台 **Makers → Models → API Key** 创建 |
-| 凭证位置 | `crosspost-runtime/.env` 的 `ZHUQUE_API_KEY`（env 优先；两者都 gitignored）        |
-| 额度     | 内置模型 50 万 token/月，按开通日为周期起点自动刷新；不足可工单提额                |
-| 官方文档 | <https://cloud.tencent.com/document/product/1552/137539>                           |
+| 项       | 值                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| 模型     | 腾讯朱雀（EdgeOne Makers 内置模型 `@makers/zhuque-text`）                                                            |
+| 端点     | `POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify`                                             |
+| 鉴权     | `Authorization: Bearer <API_KEY>`，Key 在控制台 **Makers → Models → API Key** 创建                                   |
+| 凭证位置 | `crosspost-runtime/.env` 的 `ZHUQUE_API_KEY`（env 优先；两者都 gitignored。模板见 `crosspost-runtime/.env.example`） |
+| 额度     | 内置模型 50 万 token/月，按开通日为周期起点自动刷新；不足可工单提额                                                  |
+| 官方文档 | <https://cloud.tencent.com/document/product/1552/137539>                                                             |
 
 **密钥不落 `config.json`**：凭证只走 env / `.env`，与微信凭证同一规矩。
 
@@ -27,27 +27,84 @@
 | `labels_ratio`       | `{"0":人工特征, "1":AI特征, "2":疑似AI}` 占比         | ✅ 三段都要看，见下面的门禁口径                                                                                                                    |
 | `segment_labels[]`   | 分段判定，含 `position:[起,止]`（提交文本的字符区间） | ✅ 定向改写的依据                                                                                                                                  |
 
-### 门禁口径：三选一
+### 门禁口径：三种，按"要不要设下界"分
 
 三段之和恒为 1，这是所有口径设计的前提。三种模式（`aiDetect.gate.mode`）：
 
-**`distribution`（默认）—— 一条下限 + 两条上限**
+**`metric`（默认）—— 单指标阈值，只有上界**
 
-| 项          | 目标                     | 含义                                   |
-| ----------- | ------------------------ | -------------------------------------- |
-| `human`     | ≥ `humanMin`（0.30）     | 人工特征**不得低于**三成——唯一的硬下限 |
-| `ai`        | ≤ `aiMax`（0.50）        | 上限，**没有下限、越低越好**           |
-| `uncertain` | ≤ `uncertainMax`（0.50） | 上限，防止整篇躲进中间档               |
+只看一个指标是否**低于** `threshold`。默认 `metric: "labels_ai"` + `threshold: 0.30`，
+即 **AI 特征占比 < 30% 达标**；`confidence` / `both` 是另外两个可选项（见 §2 首表）。
 
-这是**容受**而非**配额**：写作过程中不可避免留下一些 AI 味与疑似味，区间表示这些**可以接受**，
-不代表**必须留着**。`fails[]` 只会有 `human` / `uncertain` 这两种（整篇机器腔时才出现 `ai`）。
+它是**单向上界**：越干净越好，不要求任何一段必须像机器。人工特征与疑似占比仍会算出来、
+仍会随结果返回（`labelsRatio`），但**只作观察，不参与判定**。
 
-**`bands` —— 每段各给一个区间**（`humanMin~humanMax` / `aiMin~aiMax` / `uncertainMin~uncertainMax`）。
-注意它的语义与 `distribution` 不同：三者和为 1，所以"每段都 ≥30%"实际把每段**锁进 30%-40%**，
-即要求文章**保留**至少三成 AI 特征文本。越界项带方向，形如 `human:below` / `ai:above`。
-需要"三种特征三分天下"时用这个模式；只要"人工别太低、其余别过半"就用默认的 `distribution`。
+> **为什么默认选它**：下界一旦存在，写作者就会去找最廉价的方式满足它。两种下界各有代价——
+> 要求"人工特征 ≥ N%"时，最省力的写法是把句子拆成一行一句的碎句（无逗号、超短句）；
+> 要求"AI 特征 ≥ N%"时，等于**要求文章保留机器腔**，与"去 AI 味"是相反方向。
+> 两者同时存在时，文章会变成"一半碎句、一半套话"的拼贴。上界不会产生这类激励。
 
-**`metric` —— 旧的单指标口径**：只看 `metric`/`threshold`，行为与引入分布口径前完全一致。
+**`distribution` —— 一条下限 + 两条上限（可选，双侧）**
+
+| 项          | 目标                      | 含义                             |
+| ----------- | ------------------------- | -------------------------------- |
+| `human`     | ≥ `humanMin`（默认 0.30） | 人工特征**不得低于**三成——硬下限 |
+| `ai`        | ≤ `aiMax`（默认 0.50）    | 上限，**没有下限、越低越好**     |
+| `uncertain` | ≤ `uncertainMax`（0.50）  | 上限，防止整篇躲在中间档         |
+
+这是**容受**而非**配额**：区间表示"可以接受"，不代表"必须留着"。`fails[]` 只会有
+`human` / `uncertain` 这两种（整篇机器腔时才出现 `ai`）。
+三个边界**可以不设**：缺省的边界（未定义）不参与判定，所以
+`"gate": {"mode": "distribution", "aiMax": 0.3}` 就是"只压 AI 特征上界，人工与疑似只观察"。
+
+**`bands`（可选，严格区间）—— 每段各给一个区间**
+
+`humanMin~humanMax` / `aiMin~aiMax` / `uncertainMin~uncertainMax`。三者和为 1，所以
+"每段都 ≥30%"实际把每段**锁进 30%-40%**，即要求文章**保留**至少三成 AI 特征文本。
+越界项带方向，形如 `human:below` / `ai:above`。
+
+边界默认是**闭区间**；`gate.exclusive`（默认 `["ai:max"]`）里的名字按**开区间**判——
+默认参数下 AI 特征要求落在 `[30%, 50%)`，恰好 50% 判不达标。用数组而不是给每个边界配一个布尔键，
+是为了让"哪条是开区间"在 config、日志与代码里都是同一处事实（日志里印 `开区间=…`）。
+
+**只有在确实需要"三种特征三分天下"时才用它**：它同时逼两个方向（凑人工体、补机器腔）。
+一组典型的生产数据足以说明这个口径有多难满足——同一条流水线的 4 篇成稿：
+
+| 稿子     | 人工% | AI 特征% | 疑似% | `bands` 判定                  |
+| -------- | ----- | -------- | ----- | ----------------------------- |
+| 深度长文 | 23.6  | 0.0      | 76.4  | fail（人工低、AI 低、疑似高） |
+| 热点解读 | 17.5  | 42.7     | 39.8  | fail（人工低）                |
+| 热点解读 | 0.0   | 46.6     | 53.4  | fail（人工低、疑似高）        |
+| 晚间长文 | 0.0   | 18.5     | 81.5  | fail（三项全越界）            |
+
+注意"AI 特征 0.0% 也算不达标"这一行：`ai:below` 与 `human:below` 同时出现，意味着
+**写得越干净越不合格**。把口径换回 `metric`（只压上界）后，这 4 篇里有 2 篇直接达标。
+
+### 风格护栏：别让"碎句"成为达标捷径（可选，默认关）
+
+**动机**：门禁只压"AI 特征占比"这一个上界，而把段落拆成一行一句、砍掉逗号与长句，恰好能把这个
+占比压低。同一批 4 篇成稿的对照说明了问题——碎句版里有两篇的 AI 特征掉到 **0.0% / 18.5%**，
+反而改成正常散文的那两篇更高（33%-46%）。**单靠 AI 特征这道门，读不成句的文章比正常文章更容易达标。**
+
+引擎因此自己也算一组结构指标（纯字符串运算，**不额外调用接口、不花额度**），随每次检测结果返回：
+
+| 字段（`result.style`） | 含义                             | 判定                                           |
+| ---------------------- | -------------------------------- | ---------------------------------------------- |
+| `shortRatio`           | ≤10 字句占比                     | 上限 0.35                                      |
+| `maxConsecShort`       | 连续短句（≤12 字）的最大连数     | 上限 3                                         |
+| `longSentCount`        | 够长的段落（≥60 字）里的长句条数 | 每段至少 1 句 ≥25 字                           |
+| `noCommaRatio`         | 无逗号句占比                     | **只观察**（正常中文的短陈述句本来就不带逗号） |
+| `fails[]`              | 逐段越界项，形如 `short-run:段2` | —                                              |
+
+`aiDetect.styleGuard.enabled = true` 时，`fails[]` 非空即把判定降为 `fail`，越界项以
+**`style:` 前缀**并进 `fails[]`（如 `style:short-run:段2`）；快照/日志里写
+`风格=碎句(短句比=100% 连短=7 越界=3处)`，正常散文写 `风格=ok`。
+
+**默认关**：判定口径的收紧应由接入方显式打开。开与不开的差别只有"碎句是否判 fail"这一条，
+`style` 指标在任何情况下都会返回——所以**先观察一段时间再决定**也是可行的用法。
+
+> 阈值可用 `aiDetect.styleGuard` 里的同名字段覆盖（`shortRatioMax` / `consecutiveShortMax` /
+> `longSentLen` / `minLongSentPerPara` / `minParaChars` / `minSentencesToJudge`）。
 
 ### 门禁强度：observe / block
 
@@ -58,11 +115,18 @@
 
 返回里的 `action` 字段直接给出本次应执行的动作（`observe` / `block`），调用方不必自己推断 config。
 
+> **`action` 是引擎的建议，不是对调用方的约束。** `observe` 下引擎不代做改写，也不阻止任何后续动作；
+> 接入方完全可以自行把 `fail` 当硬门禁（自己组织定向改写、自己决定留存）。两种选择都合法，
+> 但**别把 `observe` 读成"这篇不用管"**——判定与 `fails[]` 在任何强度下都是真实值。
+
 ### 优化单元是"段落"，不是"整篇"
 
 `labels_ratio` 近似**按分段计权**（15 段中 4 段判 AI ⇒ 4/15 ≈ 26.7%，与返回的 25.94% 吻合），
-段落规模约 280 字/段。因此"整篇一半文本达到人工特征"可分解为"约一半的段落各自达到人工特征"——
-这既是写作侧的目标，也是分段数会影响判定的原因（短文本分段少、粒度粗）。
+段落规模约 280 字/段。所以占比是**段落级**的量：改一段只动一格，改不到就白改；
+短文本分段少、粒度粗（3 段里 1 段被判 AI 就是 33%），阈值要与正文长度一起看。
+
+默认口径（`metric`）下要压的是 `labels_ratio["1"]`；`human` / `uncertain` 两段只作观察——
+它们能说明"这一段为什么被判 AI"（疑似档往上一格就是 AI 特征），但不是达标条件。
 
 同一话题、不同文体的标定值：
 
@@ -98,10 +162,13 @@
 
 - 计费口径看 `makers_models_usage.total_tokens`（网关侧记账），≈ **1.7 × 正文字数**；
   `usage.total_tokens` ≈ 1.0 × 字数，用它估额度会低估约 40%。**控制台「模型用量」页是权威口径**。
-- 台账在 `<repo>/.local/ai-detect-usage.json`，按月累计、跨月归零；额度是**账号级**，全引擎共用一份台账。
+- 台账在 `<repo>/.local/ai-detect-usage.json`，按**计费周期**累计、跨周期归零；额度是**账号级**，全引擎共用一份台账。
   注意：台账只统计**经引擎发起的**调用，直接用 curl/脚本打接口的部分不在里面——对账以控制台为准。
-- `config.json → aiDetect.monthlyTokenBudget`（默认 48 万）是硬闸：累计超过即不再调用，
-  返回 `skip/budget-exhausted`（按"未检测"放行，不阻断出稿）。留出的余量用于基线重跑与人工抽检。
+- 周期默认是**自然月**，而朱雀的免费额度是**按开通日**为起点刷新的：两者错位时把
+  `aiDetect.quotaAnchorDay` 设为开通日（1-31，小月自动夹到当月最后一天）即可对齐。
+- `config.json → aiDetect.monthlyTokenBudget`（代码默认 **40 万**，部署可改；当前生效值以 `aiDetect --budget` 为准）
+  是硬闸：累计超过即不再调用，返回 `skip/budget-exhausted`（按"未检测"放行，不阻断出稿）。
+  留出的余量用于基线重跑与人工抽检。
 - **量级与覆盖率的关系**（按接入方的字数为准重算；均篇 ≈ 1.7 × 字数）：
 
   | 覆盖                                   | 月度消耗（30 天） | 是否落在 50 万免费额度内 |
@@ -110,7 +177,10 @@
   | 只检长文（2 篇/天）                    | ≈ 28 万           | ✅ 宽裕                  |
   | 只检快讯（3 篇/天）                    | ≈ 19 万           | ✅ 宽裕                  |
 
-  全栏目覆盖落在额度内但几乎没有余量，因此**每篇只在定稿后检测一次**（`observe` 不做复检正是为此）。
+  这张表只是**估算**，实际有两道闸要同时满足：既不能超免费额度，也不能超 `monthlyTokenBudget`
+  （代码默认 40 万，比表里的估算**先**到线）。要按自己的真实消耗核对，看 `aiDetect --budget`
+  返回的 `tokens` / `calls`（两者相除即均篇 token）。
+  全栏目覆盖几乎没有余量，因此**每篇只在定稿后检测一次**（`observe` 不做复检正是为此）。
   `aiDetect.slots` 是一个**可选**的栏目白名单：
 
   ```json
@@ -145,7 +215,14 @@ node crosspost-runtime/src/cli.mjs aiDetect --file=… --metric=confidence
 ```
 
 MCP 面是同名工具 `ai_detect`（AI 会话侧入口，同一个实现）：入参 `file` / `id` / `text` 三选一，
-另有 `metric` / `threshold` / `budget`。
+`project` 指定项目；口径与强度可临时覆盖 `mode` / `humanMin` / `humanMax` / `aiMin` / `aiMax` /
+`uncertainMin` / `uncertainMax` / `sampleRate` / `enforce`，旧口径另有 `metric` / `threshold`；
+`budget: true` 只看台账不调接口。
+
+CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `--metric` / `--file` / `--id` /
+`--text` / `--stdin` 外，还接受 `--mode` / `--enforce` / `--human-min` / `--human-max` /
+`--ai-min` / `--ai-max` / `--uncertain-min` / `--uncertain-max` / `--sample-rate` /
+`--slots=a,b` / `--threshold` / `--segments` / `--project=…`。
 
 ## 6. 三态语义
 
@@ -156,13 +233,27 @@ MCP 面是同名工具 `ai_detect`（AI 会话侧入口，同一个实现）：�
 | `skip`  | **本次未检测成功** | 如实记"未检测" + 原因，不得当成 pass                            |
 
 `skip` 的 `reason`：`disabled` / `slot-not-enabled`（被 `aiDetect.slots` 白名单挡下）/
-`text-too-short`（正文不足 `minChars`，默认 350 字，取官网下限）/
+`text-too-short`（正文不足 `minChars`，默认 350 字，取官网下限）/ `sampled-out`（被
+`sampleRate` 的确定性抽样抽掉）/
 `no-api-key` / `budget-exhausted` / `timeout` / `network-error` / `api-error`（附 `errorCode`：
 `AUTH` / `RATE` / `QUOTA` / `SERVER` / `PROVIDER` / `HTTP_<n>`）/ `bad-json` / `bad-response` / `metric-unavailable`。
 
 取向：**凭证缺失、额度不足、接口故障一律放行但显式标注**，不静默、也不阻断出稿——与槽位门禁
 "绝不因配置故障静默停发"一致。但"未检测"必须在日志、通知、文章库记录三处都可见，
 否则事后无法区分"通过"与"没检测"。
+
+### 发布侧：把快照变成硬要求（可选）
+
+判定归判定，**"有没有把判定结果带进发布回执"是另一件事**：`publish_article` 的 `aiDetect` 是可选入参，
+不传就写"未执行"。想让"缺快照"变成可拦的条件，把 `aiDetect.requireSnapshotOnPublish` 设为 `true`：
+
+| 值              | 缺快照时的行为                                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `false`（默认） | 照常派发，记录与通知里写"未执行"                                                                                 |
+| `true`          | **不派发**（平台与微信都不发），仍落草稿 + 历史，回执给 `dispatch:"skipped"` 与 `skipReason`，通知文案写真实原因 |
+
+不做成"抛错"是有意的：定时链路无人值守，一次异常会丢掉整轮结果；停在草稿态是可恢复的，
+补上快照重跑即可。`--text`/`--stdin` 的裸检测与这条开关无关。
 
 ## 7. 实现要点
 
@@ -178,15 +269,16 @@ MCP 面是同名工具 `ai_detect`（AI 会话侧入口，同一个实现）：�
 
 ## 8. 排障
 
-| 现象                        | 查什么                                                              |
-| --------------------------- | ------------------------------------------------------------------- |
-| `skip/no-api-key`           | `crosspost-runtime/.env` 是否有 `ZHUQUE_API_KEY`；文件权限是否可读  |
-| `skip/budget-exhausted`     | `aiDetect --budget` 看当月累计；核对 `monthlyTokenBudget`           |
-| `skip/api-error` + `AUTH`   | Key 失效或额度被停；到 EdgeOne 控制台确认                           |
-| `skip/api-error` + `RATE`   | 触发限流；降频或错峰                                                |
-| `skip/text-too-short`       | 正文不足 `minChars`（默认 350 字）；短文按"未检测"处理              |
-| `segments` 为空但整体分正常 | 接口未返回分段；此时只能按整体判定，无法定向改写                    |
-| 改完稿分数不降              | 先确认看的是哪个字段：`confidence` 恒饱和，要看 `labels_ratio["1"]` |
+| 现象                        | 查什么                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `skip/no-api-key`           | `crosspost-runtime/.env` 是否有 `ZHUQUE_API_KEY`（模板 `.env.example`）；`npm run doctor` 也会提醒 |
+| `skip/budget-exhausted`     | `aiDetect --budget` 看当月累计；核对 `monthlyTokenBudget`                                          |
+| `skip/sampled-out`          | 正常（被 `sampleRate` 抽掉）；要全检就把 `sampleRate` 调回 1                                       |
+| `skip/api-error` + `AUTH`   | Key 失效或额度被停；到 EdgeOne 控制台确认                                                          |
+| `skip/api-error` + `RATE`   | 触发限流；降频或错峰                                                                               |
+| `skip/text-too-short`       | 正文不足 `minChars`（默认 350 字）；短文按"未检测"处理                                             |
+| `segments` 为空但整体分正常 | 接口未返回分段；此时只能按整体判定，无法定向改写                                                   |
+| 改完稿分数不降              | 先确认看的是哪个字段：`confidence` 恒饱和，要看 `labels_ratio["1"]`                                |
 
 ## 9. 相关
 

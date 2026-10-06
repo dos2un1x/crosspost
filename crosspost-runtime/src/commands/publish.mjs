@@ -26,6 +26,7 @@ import { collectRunLogRows, parseRunLogLine } from '../adapters/backfill-run-log
 import { sendNotify, platformName, readNotifyConfig, renderTemplate } from '../notify.mjs'
 // 发布来源与派发判定（2026-09-12）：定时链路永不豁免「生成后自动推送」开关
 import { resolveDispatch } from '../publish-origin.mjs'
+import { readAiDetectConfig } from '../ai-detect.mjs'
 import {
   renderMarkdownAsync,
   generateCover,
@@ -557,6 +558,8 @@ export function buildPublishNotifyCopy({
   origin,
   wechatSkippedByReq,
   file,
+  // 本次"没派发"的原因（如 AI 检测快照门禁）。缺省回落到"未开启自动推送"。
+  skipReason,
   template = {},
 }) {
   const skipText = skipList.length ? `未登录跳过: ${skipList.map((s) => s.id).join(',')}` : ''
@@ -579,6 +582,9 @@ export function buildPublishNotifyCopy({
         : wechatSkippedByReq
           ? '未勾选'
           : '未启用（自动推送开关关闭或未勾选含微信）'
+  // 没派发时把**真实原因**写进文案：默认措辞是"未开启自动推送"，但快照门禁等原因也走同一条分支，
+  // 不区分就会把"缺检测快照所以没推"说成"自动推送没开"，收通知的人照着排查会走错方向。
+  const skipReasonText = skipReason || '未开启自动推送'
   const vars = {
     title,
     slot: slot || 'manual',
@@ -588,7 +594,7 @@ export function buildPublishNotifyCopy({
     ok: String(okCount),
     total: String(total),
     failed: failList.length ? failList.join(',') : '无',
-    failReason: dispatchEnabled ? failedText || '无' : '未开启自动推送',
+    failReason: dispatchEnabled ? failedText || '无' : skipReasonText,
     origin: originLabel,
     file,
     // AI 检测快照（2026-10-05）：跳过检测时也要如实入文案——"没检测"必须一眼可见，
@@ -601,7 +607,7 @@ export function buildPublishNotifyCopy({
     renderTemplate(template.summary, vars) ||
     (dispatchEnabled
       ? `📌 《${title}》\n模式=${slot} 样式=${style} 微信=${vars.wechat} 分发=${okCount}/${total} 成功${failList.length ? `,失败:${failList.join(',')}` : ''}${aiClause}`
-      : `📌 《${title}》\n模式=${slot} 样式=${style} 微信=未推送（未开启自动推送）\n已生成草稿（来源=${vars.origin}）${aiClause}`)
+      : `📌 《${title}》\n模式=${slot} 样式=${style} 微信=未推送（${skipReasonText}）\n已生成草稿（来源=${vars.origin}）${aiClause}`)
   // 尾行按事实陈述：只有微信真的 ok 才声称"已推送公众号草稿箱"
   const wechatClause =
     wechatStatus === 'ok'
@@ -617,7 +623,7 @@ export function buildPublishNotifyCopy({
       ? failedText
         ? `${failedText}\n草稿保留: ${file}\n${wechatClause}${okCount} 个平台草稿箱,请查看筛选。`
         : `${wechatClause}${okCount} 个平台草稿箱,请查看筛选。`
-      : `草稿保留: ${file}\n未开启自动推送,已生成草稿待人工推送（来源=${vars.origin}；可在 Console 手动挑选平台推送）。`)
+      : `草稿保留: ${file}\n${skipReasonText},已生成草稿待人工推送（来源=${vars.origin}；可在 Console 手动挑选平台推送）。`)
   return { vars, notifyTitle, summaryLine, footer }
 }
 
@@ -749,14 +755,31 @@ export async function runPublishArticle(req) {
   const pushEnabled = dispatch.pushEnabled
   // dispatchEnabled = 本次是否真的派发平台/微信；后续「状态 / 历史 action / 通知文案」都必须按它分支，
   // 否则手动放行时会出现"平台推成功了、记录却写 draft-only、通知写未推送"的不一致。
-  const dispatchEnabled = dispatch.dispatchEnabled
+  let dispatchEnabled = dispatch.dispatchEnabled
+  let wantWechat = dispatch.wantWechat
+
+  // ---- AI 检测快照门禁（默认关）----
+  //
+  // `aiDetect.requireSnapshotOnPublish=true` 时：没带 §5.55 快照就不派发（平台与微信都不发），
+  // 但仍落草稿记录 + 历史 + 明确原因。取向与槽位门禁一致——**不静默**：宁可停在草稿态并说清
+  // 为什么，也不让一篇"跳过检测"的稿子带着"未执行"出门（那等于把门禁当成摆设）。
+  // 为什么不做成"抛错"：定时链路无人值守，一次异常会丢掉整轮结果；停在草稿态是可恢复的。
+  const aiCfg = readAiDetectConfig()
+  const snapshotMissing =
+    aiCfg.requireSnapshotOnPublish === true && !String(req.aiDetect || '').trim()
+  const snapshotSkipReason = snapshotMissing
+    ? '缺少 AI 检测快照（aiDetect.requireSnapshotOnPublish=true）：补上 §5.55 快照后重试'
+    : undefined
+  if (snapshotMissing) {
+    dispatchEnabled = false
+    wantWechat = false
+  }
 
   // ---- 微信官方通道（恒草稿）----
   // 2026-09-11：手动请求（manual / allowDouyin / force）勾选即执行——抽屉里的「微信草稿」复选框就是意图，
   // 不该再被「生成后自动推送」总开关吞掉（此前 autoPush 关闭时手动勾了微信仍记 skip）。
   // 自动链路：仍要求 autoPush.enabled 且 includeWechat 勾选（语义不变）。
   let wechatHtml = null
-  const wantWechat = dispatch.wantWechat
   if (!dryRun && wantWechat) {
     const adapter = makeWechatOfficialAdapter()
     if (!adapter) {
@@ -858,6 +881,7 @@ export async function runPublishArticle(req) {
       origin,
       wechatSkippedByReq,
       file,
+      skipReason: snapshotSkipReason,
       template: ncfg.template,
     })
     summary.notify = await sendNotify({
@@ -977,7 +1001,7 @@ export async function runPublishArticle(req) {
       origin,
       dispatch: dispatchEnabled ? 'dispatched' : 'skipped',
       autoPushEnabled: pushEnabled,
-      skipReason: dispatch.skipReason,
+      skipReason: snapshotSkipReason || dispatch.skipReason,
       // 2026-08-28 修复：dryRun 用 summary（初始 skip/{}/none），勿用 saved.wechat（新草稿记录无 wechat 字段 → undefined）
       status: saved.status,
       wechat: summary.wechat,
@@ -1074,7 +1098,7 @@ export async function runPublishArticle(req) {
     origin,
     dispatch: dispatchEnabled ? 'dispatched' : 'skipped',
     autoPushEnabled: pushEnabled,
-    skipReason: dispatch.skipReason,
+    skipReason: snapshotSkipReason || dispatch.skipReason,
     status,
     wechat: summary.wechat,
     platforms: summary.platforms,

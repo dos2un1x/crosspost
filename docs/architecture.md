@@ -29,8 +29,8 @@
 | 部件               | 目录                                     | 是什么                                                                                                                                                                          |
 | ------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **渲染核心**       | `crosspost-runtime/core/`                | TypeScript：样式引擎（10 种内置样式）、封面模板（13 种）、平台适配器。`tsup` 构建到 `dist/`，被 runtime 以 `file:` 依赖链接；`dist/` 不入库                                     |
-| **引擎业务逻辑**   | `crosspost-runtime/src/`                 | CLI 的 50 个方法、doctor、配置分层、项目注册表、草稿/记录簿记、费用统计、发布编排、内置定时器                                                                                   |
-| **MCP 服务**       | `crosspost-runtime/mcp-server/index.mjs` | MCP stdio：把 CLI 能力包装成 **20 个工具**，供 DSH 或外部 MCP 客户端（Claude Desktop / Cursor…）调用                                                                            |
+| **引擎业务逻辑**   | `crosspost-runtime/src/`                 | CLI 的 54 个方法、doctor、配置分层、项目注册表、草稿/记录簿记、费用统计、发布编排、AI 检测、内置定时器                                                                          |
+| **MCP 服务**       | `crosspost-runtime/mcp-server/index.mjs` | MCP stdio：把 CLI 能力包装成 **22 个工具**，供 DSH 或外部 MCP 客户端（Claude Desktop / Cursor…）调用                                                                            |
 | **桥**             | `bridge/run-bridge.mjs`                  | 常驻 HTTP（默认 **9540**）：鉴权、CORS、项目头、**四条常驻 worker 车道**、扩展通道、调度、Console 静态页与素材                                                                  |
 | **Console**        | `bridge/console/`                        | 零构建的静态 ES Module 工作台，由桥在 `/console/` 同源托管（CSP `script-src 'self'`，故编辑器依赖同源 vendored）                                                                |
 | **浏览器扩展**     | `bridge/chrome-proxy-extension/`         | 唯一的"出口"：在已登录的浏览器里代发请求。桥 ↔ 扩展走消息契约（7 个核心 method + 平台专用 handler）                                                                             |

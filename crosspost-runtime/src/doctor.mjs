@@ -53,6 +53,7 @@ import {
 import { defaultDomainOrphanIds } from './domain-orphans.mjs'
 import { collectSpecs } from './scheduler/index.mjs'
 import { legacyDaemons, legacyTasks } from './scheduler/legacy.mjs'
+import { budgetState, readAiDetectConfig, resolveDetectCredentials } from './ai-detect.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
@@ -679,6 +680,61 @@ export async function runDoctor(opts = {}) {
           }
         : {}),
     })
+  }
+
+  // ── 6e. AI 检测（朱雀）就位状态（2026-10-05）──
+  //
+  // 为什么单列：检测的失败一律是"放行 + 显式标注"（`skip`），所以**凭证缺失、额度用尽
+  // 都不会让任何一篇稿子变红**——流水线照常出稿，这一关却形同虚设。接入方明确把
+  // "连续 skip/no-api-key"当故障，doctor 就该在跑之前把它指出来。
+  // 只读：不调接口、不扣额度（`budgetState` 只读台账文件）。
+  {
+    const cfg = readAiDetectConfig()
+    if (cfg.enabled === false) {
+      checks.push({
+        id: 'ai-detect',
+        severity: SEVERITY.OK,
+        title: 'AI 检测未启用（aiDetect.enabled=false）',
+        detail: '流水线不会做朱雀检测，也不会消耗额度',
+      })
+    } else {
+      const cred = resolveDetectCredentials()
+      const b = budgetState(cfg)
+      const mode = (cfg.gate && cfg.gate.mode) || 'bands'
+      const enforce = (cfg.gate && cfg.gate.enforce) || 'observe'
+      const slots =
+        Array.isArray(cfg.slots) && cfg.slots.length ? cfg.slots.join(' / ') : '全部栏目'
+      const rate = Number(cfg.sampleRate)
+      const extras = [
+        `抽样 ${!Number.isFinite(rate) || rate >= 1 ? '全检' : `1/${Math.max(1, Math.round(1 / rate))}`}`,
+        `风格护栏 ${cfg.styleGuard && cfg.styleGuard.enabled ? '开' : '关'}`,
+      ].join(' · ')
+      const periods = `${b.periodStart} 起（锚点 ${b.periodAnchorDay} 日）`
+      const problems = []
+      if (!cred.apiKey) problems.push('缺凭证：`crosspost-runtime/.env` 里没有 `ZHUQUE_API_KEY`')
+      if (b.exhausted) {
+        problems.push(`本周期额度已用尽（${b.tokens}/${b.budget}，会返回 skip/budget-exhausted）`)
+      }
+      checks.push({
+        id: 'ai-detect',
+        severity: problems.length ? SEVERITY.WARN : SEVERITY.OK,
+        title: !cred.apiKey
+          ? 'AI 检测已启用但没有凭证（每篇都会 skip/no-api-key）'
+          : b.exhausted
+            ? 'AI 检测本周期额度已用尽（检测会跳过）'
+            : `AI 检测就位（${mode} · ${enforce} · 覆盖 ${slots}）`,
+        detail:
+          `本周期 ${periods}：${b.tokens}/${b.budget} token，${b.calls} 次调用；` +
+          `凭证${cred.apiKey ? '已配置' : '缺失'}（env 或 .env）；${extras}`,
+        ...(problems.length
+          ? {
+              hint:
+                `修法：${problems.join('；')}。` +
+                '额度口径以 EdgeOne 控制台「模型用量」为准；台账只统计经引擎发起的调用。',
+            }
+          : {}),
+      })
+    }
   }
 
   // ── 7. 可选外部依赖（缺失只告警，相关能力自动降级） ──
