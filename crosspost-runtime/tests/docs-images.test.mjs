@@ -25,11 +25,11 @@ const IMAGES_DIR = path.join(REPO, 'docs', 'images')
 const README = path.join(REPO, 'README.md')
 const GENERATOR = path.join('crosspost-runtime', 'tests', 'docs-screenshots.mjs')
 
-/** 上限：生成器按 1440 CSS 宽 × DPR 2（= 2880px）拍整页，最长的一张是「设置」（约 8000px）；
+/** 上限：生成器按 1440 CSS 宽 × DPR 2（= 2880px）拍整页，最长的一张是「设置」（约 10500px）；
  *  扩展选项页那张按 860 × DPR 2（= 1720px）拍，尺寸更小 */
 const MAX_BYTES = 4 * 1024 * 1024
 const MAX_WIDTH = 3000
-const MAX_HEIGHT = 9000
+const MAX_HEIGHT = 12000
 /** 全部文档图的体积上限：发布物总上限是 20MB，图不该吃掉大半 */
 const MAX_TOTAL_BYTES = 10 * 1024 * 1024
 

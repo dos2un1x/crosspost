@@ -68,9 +68,10 @@ const HTTP_PORT = WS_PORT + 1
 const BASE = `http://127.0.0.1:${HTTP_PORT}`
 
 /** 单张图的像素/体积上限（与 docs-images.test.mjs 同一口径；超了当场判负）。
- *  高度 9000px：最长的「设置」整页约 7950px（Chromium 单张上限远高于此）。 */
+ *  高度 12000px：最长的「设置」整页约 10500px（多块设置卡各占一段；Chromium 单张上限 16384px，
+ *  这里留出"再加一张卡"的余量，同时仍能在页面异常拉长时当场判负）。 */
 const MAX_PNG_BYTES = 4 * 1024 * 1024
-const MAX_PNG_HEIGHT = 9000
+const MAX_PNG_HEIGHT = 12000
 
 /** 扩展选项页那张图：文件名与视口。
  *  视口 860 是"外壳 760 居中"两侧各留一点纸边的取景（`--shell` 在 ≥560px 时就是 760）。 */
