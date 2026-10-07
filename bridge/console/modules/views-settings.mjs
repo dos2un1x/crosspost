@@ -392,10 +392,16 @@ export function schedBadge(s, projectId) {
   // 跑失败也要说话（2026-09-25）：`completedToday` 只表示"今天有 finished 记录"，
   // 与成败无关。实测踩到：18:10 那轮 exit=1、零产出，而界面写着"已启用·今日已跑"，
   // 人只能靠"怎么没文章"才发现（executor 是容器/远程时更容易这样）。
-  // 判据：最近一班失败 **且**（是自动跑的那班 或 最近一班就在今天）——
+  // 判据：最近一班失败 **且**（是自动跑的那班 或 手动跑的那班 或 最近一班就在今天）——
   // 只看 lastExit 会把几天前的失败一直挂在行上。
+  // `manualToday` 是 2026-10-07 补的：它是调度器**自己的**记账（按槽位时区判定），
+  // 而 `ranToday` 靠扫项目日志——远程执行器没落日志时，手动失败会两者都抓不到。
   const ranToday = String(s.lastRunAt || '').slice(0, 10) === todayStr()
-  if (typeof s.lastExit === 'number' && s.lastExit !== 0 && (s.completedToday || ranToday))
+  if (
+    typeof s.lastExit === 'number' &&
+    s.lastExit !== 0 &&
+    (s.completedToday || s.manualToday || ranToday)
+  )
     return {
       cls: 'warn',
       text: `跑失败(exit=${s.lastExit})`,
@@ -404,8 +410,12 @@ export function schedBadge(s, projectId) {
   if (s.armed)
     return {
       cls: 'on',
-      text: s.completedToday ? '已启用·今日已跑' : '已启用',
-      title: '到点由引擎内置定时器触发',
+      text: s.completedToday ? '已启用·今日已跑' : s.manualToday ? '已启用·今日已手动跑' : '已启用',
+      title:
+        !s.completedToday && s.manualToday
+          ? '今天手动跑过一次（人工触发不占「每天一次」名额：这次手动跑没有取消今天的自动班次，' +
+            '它是否还会跑由补跑窗口决定）'
+          : '到点由引擎内置定时器触发',
     }
   return { cls: 'warn', text: '已启用·未生效', title: armedTitle(s.armedReason) }
 }
@@ -572,6 +582,31 @@ function staleSlots(list = []) {
 }
 
 /**
+ * 槽位名旁的「今日…」小标（纯函数，便于测试）。
+ *
+ * 2026-10-07 加第四种：`今日已手动跑`。起因是真实误读——18:10 那班被错过（超出补跑窗口）
+ * 之后点「立即运行」补跑成功，而这一行与"根本没跑过"完全一样（`completedToday` 只认自动）。
+ *
+ * 为什么**不能**让手动去改写 `completedToday`：那等于"手动补跑一次 = 取消今天的自动班次"
+ * （`decideFire` 正是拿 `completedDay` 跳过当天）。所以事实分开报、这里分开显示：
+ * 自动跑过 → 「今日已跑」（绿）；只手动跑过 → 「今日已手动跑」（中性色，且措辞不同）。
+ * 两种都在时只显示「今日已跑」——自动那班完成是更强的结论，不并列。
+ */
+export function schedDriftChip(s) {
+  if (!s) return ''
+  if (s.unfinished)
+    return `<span class="sched-drift" title="今天触发过一次但没写回结果">未收尾</span>`
+  if (s.completedToday)
+    return `<span class="sched-drift is-ok" title="今天已经跑过一次">今日已跑</span>`
+  if (s.manualToday)
+    return (
+      `<span class="sched-drift is-manual" title="今天手动跑过一次：人工触发不占「每天一次」名额，` +
+      `所以当天是否还会自动跑由补跑窗口决定（这次手动跑没有取消它）">今日已手动跑</span>`
+    )
+  return ''
+}
+
+/**
  * 调度提示区（v2.3）：把"为什么定时不会跑"直接摆在调度区顶部。
  *
  * 四条都属于**到点才发现**的失败，因此必须在打开页面时就说出来：
@@ -645,11 +680,7 @@ function renderSchedule(slots) {
       const disabledAttr = editable ? '' : 'disabled'
       const stale = isStaleSlot(s)
       const state =
-        (s.unfinished
-          ? `<span class="sched-drift" title="今天触发过一次但没写回结果">未收尾</span>`
-          : s.completedToday
-            ? `<span class="sched-drift is-ok" title="今天已经跑过一次">今日已跑</span>`
-            : '') +
+        schedDriftChip(s) +
         (stale
           ? `<span class="sched-drift is-stale" title="连续 ${s.daysSince} 天没有产出：点右侧「立即运行」跑一次，再看该项目的 logs/">⚠ ${s.daysSince} 天未产出</span>`
           : '')

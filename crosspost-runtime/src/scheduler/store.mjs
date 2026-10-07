@@ -102,6 +102,11 @@ export function listRunDays(dir = schedulerDir()) {
  * 关键区分：`trigger === 'manual'` 的运行**不**占用"每天一次"的名额——
  * 人工触发永远不该让当天的自动计划消失（否则"手动补跑一次"就等于取消了今天）。
  * 但它的结果仍用于展示（lastExit / lastDurationMs）。
+ *
+ * 2026-10-07：人工那部分**单独**给出来（`manualCompleted` / `lastManualAt`）。
+ * 起因是一个真实的误读：用户在 18:10 那班被错过（超出补跑窗口）之后点了「立即运行」，
+ * 跑成功了，而徽标与"根本没跑过"一模一样（`completedToday` 只认自动）。
+ * 记账语义不能改（改了就是"手动补跑 = 取消今天"），所以把事实**分开报**、由界面区分表达。
  */
 export function slotDayState(key, dayKey, dir = schedulerDir()) {
   const entries = readDay(dayKey, dir).filter((e) => e && e.key === key)
@@ -112,12 +117,20 @@ export function slotDayState(key, dayKey, dir = schedulerDir()) {
   const unfinished = startedAuto.some((e) => !finished.has(e.runId))
   const lastFinished = [...entries].reverse().find((e) => e.phase === 'finished') || null
   const lastStarted = [...entries].reverse().find((e) => e.phase === 'started') || null
+  // 人工触发（Console「立即运行」/ scheduler trigger）：只报事实，不参与 completed 判定
+  const manual = entries.filter((e) => e.trigger === 'manual')
+  const finishedManual = new Set(manual.filter((e) => e.phase === 'finished').map((e) => e.runId))
+  const manualCompleted = manual.some((e) => e.phase === 'started' && finishedManual.has(e.runId))
+  const lastManual = [...manual].reverse().find((e) => e.phase === 'finished') || null
   return {
     day: dayKey,
     completedDay: completed ? dayKey : null,
     unfinishedDay: unfinished ? dayKey : null,
     completed,
     unfinished,
+    /** 今天有没有"人工触发且跑完"的一次（**不含**自动；与 `completed` 刻意分开） */
+    manualCompleted,
+    lastManualAt: lastManual ? lastManual.startedAt : null,
     lastExit: lastFinished ? (lastFinished.exit ?? null) : null,
     lastStartedAt: lastStarted ? lastStarted.startedAt : null,
     lastDurationMs: lastFinished ? (lastFinished.durationMs ?? null) : null,

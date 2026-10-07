@@ -828,7 +828,8 @@ try {
     if (
       typeof s.lastExit === 'number' &&
       s.lastExit !== 0 &&
-      (s.completedToday || String(s.lastRunAt || '').slice(0, 10) === todayKey())
+      // `manualToday` 与页面同源（2026-10-07）：调度器自己的记账，比"扫项目日志"更可靠
+      (s.completedToday || s.manualToday || String(s.lastRunAt || '').slice(0, 10) === todayKey())
     )
       return 'warn'
     if (s.armed) return 'on'

@@ -255,6 +255,9 @@ try {
         finishedAt: new Date().toISOString(),
         exitCode: 0,
         draftId,
+        // 终态通知的投递结果（2026-10-07）：通知在终态后异步落定，随任务一起回给前端。
+        // 必须挂在**收敛那一轮**的 payload 上——收尾之后轮询停表，再改 payload 也不会重渲染。
+        notify: { status: 'ok', messageId: 'om_banner_smoke_1234' },
       },
     ],
   }
@@ -266,6 +269,12 @@ try {
       (await cls()).includes('tgen--ok') &&
       doneText.includes('生成完成'),
     (await cls()) + ' | ' + doneText.slice(0, 100),
+  ])
+  const doneCell = await cellText(topicId)
+  results.push([
+    'done·行内显示通知投递结果',
+    doneCell.includes('用时') && doneCell.includes('通知: ✓ 渠道 API 已接收'),
+    doneCell,
   ])
   const href = await page.locator('#topics-banner a').first().getAttribute('href')
   results.push(['done·汇总条链接指向草稿详情', href === `#/articles/${draftId}`, href || 'null'])
@@ -293,6 +302,8 @@ try {
         logTail: 'step 3/5 failed: render\nError: boom',
         error: 'boom',
         errorCode: 'generate_provider_failed',
+        // 失败分支的投递结果也要显示：恰恰是"生成失败 + 通知也没发出去"最需要被看见
+        notify: { status: 'fail', error: 'webhook 通道未配置 webhookUrl' },
       },
     ],
   }
@@ -331,6 +342,11 @@ try {
     'failed·行内给出重试与原因',
     /重试/.test(failCell) && /boom/.test(failCell),
     failCell.slice(0, 70),
+  ])
+  results.push([
+    'failed·行内显示通知失败原因（失败 + 通知也发不出去最该被看见）',
+    /通知: ✕/.test(failCell) && /webhook/.test(failCell),
+    failCell.slice(0, 90),
   ])
   await shot('failed-light')
 

@@ -137,6 +137,15 @@ test('运行记录②：人工触发**不占**"每天一次"的名额（否则�
     assert.equal(st.completed, false, 'manual 不算"今天的计划已完成"')
     assert.equal(st.runs, 2, '但运行次数照记')
     assert.equal(st.lastExit, 0)
+    // 2026-10-07：手动那部分要**单独**报出来，否则界面上"手动补跑成功了"与"根本没跑过"
+    // 长得一模一样（真实误读：18:10 那班被错过 → 点「立即运行」→ 徽标仍是"已启用"）。
+    assert.equal(st.manualCompleted, true, '手动跑过要单独记（给人看）')
+    assert.equal(
+      st.completedDay,
+      null,
+      '但 completedDay 仍不算今天已完成（否则手动补跑 = 取消今天）',
+    )
+    assert.equal(st.lastManualAt, 1, '记下手动那次的开始时间')
   } finally {
     box.done()
   }

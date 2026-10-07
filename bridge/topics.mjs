@@ -34,11 +34,12 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { getArticlesDir } from '../crosspost-runtime/src/articles.mjs'
+import { getArticlesDir, getDraftsDir, parseDraftFile } from '../crosspost-runtime/src/articles.mjs'
 import { pushHumanFeedback } from '../crosspost-runtime/src/editorial-memory.mjs'
 import { getTopicPoolFile, getHistoryDir, getLogsDir } from '../crosspost-runtime/src/resources.mjs'
 import { lockDirFor, withPoolLock, writePoolFile } from '../crosspost-runtime/src/topic-pool.mjs'
-import { currentProject } from '../crosspost-runtime/src/project-context.mjs'
+import { currentProject, withProject } from '../crosspost-runtime/src/project-context.mjs'
+import { sendNotify } from '../crosspost-runtime/src/notify.mjs'
 import {
   resolveGenerateProvider,
   callGenerateProvider,
@@ -196,6 +197,10 @@ function settle(task, state, { error = null, errorCode = null } = {}) {
   }
   queue = queue.filter((id) => id !== task.id)
   pruneFinished()
+  // 终态通知（成功/失败）放在**这里**而不是各调用方：settle 是唯一的终态收敛点，
+  // 放外面就得在 done/failed 两处（未来还会更多）各写一遍，早晚漏一处。
+  // 取消不发：那是用户自己刚点的，他此刻就盯着 Console（见 notifyTaskSettled 注释）。
+  if (state !== 'canceled') notifyTaskSettled(task)
   return true
 }
 
@@ -219,6 +224,8 @@ function publicTask(t) {
     logTail: t.logTail || '',
     error: t.error || null,
     errorCode: t.errorCode || null,
+    // 通知投递结果（终态后异步落定；null = 还没落定或没发）——见 notifyTaskSettled
+    notify: t.notify || null,
     // 回填告警（如"命中多条无法确定写哪条"）：逐条任务视图也要带上，
     // 否则"宁可少写也不写错"这件事在界面上完全不可见——用户只会看到没回填。
     warning: t.warning || null,
@@ -228,6 +235,127 @@ function publicTask(t) {
     providerKind: t.via || null,
     provider: t.provider || null,
   }
+}
+
+/* ── 终态通知（2026-10-07）────────────────────────────────────────────────
+ * 为什么需要：一键生成是**无人值守**的入口——点完「一键生成（全部未生成）」人就离开
+ * Console 了，而生成结果此前只落在页面上（关掉标签就没了）；失败更只是行内一行小字，
+ * 没人会一直盯着。所以终态必须能主动推到飞书（渠道/开关复用项目级 `notify` 配置）。
+ *
+ * 三个刻意的决定：
+ *
+ * 1. **必须 `withProject(task.projectId)`**：任务队列是**全局**的（跨项目一份），而
+ *    `notify` 是**项目级**配置（每条流水线发到自己的群）。任务真正跑完时，当初那个请求的
+ *    上下文早已结束；不显式切回项目，通知就会发到"当时恰好是谁的上下文"，无上下文时
+ *    退化成引擎默认那份——正是 v2.77 分层要消除的串项目缺陷。项目 id 在**入队时**记下
+ *    （那一刻的上下文一定是发起项目），而不是发通知时现取。
+ *
+ * 2. **不 await**：`settle()` 是同步的，通知是 fire-and-forget。让队列等一次外部渠道
+ *    往返（lark-cli 最长 30s、webhook 走 fetchRetry）意味着"飞书挂了就拖慢出稿"，
+ *    而并发默认是 1，一条卡住会顶住后面所有任务。**别"顺手"改成 await**：代价不是
+ *    通知变慢，是出稿变慢。
+ *
+ * 3. **取消不发**：那是用户自己刚点的按钮，他此刻就在 Console 前面。真正需要通知的是
+ *    "我走开了之后它自己跑完了/挂了"。
+ */
+const NOTIFY_TAIL_MAX = 400
+
+/** 任务耗时（毫秒）；时间戳缺失返回 null */
+function taskElapsedMs(task) {
+  const from = Date.parse(task.startedAt || task.enqueuedAt || '')
+  const to = Date.parse(task.finishedAt || '') || Date.now()
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null
+  return Math.max(0, to - from)
+}
+
+/** 耗时文案：`2 分 13 秒` / `45 秒` */
+function elapsedText(task) {
+  const ms = taskElapsedMs(task)
+  if (ms === null) return '未知'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s} 秒`
+  const m = Math.floor(s / 60)
+  const rest = s % 60
+  return rest ? `${m} 分 ${rest} 秒` : `${m} 分`
+}
+
+/**
+ * 读生成出来的草稿（best-effort）。
+ * 提供者只保证回报 draftId，标题要去草稿文件里读；**读不到就只报 id**——
+ * 通知的内容完整性不该成为"通知发不发得出去"的前提。
+ */
+function lookupDraftInfo(task) {
+  if (!task || !task.draftId) return null
+  try {
+    const file = path.join(getDraftsDir(task.projectId || undefined), `${task.draftId}.md`)
+    if (!fs.existsSync(file)) return null
+    return { title: parseDraftFile(file).title || '' }
+  } catch {
+    return null
+  }
+}
+
+/** 终态通知的文案（成功/失败各一份；纯函数，便于单测直接断言） */
+export function buildTopicNotifyPayload(task, draft = null) {
+  const kw = task.keyword || '(无关键词)'
+  const head = `📌 栏目=${task.slot || '?'} · 选题=「${kw}」`
+  const keyBase = `crosspost-topicgen-${task.id}`
+
+  if (task.state === 'done') {
+    const title = draft && draft.title ? `（《${draft.title}》）` : ''
+    return {
+      idempotencyKeyBase: keyBase,
+      title: `选题已生成草稿：${kw}`,
+      summary: [
+        head,
+        `${task.draftId ? `草稿=${task.draftId}` : '草稿=（提供者未回报 draftId）'}${title}`,
+        `用时=${elapsedText(task)} · 任务=${task.id}`,
+      ].join('\n'),
+      links: [],
+      footer: 'CrossPost Console「一键生成」· **恒草稿、不自动发布**：审稿后在 Console 手动发布。',
+    }
+  }
+
+  const why = String(task.error || task.errorCode || '生成失败').slice(0, 300)
+  const tail = task.logTail ? String(task.logTail).slice(0, NOTIFY_TAIL_MAX) : ''
+  return {
+    idempotencyKeyBase: keyBase,
+    title: `选题生成失败：${kw}`,
+    summary: [
+      head,
+      `失败原因=${why}`,
+      `状态=${task.state}${task.errorCode ? `（${task.errorCode}）` : ''} · 任务=${task.id}`,
+      task.logFile ? `日志=${task.logFile}` : null,
+      tail ? `日志尾部：\n${tail}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    links: [],
+    footer: 'CrossPost Console「一键生成」· 修好后可在选题库那一行点「重试」。',
+  }
+}
+
+/**
+ * 发终态通知（不抛、不 await；结果写回 `task.notify` 供状态接口与 Console 读）。
+ * 发送失败绝不影响任务状态——通知是旁路，不是任务的一部分。
+ */
+function notifyTaskSettled(task) {
+  if (!task || typeof sendNotify !== 'function') return
+  Promise.resolve()
+    .then(() =>
+      withProject(task.projectId || '', async () => {
+        const draft = lookupDraftInfo(task)
+        return await sendNotify(buildTopicNotifyPayload(task, draft))
+      }),
+    )
+    .then((r) => {
+      task.notify = r || null
+      console.error(`[topics] 终态通知 ${task.state} ${task.id}: ${(r && r.status) || 'unknown'}`)
+    })
+    .catch((e) => {
+      task.notify = { status: 'fail', error: String((e && e.message) || e).slice(0, 300) }
+      console.error(`[topics] 终态通知失败 ${task.id}: ${task.notify.error}`)
+    })
 }
 
 /* ── 生成能力解析（v2.01 钩子；v2.51 增加跨进程 http 提供者）──────────────
@@ -442,6 +570,10 @@ export function startTopicGenerate(slot, keyword, meta = {}) {
     keyword: kw,
     topicId: meta.topicId ? String(meta.topicId) : null,
     date: meta.date ? String(meta.date) : localDate,
+    // 发起项目：此刻的上下文**一定**是发起方，而任务跑完可能已经不在那个上下文里了
+    // （队列全局共享、并发调度会由别的请求触发）。终态通知必须按它切回项目，
+    // 否则 `notify` 这个项目级配置会解析成别家/引擎默认（见 notifyTaskSettled）。
+    projectId: currentProject() || null,
     state: 'queued',
     enqueuedAt: now.toISOString(),
     startedAt: null,

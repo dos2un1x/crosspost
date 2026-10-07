@@ -251,6 +251,23 @@ function shortElapsed(t, now = Date.now()) {
 }
 
 /**
+ * 终态通知的投递结果（2026-10-07）。
+ *
+ * 说法与发布侧的 `notifyText` 保持一致（"渠道 API 已接收"≠"人一定看到"）：
+ * 通知是终态后**异步**落定的，所以 `notify` 可能是 null（还没发完 / 任务被取消）；
+ * 这种情况下不渲染，而不是显示"未发送"——那会把"还没发完"说成"没发"。
+ */
+function topicNotifyText(n) {
+  if (!n) return ''
+  if (n.deduped) return '通知: ⚠ 飞书已去重，未产生新消息'
+  if (n.status === 'ok') return '通知: ✓ 渠道 API 已接收'
+  if (n.status === 'fail') return '通知: ✕ ' + (n.error || '失败')
+  if (n.status === 'disabled') return '通知: 未启用（notify.enabled=false）'
+  if (n.status === 'off') return '通知: 通道设为 off'
+  return '通知: ' + n.status
+}
+
+/**
  * 该选题「生成」这一列的内容（v2.111）。
  *
  * 旧版是"每行一个按钮 + 页面顶部一条全局状态条"：连点两条时第二条会被后端拒绝，
@@ -262,6 +279,8 @@ function topicGenCell(t) {
   const esc = (s) => escapeHtml(String(s ?? ''))
   const active = task && (task.state === 'queued' || task.state === 'running')
   const cell = (inner) => `<td class="tgen-cell" data-gen-cell="${esc(t.id)}">${inner}</td>`
+  // 通知那行的 HTML（可能为空串：还没落定时不占位）
+  const notifyLine = task ? topicNotifyText(task.notify) : ''
 
   if (active) {
     const label =
@@ -278,7 +297,8 @@ function topicGenCell(t) {
     const why = task.error || task.errorCode || '生成失败'
     return cell(
       `<button class="btn mini primary" data-gen-slot="${esc(t.slot)}" data-gen-keyword="${esc(t.keyword)}" data-gen-id="${esc(t.id)}" data-gen-date="${esc(t.date)}">重试</button>` +
-        `<div class="t-reason" title="${esc(why)}">${esc(why.slice(0, 60))}</div>`,
+        `<div class="t-reason" title="${esc(why)}">${esc(why.slice(0, 60))}</div>` +
+        (notifyLine ? `<div class="t-reason">${esc(notifyLine)}</div>` : ''),
     )
   }
 
@@ -293,7 +313,7 @@ function topicGenCell(t) {
     const title = t.articleTitle || task.draftId
     return cell(
       `<a class="t-article" href="#/articles/${encodeURIComponent(task.draftId)}">查看《${esc(title)}》</a>` +
-        `<div class="t-reason">用时 ${esc(shortElapsed(task))}</div>`,
+        `<div class="t-reason">用时 ${esc(shortElapsed(task))}${notifyLine ? ` · ${esc(notifyLine)}` : ''}</div>`,
     )
   }
 

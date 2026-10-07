@@ -1150,6 +1150,11 @@ tbody tr:last-child td {
 .sched-drift.is-ok {
   color: var(--ok);
 }
+/* 「今日已手动跑」（2026-10-07）：手动跑过 ≠ 今天的自动班次已完成，所以刻意**不用**绿色
+   —— 绿色在这张时刻表里的意思是"这一班收工了"。用 accent 中性偏暖色，与 is-ok 一眼分得开。 */
+.sched-drift.is-manual {
+  color: var(--accent);
+}
 /* 「连续 N 天未产出」（2026-09-25 从工作流页健康卡迁入） */
 .sched-drift.is-stale {
   color: var(--partial);

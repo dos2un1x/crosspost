@@ -393,6 +393,12 @@ export function createScheduler({
         lastExit: rec.lastExit,
         lastDurationMs: rec.lastDurationMs,
         completedToday: !!rec.completedDay,
+        // 人工触发跑完的记录（2026-10-07）。**与 completedToday 是两件事**：
+        //   · completedToday = "今天的**自动**班次已完成"（decideFire 据此跳过，绝不能掺手动）
+        //   · manualToday    = "今天手动跑过"（给人看的；手动不占「每天一次」名额）
+        // 分开报是因为一个真实的误读：手动补跑成功之后，那一行与"根本没跑过"长得一模一样。
+        manualToday: !!rec.manualCompleted,
+        lastManualAt: rec.lastManualAt || null,
         unfinished: !!rec.unfinishedDay,
         runsToday: rec.runs,
       }

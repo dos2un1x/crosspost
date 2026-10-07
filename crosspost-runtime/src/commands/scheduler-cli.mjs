@@ -62,11 +62,14 @@ function printStatus(st) {
             ? '✔ 今日已跑'
             : s.unfinished
               ? '! 今日未收尾'
-              : s.armed
-                ? '· 已启用'
-                : st.armedByOther
-                  ? '· 已启用（由另一个实例持有定时器）'
-                  : `· 未生效(${s.armedReason || '?'})`
+              : s.manualToday
+                ? // 手动跑过 ≠ 今天的自动班次完成（人工不占「每天一次」名额），所以措辞与符号都区分开
+                  '◇ 今日已手动跑'
+                : s.armed
+                  ? '· 已启用'
+                  : st.armedByOther
+                    ? '· 已启用（由另一个实例持有定时器）'
+                    : `· 未生效(${s.armedReason || '?'})`
     lines.push(`  [项目] ${s.slot.padEnd(18)} ${s.time}  ${state}  下次 ${s.next}`)
     if (s.commandMissing && s.commandReason) lines.push(`        ↳ ${s.commandReason}`)
   }
