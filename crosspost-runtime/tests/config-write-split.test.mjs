@@ -259,6 +259,52 @@ test('桥：带项目头 → 项目级键进覆盖层、引擎级键进引擎配
     assert.equal(r2.ok, true, JSON.stringify(r2))
     assert.equal(readJson(CONFIG).notify.channel, 'off', '默认域的项目级键写引擎 config')
     assert.equal(readJson(PROJECT_CONFIG).notify, undefined, '不带项目头时不该新建/改动项目覆盖层')
+
+    // ⑤ `aiDetect` 深合并 + 改写预算的范围夹取（2026-10-07）
+    //
+    // 为什么值得钉：`rewrite.maxRounds` 在 `block` 下就是**每篇检测次数的上限**（1 + maxRounds），
+    // 它直接决定朱雀额度够不够撑一个月。面板按 0-10 / 1-20 约束，但手改覆盖层 JSON 也能写进来
+    // —— 这条路径此前**完全不夹取**（写 99 就照收）。顺带钉死深合并：Console 保存 AI 卡片时
+    // 只提交它有的那几个键，**没提交的键不能被清掉**。
+    assert.equal(
+      (
+        await post(
+          {
+            aiDetect: {
+              gate: { enforce: 'block' },
+              rewrite: { maxRounds: 1, includeSuspected: true },
+            },
+          },
+          PID,
+        )
+      ).ok,
+      true,
+    )
+    let aiOverlay = readJson(PROJECT_CONFIG).aiDetect
+    assert.equal(aiOverlay.gate.enforce, 'block')
+    assert.equal(aiOverlay.rewrite.maxRounds, 1)
+    assert.equal(aiOverlay.rewrite.includeSuspected, true, '未提交的 rewrite 键应保留（深合并）')
+
+    // 越界值：maxRounds 超 0-10、每轮段数超 1-20、置信度超 0-1
+    await post(
+      { aiDetect: { rewrite: { maxRounds: 99, maxSegmentsPerRound: 0, minSegmentConf: 7 } } },
+      PID,
+    )
+    aiOverlay = readJson(PROJECT_CONFIG).aiDetect
+    assert.equal(
+      aiOverlay.rewrite.maxRounds,
+      3,
+      '越界 maxRounds 必须夹回 3（否则额度上限形同虚设）',
+    )
+    assert.equal(aiOverlay.rewrite.maxSegmentsPerRound, 5, '越界段数夹回 5')
+    assert.equal(aiOverlay.rewrite.minSegmentConf, 0.5, '越界置信度夹回 0.5')
+    assert.equal(aiOverlay.rewrite.includeSuspected, true, '这一轮没提交它，深合并后仍应在')
+
+    // 合法边界值必须原样落盘（别把"夹取"写成"总是覆盖成默认值"）
+    await post({ aiDetect: { rewrite: { maxRounds: 0, maxSegmentsPerRound: 20 } } }, PID)
+    aiOverlay = readJson(PROJECT_CONFIG).aiDetect
+    assert.equal(aiOverlay.rewrite.maxRounds, 0, '0 是合法值（不复检，等价于每篇只检一次）')
+    assert.equal(aiOverlay.rewrite.maxSegmentsPerRound, 20, '上边界 20 是合法值')
   } finally {
     proc.kill()
     fs.rmSync(SANDBOX, { recursive: true, force: true })

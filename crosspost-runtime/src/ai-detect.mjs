@@ -22,8 +22,14 @@
  *   · `labels_ratio` = 分布图口径：{"0":人工特征,"1":AI特征,"2":疑似AI}。
  *   · 因此门禁默认口径是 `confidence`（= softmax_confidence）。
  *
+ * 多把 key（叠加额度）：免费额度是**账号级**的，所以 `ZHUQUE_API_KEY` 之外还可以用
+ *   `ZHUQUE_API_KEYS` 追加（逗号/空格分隔可写多把）。引擎按"余量最多的先用"均衡消耗，
+ *   某把被鉴权拒绝/限流/额度用尽时自动换下一把重试，并把该把标记为本周期失效。
+ *   总预算 = `aiDetect.monthlyTokenBudget`（**每把 key**）× key 数；台账按 key 分桶记。
+ *
  * 安全：API Key 只允许来自 env / `crosspost-runtime/.env`（均 gitignored）。
- *   与微信凭证同规矩——**绝不落 config.json**（该文件被 git 跟踪，写进去即泄露）。
+ *   与微信凭证同规矩——**绝不落 config.json**（该文件被 git 跟踪，写进去即泄露），
+ *   也绝不落台账（台账只存 key 的 sha256 指纹，见 keyId）。
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -125,11 +131,12 @@ export const AI_DETECT_DEFAULTS = {
   /** 凭证缺失/接口故障/配额不足时的行为：skip（放行但显式标注）——不静默、不阻断出稿 */
   onError: 'skip',
   /**
-   * 计费周期内的 token 硬闸（记账口径见 §用量）。**为什么默认 40 万而不是 50 万**：
-   * 免费额度是账号级 50 万/周期，而按接入方字数「5 篇/天」一个月约 40–55 万
-   * （估算口径见 `docs/ai-detect.md` §4；实测均篇看台账的 tokens/calls）——
+   * 计费周期内的 token 硬闸，口径是**每把 key**（多把 key 叠加时总额 = 该值 × key 数）。
+   * **为什么默认 40 万而不是 50 万**：免费额度是账号级 50 万/周期，而按接入方字数「5 篇/天」
+   * 一个月约 40–55 万（估算口径见 `docs/ai-detect.md` §4；实测均篇看台账的 tokens/calls）——
    * 额度本来就不够跑满，必须留出余量给基线重跑与人工抽检。
-   * 超预算即返回 `skip/budget-exhausted`（按"未检测"放行），不会把额度烧穿。
+   * 某把 key 超预算就换下一把；**每把都被闸住**才返回 `skip/budget-exhausted`
+   * （按"未检测"放行），不会把额度烧穿。
    */
   monthlyTokenBudget: 400000,
   /**
@@ -214,12 +221,46 @@ export function readAiDetectConfig(override) {
   return mergeConfig(AI_DETECT_DEFAULTS, raw, override)
 }
 
-/** 解析凭证：env > crosspost-runtime/.env（与 wechat.mjs 同一规矩） */
+/**
+ * 把 `a,b c` 这类多 key 写法拆成列表（逗号/分号/空白都能分隔，保持书写顺序并去重）。
+ * 为什么要支持一把以上的 key：免费额度是**账号级**的，多填一把就多一份额度。
+ */
+export function parseKeyList(raw) {
+  const out = []
+  for (const part of String(raw ?? '').split(/[\s,;]+/)) {
+    const k = part.trim()
+    if (k && !out.includes(k)) out.push(k)
+  }
+  return out
+}
+
+/**
+ * key 指纹（sha256 前 12 位）。台账里**只存指纹、绝不存明文**：台账落在 localRoot，
+ * 保护级别低于 `.env`，明文写进去等于把密钥复制到一个没人记得要 gitignore 的地方。
+ */
+export function keyId(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 12)
+}
+
+/**
+ * 解析凭证：env > crosspost-runtime/.env（与 wechat.mjs 同一规矩）。
+ *
+ * 多 key 两种写法，效果是**叠加**（不是二选一）：
+ *   · `ZHUQUE_API_KEY`  —— 主 key，单 key 时代就有，向后兼容；本身也接受逗号分隔的多把；
+ *   · `ZHUQUE_API_KEYS` —— 追加的 key 列表（模板里默认注释掉）。
+ * `apiKey` 仍返回第一把（老调用方只管一把 key），新增 `apiKeys` 返回完整列表。
+ */
 export function resolveDetectCredentials() {
-  let apiKey = process.env.ZHUQUE_API_KEY || ''
+  // 三个变量各自独立地"env 优先、缺了才看 .env"。注意读文件的条件保持老样子
+  // （主 key 或网关缺了才读）：env 里两样都给全了就不读文件，否则开发机上真实 `.env`
+  // 里的第二把 key 会渗进测试与 CI（tests/ai-detect.test.mjs 顶部专门钉了这件事）。
+  let apiKeyRaw = process.env.ZHUQUE_API_KEY || ''
+  // 新变量用"是否出现过"判断而不是真假判断：这样 `ZHUQUE_API_KEYS=`（空串）能表达
+  // "显式不要文件里的追加 key"，而不会又被 .env 填回来。
+  let extraRaw = process.env.ZHUQUE_API_KEYS !== undefined ? process.env.ZHUQUE_API_KEYS : null
   let gateway = process.env.EDGEONE_AI_GATEWAY_BASE || ''
   const envFile = path.join(ROOT, '.env')
-  if ((!apiKey || !gateway) && fs.existsSync(envFile)) {
+  if ((!apiKeyRaw || !gateway) && fs.existsSync(envFile)) {
     let text = ''
     try {
       text = fs.readFileSync(envFile, 'utf8')
@@ -229,11 +270,14 @@ export function resolveDetectCredentials() {
     for (const line of text.split('\n')) {
       const m = /^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/.exec(line)
       if (!m) continue
-      if (m[1] === 'ZHUQUE_API_KEY' && !apiKey) apiKey = m[2]
+      if (m[1] === 'ZHUQUE_API_KEY' && !apiKeyRaw) apiKeyRaw = m[2]
+      if (m[1] === 'ZHUQUE_API_KEYS' && extraRaw === null) extraRaw = m[2]
       if (m[1] === 'EDGEONE_AI_GATEWAY_BASE' && !gateway) gateway = m[2]
     }
   }
-  return { apiKey, gateway }
+  const apiKeys = parseKeyList(apiKeyRaw)
+  for (const k of parseKeyList(extraRaw)) if (!apiKeys.includes(k)) apiKeys.push(k)
+  return { apiKey: apiKeys[0] || '', apiKeys, gateway }
 }
 
 /* ────────────────────────────── markdown → 纯文本（带偏移映射） ──────────────────────────────
@@ -377,7 +421,16 @@ export function plainRangeToSrc(strip, start, end) {
  * 归零——两者错位时会出现"账面还有余量、实际已被停"或反之。所以周期起点可配：
  * `aiDetect.quotaAnchorDay`（1-31，缺省 1 = 自然月）。锚点为 1 时周期键就是 `YYYY-MM`，
  * 与旧台账（只存 `month`）天然兼容，不需要迁移。
+ *
+ * 2026-10-07 起台账**按 key 分桶**（多把 key 叠加额度）：
+ *   { month, periodStart, tokens, calls, keys: { <keyId>: {tokens, calls, exhaustedAt?} } }
+ * 顶层 `tokens`/`calls` 仍是**全池聚合**，老消费方（控制台/自检/文章库）不用改也读得到；
+ * 分桶只多一件事：判断"哪把 key 还有余量"。旧台账（只有顶层、没有 `keys`）照读不误——
+ * 那些量没有 key 归属，池化后记到第一把 key 头上（见 poolBreakdown）。
  */
+
+/** 旧台账（单 key 时代的写入）没有 key 归属，单独一桶；它只是"不知道算谁的"，不是没有 */
+export const UNASSIGNED_KEY = 'unassigned'
 
 export function usagePath() {
   return path.join(localRoot(), 'ai-detect-usage.json')
@@ -421,34 +474,59 @@ export function quotaPeriod(now = new Date(), anchorDay = 1) {
   return { key, anchorDay: day }
 }
 
-export function readUsage(now = new Date(), anchorDay = 1) {
-  const period = quotaPeriod(now, anchorDay)
+function readUsageFile() {
   try {
-    const raw = JSON.parse(fs.readFileSync(usagePath(), 'utf8'))
-    // 新台账存 periodStart；旧台账只有 month —— 锚点为 1 时两者同形，直接认
-    const key = raw && (raw.periodStart ?? (period.anchorDay === 1 ? raw.month : undefined))
-    if (raw && key === period.key) {
-      return {
-        month: period.key,
-        periodStart: period.key,
-        tokens: Number(raw.tokens) || 0,
-        calls: Number(raw.calls) || 0,
-      }
-    }
+    return JSON.parse(fs.readFileSync(usagePath(), 'utf8'))
   } catch {
-    /* 文件不存在/损坏 → 本周期从零起算 */
+    return null
   }
-  return { month: period.key, periodStart: period.key, tokens: 0, calls: 0 }
 }
 
-/** 记账（tmp + rename 原子写；写失败不影响检测结果） */
-export function addUsage(tokens, now = new Date(), anchorDay = 1) {
-  const cur = readUsage(now, anchorDay)
+/**
+ * 把任意历史形状的台账读成当前周期的分桶表；读不出/跨周期 → 空表（本周期从零起算）。
+ * 三种形状都要认：新版（有 `keys`）、旧版（只有 `month`+`tokens`+`calls`）、空/损坏。
+ */
+function ledgerBuckets(raw, period) {
+  const buckets = {}
+  if (!raw || typeof raw !== 'object') return buckets
+  const key = raw.periodStart ?? (period.anchorDay === 1 ? raw.month : undefined)
+  if (key !== period.key) return buckets
+  if (raw.keys && typeof raw.keys === 'object') {
+    for (const [id, v] of Object.entries(raw.keys)) {
+      if (!v || typeof v !== 'object') continue
+      buckets[id] = {
+        tokens: Number(v.tokens) || 0,
+        calls: Number(v.calls) || 0,
+        exhaustedAt: v.exhaustedAt || null,
+      }
+    }
+    return buckets
+  }
+  // 旧台账（单 key 时代）：归到 unassigned 桶，池化时由 poolBreakdown 记到第一把 key 上。
+  if (Number(raw.tokens) || Number(raw.calls)) {
+    buckets[UNASSIGNED_KEY] = {
+      tokens: Number(raw.tokens) || 0,
+      calls: Number(raw.calls) || 0,
+      exhaustedAt: null,
+    }
+  }
+  return buckets
+}
+
+/** 原子写台账（tmp + rename）；写失败不影响检测结果，所以吞掉异常 */
+function writeLedger(period, buckets, now = new Date()) {
+  let tokens = 0
+  let calls = 0
+  for (const b of Object.values(buckets)) {
+    tokens += b.tokens
+    calls += b.calls
+  }
   const next = {
-    month: cur.month,
-    periodStart: cur.periodStart,
-    tokens: cur.tokens + (Number(tokens) || 0),
-    calls: cur.calls + 1,
+    month: period.key, // 兼容只认 `month` 的旧读法
+    periodStart: period.key,
+    tokens, // 顶层 = 全池聚合（控制台/自检/文章库直接读这两个）
+    calls,
+    keys: buckets,
     updatedAt: now.toISOString(),
   }
   try {
@@ -463,18 +541,143 @@ export function addUsage(tokens, now = new Date(), anchorDay = 1) {
   return next
 }
 
-/** 预算状态：超了就不再调用（避免把额度烧穿后连"为什么没检测"都查不到） */
-export function budgetState(cfg, now = new Date()) {
+/**
+ * 读用量。不给 `apiKey` 时返回**全池聚合**（顶层口径）；给了就读那一把 key 的分桶。
+ * 单 key 用法与测试里 `readUsage(now)` 的语义完全不变。
+ */
+export function readUsage(now = new Date(), anchorDay = 1, apiKey) {
+  const period = quotaPeriod(now, anchorDay)
+  const buckets = ledgerBuckets(readUsageFile(), period)
+  if (apiKey !== undefined) {
+    const id = apiKey ? keyId(apiKey) : UNASSIGNED_KEY
+    const b = buckets[id] || { tokens: 0, calls: 0, exhaustedAt: null }
+    return {
+      month: period.key,
+      periodStart: period.key,
+      keyId: id,
+      tokens: b.tokens,
+      calls: b.calls,
+      exhaustedAt: b.exhaustedAt || null,
+    }
+  }
+  let tokens = 0
+  let calls = 0
+  for (const b of Object.values(buckets)) {
+    tokens += b.tokens
+    calls += b.calls
+  }
+  return { month: period.key, periodStart: period.key, tokens, calls }
+}
+
+/** 记账（按 key 分桶；不给 apiKey 时记到 unassigned 桶，语义与旧版一致） */
+export function addUsage(tokens, now = new Date(), anchorDay = 1, apiKey) {
+  const period = quotaPeriod(now, anchorDay)
+  const buckets = ledgerBuckets(readUsageFile(), period)
+  const id = apiKey ? keyId(apiKey) : UNASSIGNED_KEY
+  const cur = buckets[id] || { tokens: 0, calls: 0, exhaustedAt: null }
+  buckets[id] = {
+    tokens: cur.tokens + (Number(tokens) || 0),
+    calls: cur.calls + 1,
+    ...(cur.exhaustedAt ? { exhaustedAt: cur.exhaustedAt } : {}),
+  }
+  return writeLedger(period, buckets, now)
+}
+
+/**
+ * 把某把 key 标记为**本周期已失效**：鉴权失败（key 被撤/写错）或撞上配额/限流时，
+ * 与其每次检测都拿它去撞一次墙，不如记下来、这一周期不再用它。
+ * 标记只看当前周期（跨周期自动失效，不需要手工清理）；误判时手工删掉 `exhaustedAt` 即可。
+ */
+export function markKeyExhausted(apiKey, now = new Date(), anchorDay = 1) {
+  const period = quotaPeriod(now, anchorDay)
+  const buckets = ledgerBuckets(readUsageFile(), period)
+  const id = keyId(apiKey)
+  const cur = buckets[id] || { tokens: 0, calls: 0 }
+  buckets[id] = { ...cur, exhaustedAt: now.toISOString() }
+  return writeLedger(period, buckets, now)
+}
+
+/** 清掉本周期所有 key 的失效标记（`aiDetect --clear-exhausted`；误判限流时的手工出口） */
+export function clearExhaustedKeys(now = new Date(), anchorDay = 1) {
+  const period = quotaPeriod(now, anchorDay)
+  const buckets = ledgerBuckets(readUsageFile(), period)
+  let cleared = 0
+  for (const [id, b] of Object.entries(buckets)) {
+    if (b.exhaustedAt) {
+      buckets[id] = { tokens: b.tokens, calls: b.calls }
+      cleared += 1
+    }
+  }
+  if (cleared) writeLedger(period, buckets, now)
+  return cleared
+}
+
+/**
+ * 按 key 拆开算余量（多把 key 叠加额度的核心）。
+ * @param {string[]} apiKeys 参与池化的 key（顺序 = 优先级）
+ * @returns {{period: object, periodStart: string, anchorDay: number, perKeyBudget: number,
+ *            keys: Array<{id,tokens,calls,exhaustedAt,budget,remaining,exhausted}>}}
+ */
+export function poolBreakdown(cfg, apiKeys, now = new Date()) {
+  const anchorDay = clampAnchorDay(cfg.quotaAnchorDay)
+  const period = quotaPeriod(now, anchorDay)
+  const buckets = ledgerBuckets(readUsageFile(), period)
+  const perKeyBudget = Number(cfg.monthlyTokenBudget) || 0
+  // 旧台账的量没有 key 归属：记到**第一把** key 上。单 key 时代写台账的就是它，这也是最
+  // 保守的记法——宁可让第一把提前退出，也不能让池子整体多算出一份额度。
+  // tokens 与 calls 一起转记（只转 tokens 会让"逐把调用次数"与聚合口径对不上）。
+  // 注意这条规则**依赖书写顺序**：换顺序会把这份遗留用量挪到另一把 key 上（池子总额不变，
+  // 只影响"哪把看起来用得多"）。所以逐把明细里显式给出 legacyTokens/legacyCalls，
+  // 免得看到"第一把凭空多了 15 万"时以为是漏账。
+  let carry = { tokens: 0, calls: 0, ...(buckets[UNASSIGNED_KEY] || {}) }
+  const keys = []
+  for (const apiKey of apiKeys) {
+    const id = keyId(apiKey)
+    const b = buckets[id] || { tokens: 0, calls: 0, exhaustedAt: null }
+    const legacyTokens = carry.tokens
+    const legacyCalls = carry.calls
+    carry = { tokens: 0, calls: 0 }
+    const tokens = b.tokens + legacyTokens
+    keys.push({
+      id,
+      tokens,
+      calls: b.calls + legacyCalls,
+      legacyTokens,
+      legacyCalls,
+      exhaustedAt: b.exhaustedAt,
+      budget: perKeyBudget,
+      remaining: perKeyBudget > 0 ? Math.max(0, perKeyBudget - tokens) : null,
+      exhausted: !!b.exhaustedAt || (perKeyBudget > 0 && tokens >= perKeyBudget),
+    })
+  }
+  return { period, periodStart: period.key, anchorDay, perKeyBudget, keys }
+}
+
+/**
+ * 预算状态。`apiKeys` 给了就按**池**算（总额度 = 每把 key 的额度 × key 数），
+ * 不给就是老的单份预算口径（测试与外部调用方仍在用）。
+ * 池模式下 `exhausted` = **所有** key 都没余量；单把 key 用完只该换下一把，不该整体停摆。
+ */
+export function budgetState(cfg, now = new Date(), apiKeys = null) {
   const anchorDay = clampAnchorDay(cfg.quotaAnchorDay)
   const usage = readUsage(now, anchorDay)
-  const budget = Number(cfg.monthlyTokenBudget) || 0
-  const exhausted = budget > 0 && usage.tokens >= budget
+  const perKeyBudget = Number(cfg.monthlyTokenBudget) || 0
+  const list = Array.isArray(apiKeys) && apiKeys.length ? apiKeys : null
+  const keyCount = list ? list.length : 1
+  const budget = perKeyBudget * keyCount
+  const pool = list ? poolBreakdown(cfg, list, now) : null
+  const exhausted = pool
+    ? pool.keys.length > 0 && pool.keys.every((k) => k.exhausted)
+    : perKeyBudget > 0 && usage.tokens >= budget
   return {
     ...usage,
     periodAnchorDay: anchorDay,
     budget,
+    perKeyBudget,
+    keyCount,
     exhausted,
     remaining: budget > 0 ? Math.max(0, budget - usage.tokens) : null,
+    ...(pool ? { keys: pool.keys } : {}),
   }
 }
 
@@ -579,9 +782,126 @@ function errorCodeForStatus(status) {
 }
 
 /**
+ * 这个错误码是不是"**这把 key**的问题"（换一把有意义），而不是"这条链路的问题"（换一把一样）。
+ * 鉴权失败 / 配额用尽 / 限流都只跟 key 绑定；5xx、网络、响应格式跟网关绑定，换 key 是白烧额度。
+ */
+function isKeyLevelError(code) {
+  return code === 'AUTH' || code === 'RATE' || code === 'QUOTA'
+}
+
+/** 网关把配额问题放在 200 响应的 `msg` 里时的兜底识别（各家措辞不一致，只能宽匹配） */
+const QUOTA_MSG_RE =
+  /(quota|rate.?limit|too many|exceed|exhaust|insufficient|余额|额度|配额|限流|频率)/i
+
+/**
+ * 用**一把** key 发一次检测请求。
+ * @returns {Promise<{result?: object, skip?: object, failover?: boolean, markExhausted?: boolean}>}
+ *   成功给 `result`（已归一化）；失败给 `skip` + 两个策略位：
+ *   `failover` = 换一把 key 有意义；`markExhausted` = 该把这周期别再用了。
+ */
+async function callClassify({ url, apiKey, plain, strip, cfg, startedAt, chars }) {
+  let resp
+  try {
+    resp = await fetchRetry(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: plain, is_merge: false }),
+      },
+      {
+        attempts: 2,
+        baseDelayMs: 800,
+        timeoutMs: cfg.timeoutMs,
+        // 只重试 5xx 与网络错误；鉴权(401/403)/限流(429)/配额类重试只会更糟
+        retryOn: (v) => (v && typeof v.status === 'number' ? v.status >= 500 : true),
+      },
+    )
+  } catch (e) {
+    const msg = String((e && e.message) || e)
+    // fetchRetry 重试用尽后抛的是 `HTTP <status> for <url>`——这是接口的错误，
+    // 不是网络不通；两者混为一谈会让排查方向完全跑偏（"网络问题"vs"服务端 5xx"）。
+    const httpMatch = /^HTTP (\d{3}) for /.exec(msg)
+    if (httpMatch) {
+      const status = Number(httpMatch[1])
+      const code = errorCodeForStatus(status)
+      return {
+        skip: skipResult('api-error', cfg, startedAt, {
+          chars,
+          errorCode: code,
+          status,
+          error: msg,
+        }),
+        failover: isKeyLevelError(code),
+        markExhausted: isKeyLevelError(code),
+      }
+    }
+    return {
+      skip: skipResult(/timeout/i.test(msg) ? 'timeout' : 'network-error', cfg, startedAt, {
+        chars,
+        error: msg,
+      }),
+      failover: false,
+      markExhausted: false,
+    }
+  }
+
+  if (!resp || typeof resp.ok !== 'boolean') {
+    return { skip: skipResult('bad-response', cfg, startedAt, { chars }), failover: false }
+  }
+  if (!resp.ok) {
+    const code = errorCodeForStatus(resp.status)
+    let body = ''
+    try {
+      body = (await resp.text()).slice(0, 300)
+    } catch {
+      body = ''
+    }
+    return {
+      skip: skipResult('api-error', cfg, startedAt, {
+        chars,
+        errorCode: code,
+        status: resp.status,
+        error: body,
+      }),
+      failover: isKeyLevelError(code),
+      markExhausted: isKeyLevelError(code),
+    }
+  }
+
+  let json
+  try {
+    json = await resp.json()
+  } catch (e) {
+    return {
+      skip: skipResult('bad-json', cfg, startedAt, { chars, error: String((e && e.message) || e) }),
+      failover: false,
+    }
+  }
+
+  if (json && json.status && json.status !== 'success') {
+    const msg = String(json.msg || json.status).slice(0, 300)
+    // 有些配额问题不体现在 HTTP 状态里，而是 200 + `status!=='success'` + 一句"额度已用尽"。
+    const quotaish = QUOTA_MSG_RE.test(msg)
+    return {
+      skip: skipResult('api-error', cfg, startedAt, { chars, errorCode: 'PROVIDER', error: msg }),
+      failover: quotaish,
+      markExhausted: quotaish,
+    }
+  }
+
+  return { result: normalizeResult(json, strip, cfg, startedAt) }
+}
+
+/**
  * 检测一段文本。
  * @param {string} input 原文（markdown 或纯文本都行，内部会剥离）
- * @param {{config?: object, skipBudgetCheck?: boolean}} [opts]
+ * @param {{config?: object, skipBudgetCheck?: boolean, apiKey?: string|string[], gateway?: string,
+ *          noCache?: boolean, skipSample?: boolean}} [opts]
+ *   `apiKey` 可给数组或用逗号分隔的多把（多 key 时按余量轮用 + 失败自动切换）。
  * @returns {Promise<object>} 归一化结果（永不抛：一切失败都表达为 verdict:'skip' + reason）
  */
 export async function detectText(input, opts = {}) {
@@ -614,11 +934,37 @@ export async function detectText(input, opts = {}) {
   const cred = resolveDetectCredentials()
   // 显式给了 apiKey 就以它为准（**包括空串**）：否则调用方无法表达"这次故意不带凭证"，
   // 测试与排查都会被打回真实 .env 里的 key，静默走成一次真调用。
-  const apiKey = opts.apiKey !== undefined ? opts.apiKey : cred.apiKey
-  if (!apiKey) return skipResult('no-api-key', cfg, startedAt, { chars })
+  const apiKeys = opts.apiKey !== undefined ? parseKeyList(opts.apiKey) : cred.apiKeys
+  if (!apiKeys.length) return skipResult('no-api-key', cfg, startedAt, { chars })
 
-  const budget = budgetState(cfg)
+  // 预算按池算：每把 key 的额度 × key 数，所以多填一把 key 额度就真的多一份
+  const budget = budgetState(cfg, new Date(), apiKeys)
   if (!opts.skipBudgetCheck && budget.exhausted) {
+    return skipResult('budget-exhausted', cfg, startedAt, { chars, usage: budget })
+  }
+
+  // 候选顺序：**余量多的先用**。两把 key 因此是均衡消耗，而不是把第一把烧穿才轮到第二把
+  // （后者在"第一把已在别处用掉大半额度"时会退化成单 key）。已标记失效/没余量的直接剔除，
+  // 省下"拿一把已知不行的 key 去撞墙"的那次调用。
+  //
+  // `skipBudgetCheck`（CLI `--no-budget-check`）的语义是"别拿台账拦我"，所以它也要放过被标记
+  // 失效的 key：否则在所有 key 都被标记时，加了这个开关反而比不加更受限——想手工验证一把
+  // 被误判的 key 都做不到。此时按余量排序仍生效，健康的那把自然排在前面。
+  const pool = budget.keys || []
+  const candidates = []
+  for (let i = 0; i < apiKeys.length; i += 1) {
+    const st = pool[i]
+    if (st && st.exhausted && !opts.skipBudgetCheck) continue
+    candidates.push({
+      apiKey: apiKeys[i],
+      id: st ? st.id : keyId(apiKeys[i]),
+      remaining: st ? st.remaining : null,
+    })
+  }
+  candidates.sort(
+    (a, b) => (b.remaining ?? Number.POSITIVE_INFINITY) - (a.remaining ?? Number.POSITIVE_INFINITY),
+  )
+  if (!candidates.length) {
     return skipResult('budget-exhausted', cfg, startedAt, { chars, usage: budget })
   }
 
@@ -628,87 +974,38 @@ export async function detectText(input, opts = {}) {
   )
   const url = `${gateway}/v1/providers/${encodeURIComponent(cfg.provider)}/classify`
 
-  let resp
-  try {
-    resp = await fetchRetry(
+  let last = null
+  for (let i = 0; i < candidates.length; i += 1) {
+    const cand = candidates[i]
+    const attempt = await callClassify({
       url,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: plain, is_merge: false }),
-      },
-      {
-        attempts: 2,
-        baseDelayMs: 800,
-        timeoutMs: cfg.timeoutMs,
-        // 只重试 5xx 与网络错误；鉴权(401/403)/限流(429)/配额类重试只会更糟
-        retryOn: (v) => (v && typeof v.status === 'number' ? v.status >= 500 : true),
-      },
-    )
-  } catch (e) {
-    const msg = String((e && e.message) || e)
-    // fetchRetry 重试用尽后抛的是 `HTTP <status> for <url>`——这是接口的错误，
-    // 不是网络不通；两者混为一谈会让排查方向完全跑偏（"网络问题"vs"服务端 5xx"）。
-    const httpMatch = /^HTTP (\d{3}) for /.exec(msg)
-    if (httpMatch) {
-      const status = Number(httpMatch[1])
-      return skipResult('api-error', cfg, startedAt, {
-        chars,
-        errorCode: errorCodeForStatus(status),
-        status,
-        error: msg,
-      })
+      apiKey: cand.apiKey,
+      plain,
+      strip,
+      cfg,
+      startedAt,
+      chars,
+    })
+    if (attempt.result) {
+      // 记账用 Makers 口径（网关自己的计费口径，实测 ≈ 1.67 × 字数），没有才退回 usage 口径。
+      // 与免费额度（50 万 token/月）对比时必须用同一把尺子，否则会低估 ~40%。
+      const billed = attempt.result.usage.makerTokens ?? attempt.result.usage.totalTokens
+      // 账记到**实际用的那把 key**头上：分桶记账是"哪把还有余量"的唯一依据
+      if (typeof billed === 'number') addUsage(billed, new Date(), cfg.quotaAnchorDay, cand.apiKey)
+      if (!opts.noCache) writeCachedResult(ckey, attempt.result)
+      return attempt.result
     }
-    return skipResult(/timeout/i.test(msg) ? 'timeout' : 'network-error', cfg, startedAt, {
-      chars,
-      error: msg,
-    })
+    // 失败：带上 key 指纹与已试次数（**只有失败才带**——成功结果会被内容缓存复用，
+    // 把"哪把 key 跑的"写进去，命中缓存时会变成一条对不上的旧信息）
+    last = { ...attempt.skip, apiKeyId: cand.id, keysTried: i + 1, keyCount: candidates.length }
+    // 不是"这把 key 的问题"（5xx/网络/响应格式）：换一把也一样，直接返回，别白烧另一把的额度
+    if (!attempt.failover) return last
+    // 这把 key 本周期作废：记下来，别再拿它撞墙。误判（例如一阵限流）用
+    // `aiDetect --clear-exhausted` 清掉即可，标记只作用当前周期。
+    if (attempt.markExhausted) markKeyExhausted(cand.apiKey, new Date(), cfg.quotaAnchorDay)
   }
-
-  if (!resp || typeof resp.ok !== 'boolean') {
-    return skipResult('bad-response', cfg, startedAt, { chars })
-  }
-  if (!resp.ok) {
-    const code = errorCodeForStatus(resp.status)
-    let body = ''
-    try {
-      body = (await resp.text()).slice(0, 300)
-    } catch {
-      body = ''
-    }
-    return skipResult('api-error', cfg, startedAt, {
-      chars,
-      errorCode: code,
-      status: resp.status,
-      error: body,
-    })
-  }
-
-  let json
-  try {
-    json = await resp.json()
-  } catch (e) {
-    return skipResult('bad-json', cfg, startedAt, { chars, error: String((e && e.message) || e) })
-  }
-
-  if (json && json.status && json.status !== 'success') {
-    return skipResult('api-error', cfg, startedAt, {
-      chars,
-      errorCode: 'PROVIDER',
-      error: String(json.msg || json.status).slice(0, 300),
-    })
-  }
-
-  const result = normalizeResult(json, strip, cfg, startedAt)
-  // 记账用 Makers 口径（网关自己的计费口径，实测 ≈ 1.67 × 字数），没有才退回 usage 口径。
-  // 与免费额度（50 万 token/月）对比时必须用同一把尺子，否则会低估 ~40%。
-  const billed = result.usage.makerTokens ?? result.usage.totalTokens
-  if (typeof billed === 'number') addUsage(billed, new Date(), cfg.quotaAnchorDay)
-  if (!opts.noCache) writeCachedResult(ckey, result)
-  return result
+  // 所有候选都不行：返回最后一次失败（keysTried/keyCount 能区分"一把被限"与"两把都被限"）
+  return last
 }
 
 /** 归一化接口响应（字段名做防御式读取，名字变了也不会炸） */
@@ -1010,27 +1307,227 @@ function judgeNetResult(result, cfg) {
   }
 }
 
-/** 挑出本轮要定向改写的片段（判 AI 优先，其次"疑似"，按置信度降序，上限 maxSegmentsPerRound） */
+/* ────────── 每轮改写预算：由**检测结果**算出来，而不是让人拍一个固定数（2026-10-07）──────────
+ * 为什么能算：门禁指标是**按段数**算的。实测 24 条真实结果：接口给的 `labels_ratio.ai` 贴着
+ * "判 AI 段数 / 总段数"（例：A=3,N=6 → 0.4664；A=4,N=6 → 0.6393；A=5,N=6 → 0.8023），
+ * 而"按字数加权"算出来与它差一个数量级（0 / 0.18 / 0.19）。所以"这一轮至少要清几段"是确定的：
+ *
+ *     allowedAi   = 满足 A/N < threshold 的最大 A = ceil(threshold × N) − 1
+ *     mustRewrite = fail 时 A − allowedAi；pass 时 0
+ *
+ * 为什么不再拿 `maxSegmentsPerRound` 当清单长度：实测它几乎从不"不够"（最大需清 4 段），而是
+ * **给多了** —— 12 段里只有 4 段判 AI 时其实只需清 1 段，却递过去 5 个目标，徒增改动面与回退
+ * 风险（项目基线实测：同一篇改多了会 34% → 44%）。它现在退化为**保险上限**（防病态批量）。
+ *
+ * 疑似段：单指标口径（metric + labels_ai）只看 `label=1` 的比例，所以单轮里改疑似段对**本次**
+ * 达标没有贡献，不进必需清单；只有 `distribution` / `bands` 这类**给疑似或"AI+疑似"也设了
+ * 上界**的口径，疑似段才算必需。这是口径决定的，不是偏好。
+ *
+ * 一个诚实的余量：接口内部切段比它返回的略细（实测一条 `N=10, A=3, 占比 27.47%` 被接口判
+ * **pass**，而按返回的 10 段算会得出"该清 1 段"）。所以算式在"刚好卡线"时可能偏保守一格 ——
+ * 宁可多改一段，也不要因为少算一段而白花一整轮（`maxRounds=1` 时等于整篇作废）。
+ */
+
+/**
+ * 门禁口径允许的"最多几段判 AI / 疑似"（`null` = 该口径不能用段数表达）。
+ *
+ * 三种口径的边界语义不同，必须分开算：
+ *   · `metric`（严格小于阈值）        → `x/N < t` → `ceil(t·N) − 1`
+ *   · `distribution`（上界是闭区间）  → `x/N ≤ t` → `floor(t·N)`
+ *   · `bands`（上界开/闭由 `exclusive` 决定，默认 AI 上界是开区间）
+ * 另外带**人工下界**的口径还有一条等价约束：`human ≥ h ⇔ (ai + uncertain)/N ≤ 1 − h`。
+ */
+export function segmentAllowance(cfg, total) {
+  const gate = (cfg && cfg.gate) || {}
+  const N = Math.max(0, Math.floor(Number(total)))
+  if (!N) return { ai: null, uncertain: null, aiPlusUncertain: null, basis: 'no-segments' }
+  /** 满足 x/N < t 的最大整数 x（严格小于：t·N 恰为整数时还要再减 1） */
+  const maxBelow = (t) => {
+    const v = Number(t)
+    if (!Number.isFinite(v) || v <= 0) return 0
+    if (v >= 1) return N
+    return Math.max(0, Math.ceil(v * N) - 1)
+  }
+  /** 满足 x/N ≤ t 的最大整数 x */
+  const maxAtMost = (t) => {
+    const v = Number(t)
+    if (!Number.isFinite(v) || v < 0) return N
+    if (v >= 1) return N
+    return Math.max(0, Math.floor(v * N))
+  }
+  const mode =
+    gate.mode === 'bands' ? 'bands' : gate.mode === 'distribution' ? 'distribution' : 'metric'
+  if (mode === 'metric') {
+    const metric = gate.metric || 'labels_ai'
+    // `confidence` 与段无关；`both` 里那条 AI 特征线仍可按段算
+    if (metric !== 'labels_ai' && metric !== 'both') {
+      return { ai: null, uncertain: null, aiPlusUncertain: null, basis: 'metric-not-segment-based' }
+    }
+    return {
+      ai: maxBelow(gate.threshold),
+      uncertain: null,
+      aiPlusUncertain: null,
+      basis: 'labels_ai < threshold',
+    }
+  }
+  const excl = new Set(Array.isArray(gate.exclusive) ? gate.exclusive : [])
+  const aiMax = Number(gate.aiMax)
+  const uncMax = Number(gate.uncertainMax)
+  const humanMin = Number(gate.humanMin)
+  const allowAi =
+    mode === 'distribution'
+      ? Number.isFinite(aiMax)
+        ? maxAtMost(aiMax)
+        : null
+      : Number.isFinite(aiMax)
+        ? excl.has('ai:max')
+          ? maxBelow(aiMax)
+          : maxAtMost(aiMax)
+        : null
+  const allowUnc =
+    mode === 'distribution'
+      ? Number.isFinite(uncMax)
+        ? maxAtMost(uncMax)
+        : null
+      : Number.isFinite(uncMax)
+        ? excl.has('uncertain:max')
+          ? maxBelow(uncMax)
+          : maxAtMost(uncMax)
+        : null
+  return {
+    ai: allowAi,
+    uncertain: allowUnc,
+    // 人工下界 → (ai + uncertain) 的上界（三项之和恒为 1）
+    aiPlusUncertain: Number.isFinite(humanMin) ? maxAtMost(1 - humanMin) : null,
+    basis: mode,
+  }
+}
+
+/**
+ * 本轮改写计划（纯函数，便于用真实数据做表驱动测试）。
+ *
+ * `mustRewrite` = 至少要让几段**脱掉 AI/疑似标记**才可能达标：
+ *   · 每条上界各自算缺口（`label=1` / `label=2` 两类段**不能互相顶替**）；
+ *   · "人工下界"转化成 `ai + uncertain` 的上界，可以由两类段里任意一段补上；
+ *   · 三者取"各缺口之和"与"总和缺口"的较大者 —— 这是满足全部约束的最小翻转数。
+ *
+ * `advise`（只表达**引擎的建议**，动作仍由调用方决定）：
+ *   · `none`       —— 不用改（pass，或口径是 observe）
+ *   · `fix-style`  —— 指标达标、只有护栏（碎句）不达标：按 `style.fails` 的段号**并回句子**，不是改片段
+ *   · `rewrite`    —— 按 `rewriteTargets` 定向改写
+ *   · `retain`     —— 需清段数 > 每轮上限 × 轮数：**一轮救不回来**，建议直接留存，
+ *                     省掉一轮注定失败的改写与一次检测（每次 ≈3.8k token）
+ */
+export function segmentPlan(result, cfg) {
+  if (!result || result.verdict === 'skip') return null
+  const segs = Array.isArray(result.segments)
+    ? result.segments.filter((s) => s && s.label !== null && s.label !== undefined)
+    : []
+  const total = segs.length
+  if (!total) return null
+  const ai = segs.filter((s) => s.label === 1).length
+  const uncertain = segs.filter((s) => s.label === 2).length
+  const allow = segmentAllowance(cfg, total)
+  const gate = (cfg && cfg.gate) || {}
+  const rewriteCfg = (cfg && cfg.rewrite) || {}
+  const styleFails = Array.isArray(result.styleFails) ? result.styleFails : []
+  const mode =
+    gate.mode === 'bands' ? 'bands' : gate.mode === 'distribution' ? 'distribution' : 'metric'
+  // 注意：`metric` 口径**不写 `fails[]`**（只有分布/区间口径写），所以它那条线要看 value/threshold
+  const metricFail =
+    mode === 'metric'
+      ? typeof result.value === 'number' && typeof result.threshold === 'number'
+        ? !(result.value < result.threshold)
+        : result.verdict === 'fail' && styleFails.length === 0
+      : (Array.isArray(result.fails) ? result.fails : []).some(
+          (f) => !String(f).startsWith('style:'),
+        )
+  const gap = (n, allowed) => (allowed === null ? 0 : Math.max(0, n - allowed))
+  const needAi = metricFail ? gap(ai, allow.ai) : 0
+  const needUncertain = metricFail ? gap(uncertain, allow.uncertain) : 0
+  const needSum = metricFail ? gap(ai + uncertain, allow.aiPlusUncertain) : 0
+  const mustRewrite = Math.max(needAi + needUncertain, needSum)
+  const perRoundCap = Math.max(1, Math.floor(Number(rewriteCfg.maxSegmentsPerRound)) || 5)
+  const rounds = Math.max(0, Math.floor(Number(rewriteCfg.maxRounds)) || 0)
+  const capacity = perRoundCap * rounds
+  const computable = allow.ai !== null || allow.uncertain !== null || allow.aiPlusUncertain !== null
+  const blocking = (gate.enforce || 'observe') === 'block'
+  const styleOnly = !metricFail && styleFails.length > 0
+  let advise = 'none'
+  if (blocking && result.verdict === 'fail') {
+    if (styleOnly) advise = 'fix-style'
+    else if (!computable)
+      advise = 'rewrite' // 口径不能按段算 → 交给调用方按结果自行处置
+    else if (mustRewrite > capacity) advise = 'retain'
+    else advise = 'rewrite'
+  }
+  return {
+    total,
+    ai,
+    uncertain,
+    allow,
+    mustRewrite,
+    mustRewriteAi: needAi,
+    mustRewriteUncertain: needUncertain,
+    mustRewriteSum: needSum,
+    perRoundCap,
+    rounds,
+    capacity,
+    /** 本轮清单的目标长度（= 需清段数，受保险上限约束） */
+    perRoundTargets: Math.min(mustRewrite, perRoundCap),
+    reachable: mustRewrite <= capacity,
+    computable,
+    styleOnly,
+    styleFails,
+    advise,
+  }
+}
+
+/**
+ * 挑出本轮要定向改写的片段：**长度 = 需清段数**（`segmentPlan` 自动算，不再是固定上限）。
+ *
+ * 构造顺序（重要）：先满足**各条上界各自点名的那一类**段 —— `label=1` 的缺口只能由判 AI 的段补，
+ * `label=2` 的缺口只能由疑似段补（两类段不能互相顶替）；只有在"人工下界"这条**总和约束**
+ * （`ai + uncertain` 过多）上，两类段才可以互换，此时先用判 AI 的段补（顺带改善头条指标）。
+ *
+ * 为什么不是"判 AI 的一律排最前"：口径只要约束疑似（`distribution` / `bands`），就可能出现
+ * "AI 比例达标、疑似超上界"的情形 —— 先递判 AI 的段等于让调用方去改一段本来合格的文字，
+ * 白花改写量还抬高回退风险（实测过：这一改动让 `N=2/A=1/U=1` 的分布口径样例从"给 2 段"
+ * 变成"只给真正需要改的那 1 段"）。
+ */
 export function pickRewriteTargets(result, cfg) {
   if (!result || !Array.isArray(result.segments)) return []
-  const min = Number(cfg.rewrite.minSegmentConf)
-  const includeSuspected = !!cfg.rewrite.includeSuspected
-  return (
-    result.segments
-      .filter((s) => {
-        if (s.label === 1) return true
-        return includeSuspected && s.label === 2
-      })
-      .filter((s) => typeof s.conf !== 'number' || !Number.isFinite(min) || s.conf >= min)
-      // 判 AI 的段先改（危害最大），同为判 AI 再按置信度降序
-      .sort((a, b) => {
-        const la = a.label === 1 ? 0 : 1
-        const lb = b.label === 1 ? 0 : 1
-        if (la !== lb) return la - lb
-        return (Number(b.conf) || 0) - (Number(a.conf) || 0)
-      })
-      .slice(0, Math.max(1, Number(cfg.rewrite.maxSegmentsPerRound) || 5))
-  )
+  const plan = segmentPlan(result, cfg)
+  if (!plan || plan.perRoundTargets <= 0) return []
+  const rewriteCfg = (cfg && cfg.rewrite) || {}
+  const min = Number(rewriteCfg.minSegmentConf)
+  const includeSuspected = !!rewriteCfg.includeSuspected
+  // 疑似段只有在"口径确实约束它（有上界或有人工下界）"或调用方显式开启时才进候选；
+  // 单指标 labels_ai 口径下改它对本次达标无贡献（实测口径只数 label=1 的段）。
+  const suspectedEligible =
+    includeSuspected || plan.allow.uncertain !== null || plan.allow.aiPlusUncertain !== null
+  const passConf = (s) => typeof s.conf !== 'number' || !Number.isFinite(min) || s.conf >= min
+  const byConf = (a, b) => (Number(b.conf) || 0) - (Number(a.conf) || 0)
+  const aiPool = result.segments.filter((s) => s.label === 1 && passConf(s)).sort(byConf)
+  const uncPool = suspectedEligible
+    ? result.segments.filter((s) => s.label === 2 && passConf(s)).sort(byConf)
+    : []
+  const picked = []
+  // ① 各上界点名的类别按缺口取（不足则有多少取多少）
+  picked.push(...aiPool.slice(0, plan.mustRewriteAi))
+  picked.push(...uncPool.slice(0, plan.mustRewriteUncertain))
+  // ② 总和约束（人工下界）的剩余缺口：两类段可互换 → 先用判 AI 的，再用疑似
+  const short = Math.min(plan.mustRewrite, plan.perRoundTargets) - picked.length
+  if (short > 0) {
+    picked.push(...aiPool.slice(plan.mustRewriteAi, plan.mustRewriteAi + short))
+    const stillShort = Math.min(plan.mustRewrite, plan.perRoundTargets) - picked.length
+    if (stillShort > 0) {
+      picked.push(
+        ...uncPool.slice(plan.mustRewriteUncertain, plan.mustRewriteUncertain + stillShort),
+      )
+    }
+  }
+  return picked.slice(0, plan.perRoundTargets)
 }
 
 /** 一行式人读摘要（日志/通知用） */

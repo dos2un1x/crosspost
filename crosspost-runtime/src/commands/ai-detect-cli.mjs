@@ -7,6 +7,11 @@
  *   node cli.mjs aiDetect --text='<正文>'          # 裸文本（基线回测/排查）
  *   node cli.mjs aiDetect --stdin < draft.md       # 管道输入
  *   node cli.mjs aiDetect --budget                 # 只看本周期用量与预算，不调用接口
+ *   node cli.mjs aiDetect --clear-exhausted        # 清掉本周期被标记失效的 key（误判限流时用）
+ *
+ * 多把 key（叠加额度）：`ZHUQUE_API_KEY` 之外再填 `ZHUQUE_API_KEYS`（逗号/空格分隔）即为钥匙池，
+ * 总额度 = 每把 key 的 `monthlyTokenBudget` × key 数；检测时优先用余量多的，某把被鉴权拒绝/
+ * 限流/额度用尽会自动换下一把并把该把标记为本周期失效。
  *
  * 口径/强度/覆盖可临时覆盖：`--mode` / `--enforce` / `--human-min` / `--human-max` /
  * `--ai-min` / `--ai-max` / `--uncertain-min` / `--uncertain-max` / `--threshold` /
@@ -25,6 +30,7 @@ import { getDraftsDir, parseDraftFile } from '../articles.mjs'
 import {
   budgetState,
   cachePath,
+  clearExhaustedKeys,
   detectText,
   formatSnapshot,
   formatVerdictLine,
@@ -32,6 +38,7 @@ import {
   pickRewriteTargets,
   readAiDetectConfig,
   resolveDetectCredentials,
+  segmentPlan,
   usagePath,
 } from '../ai-detect.mjs'
 
@@ -139,6 +146,8 @@ function compactReport(result, cfg) {
     uncertain: (result.segments || []).filter((s) => s.label === 2).length,
     total: (result.segments || []).length,
   }
+  // 本轮改写计划：由检测结果算（需清几段 / 建议动作），不再依赖配置里的固定段数
+  const plan = segmentPlan(result, cfg)
 
   return {
     ...base,
@@ -153,6 +162,47 @@ function compactReport(result, cfg) {
     // enforce=observe 时只报不拦：调用方据此跳过重写循环（省配额）
     action: (cfg.gate && cfg.gate.enforce) === 'block' ? 'block' : 'observe',
     enforce: (cfg.gate && cfg.gate.enforce) || 'observe',
+    /**
+     * 本次**要不要改写**（2026-10-07 新增）。
+     *
+     * 为什么不能只看 `action`：它只反映**配置的强度**，与本次判定无关 —— 一篇 `pass` 的稿子
+     * 在 `block` 下同样返回 `action:"block"`（实测）。调用方若把 `action` 读成"现在就改"，
+     * 就会去改一篇本来达标的稿子：白花额度，还可能把好稿子改坏。
+     * 所以另给一个**由判定与强度共同决定**的字段：只有 `fail` + `block` 才为真。
+     */
+    rewriteRequired: (cfg.gate && cfg.gate.enforce) === 'block' && result.verdict === 'fail',
+    // 每轮改几段 = **由检测结果算**（2026-10-07 起），不再是配置里的固定数：
+    // 门禁指标按段数计（实测接口占比 ≈ 判 AI 段数 / 总段数），所以"至少要让几段脱掉 AI 标记"
+    // 是确定的；`maxSegmentsPerRound` 退化为保险上限。`advise` 直接给出建议动作，
+    // 其中 `retain` = 需清段数 > 每轮上限 × 轮数（一轮救不回来）→ 别白花一次改写与检测。
+    ...(plan
+      ? {
+          rewriteNeed: {
+            totalSegments: plan.total,
+            aiSegments: plan.ai,
+            suspectedSegments: plan.uncertain,
+            allowedAiSegments: plan.allow.ai,
+            allowedUncertainSegments: plan.allow.uncertain,
+            allowedAiPlusUncertainSegments: plan.allow.aiPlusUncertain,
+            mustRewrite: plan.mustRewrite,
+            perRoundTargets: plan.perRoundTargets,
+            perRoundCap: plan.perRoundCap,
+            capacity: plan.capacity,
+            reachable: plan.reachable,
+            styleOnly: plan.styleOnly,
+            basis: plan.allow.basis,
+          },
+          advise: plan.advise,
+        }
+      : {}),
+    // 改写预算（2026-10-07）：`block` 下的重写循环由**调用方**执行，而循环的**成本上限**
+    // 由 `rewrite.maxRounds` 决定（每篇最多 1 + maxRounds 次检测）。此前调用方只能从
+    // 文档里按**名字**猜到这两个键，数值没有随结果下发 —— 它若自己猜一个轮数，
+    // 成本上限就形同虚设（额度是按这个上限规划的）。所以把预算显式发给调用方。
+    rewriteBudget: {
+      maxRounds: Number(cfg.rewrite && cfg.rewrite.maxRounds) || 0,
+      maxSegmentsPerRound: Number(cfg.rewrite && cfg.rewrite.maxSegmentsPerRound) || 0,
+    },
     confidence: result.confidence,
     ratioConfidence: result.ratioConfidence,
     labelsRatio: result.labelsRatio,
@@ -185,14 +235,33 @@ function compactReport(result, cfg) {
 /** aiDetect：检测一段文本/一篇草稿 */
 export async function runAiDetect(args) {
   const flags = parseFlags(args, {
-    booleans: ['segments', 'json', 'stdin', 'budget', 'no-budget-check'],
+    booleans: ['segments', 'json', 'stdin', 'budget', 'no-budget-check', 'clear-exhausted'],
   })
   const cfg = readAiDetectConfig(configOverrideFrom(flags))
+  const cred = resolveDetectCredentials()
+
+  // --clear-exhausted：把本周期被标记失效的 key 放回池子（限流误判时的手工出口，不调接口）
+  if (flags['clear-exhausted'] === true) {
+    const cleared = clearExhaustedKeys(new Date(), cfg.quotaAnchorDay)
+    const b = budgetState(cfg, new Date(), cred.apiKeys)
+    return {
+      ok: true,
+      cleared,
+      keyCount: b.keyCount,
+      exhausted: b.exhausted,
+      keys: b.keys || [],
+      hint:
+        cleared > 0
+          ? `已清掉 ${cleared} 把 key 的本周期失效标记；下一次检测会重新用上它们`
+          : '本周期没有被标记失效的 key，池子本来就是全的',
+    }
+  }
 
   // --budget：只看台账，不调用接口（排查"为什么没检测"用）
   if (flags.budget === true) {
-    const b = budgetState(cfg)
-    const cred = resolveDetectCredentials()
+    // 预算按**池**算（每把 key 的额度 × key 数），所以这里必须把 key 列表传进去，
+    // 否则两把 key 只显示一份额度，人工核对时会以为额度没叠加。
+    const b = budgetState(cfg, new Date(), cred.apiKeys)
     return {
       ok: true,
       month: b.month,
@@ -202,9 +271,13 @@ export async function runAiDetect(args) {
       calls: b.calls,
       avgTokensPerCall: b.calls > 0 ? Math.round(b.tokens / b.calls) : null,
       budget: b.budget,
+      perKeyBudget: b.perKeyBudget,
       remaining: b.remaining,
       exhausted: b.exhausted,
-      hasKey: !!cred.apiKey,
+      hasKey: cred.apiKeys.length > 0,
+      keyCount: b.keyCount,
+      // 分桶明细：哪把 key 用了多少、还剩多少、有没有被标记失效（**只给指纹，不给明文**）
+      keys: b.keys || [],
       enabled: cfg.enabled,
       gate: cfg.gate,
       sampleRate: cfg.sampleRate,
@@ -232,7 +305,9 @@ export async function runAiDetect(args) {
     text = fs.readFileSync(f, 'utf8')
     source = { kind: 'file', file: f, id: flags.id }
   } else {
-    throw new Error('缺少输入：--file=<路径> | --id=<草稿id> | --text=<正文> | --stdin | --budget')
+    throw new Error(
+      '缺少输入：--file=<路径> | --id=<草稿id> | --text=<正文> | --stdin | --budget | --clear-exhausted',
+    )
   }
 
   // 栏目白名单：额度不够时用 aiDetect.slots 收口（空 = 全部栏目）。

@@ -699,7 +699,8 @@ export async function runDoctor(opts = {}) {
       })
     } else {
       const cred = resolveDetectCredentials()
-      const b = budgetState(cfg)
+      // 预算按池算（每把 key 一份额度）：不传 key 列表会只显示一份额度，自检就失去意义
+      const b = budgetState(cfg, new Date(), cred.apiKeys)
       const mode = (cfg.gate && cfg.gate.mode) || 'bands'
       const enforce = (cfg.gate && cfg.gate.enforce) || 'observe'
       const slots =
@@ -711,21 +712,41 @@ export async function runDoctor(opts = {}) {
       ].join(' · ')
       const periods = `${b.periodStart} 起（锚点 ${b.periodAnchorDay} 日）`
       const problems = []
-      if (!cred.apiKey) problems.push('缺凭证：`crosspost-runtime/.env` 里没有 `ZHUQUE_API_KEY`')
+      if (!cred.apiKeys.length) {
+        problems.push(
+          '缺凭证：`crosspost-runtime/.env` 里没有 `ZHUQUE_API_KEY`（追加额度用 `ZHUQUE_API_KEYS`）',
+        )
+      }
+      // 某把 key 被标记失效：不是全网故障，但会让池子悄悄缩水，必须显式说出来
+      const dead = (b.keys || []).filter((k) => k.exhausted)
+      if (dead.length) {
+        problems.push(
+          `${dead.length}/${b.keyCount} 把 key 本周期已标记失效（${dead
+            .map((k) => `${k.id}${k.exhaustedAt ? `@${String(k.exhaustedAt).slice(0, 16)}` : ''}`)
+            .join('、')}），检测自动改用其余 key；误判限流可跑 \`aiDetect --clear-exhausted\``,
+        )
+      }
       if (b.exhausted) {
         problems.push(`本周期额度已用尽（${b.tokens}/${b.budget}，会返回 skip/budget-exhausted）`)
       }
+      const keyLine = cred.apiKeys.length
+        ? `${cred.apiKeys.length} 把 key（${(b.keys || []).map((k) => k.id).join('、')}）`
+        : '缺失'
+      // 旧台账（单 key 时代）的遗留用量会挂在第一把 key 上：不说明的话，
+      // 看到"第一把凭空多了十几万 token"会以为是漏账（`aiDetect --budget` 的 legacyTokens 同源）
+      const legacy = (b.keys || []).reduce((n, k) => n + (k.legacyTokens || 0), 0)
       checks.push({
         id: 'ai-detect',
         severity: problems.length ? SEVERITY.WARN : SEVERITY.OK,
-        title: !cred.apiKey
+        title: !cred.apiKeys.length
           ? 'AI 检测已启用但没有凭证（每篇都会 skip/no-api-key）'
           : b.exhausted
             ? 'AI 检测本周期额度已用尽（检测会跳过）'
             : `AI 检测就位（${mode} · ${enforce} · 覆盖 ${slots}）`,
         detail:
-          `本周期 ${periods}：${b.tokens}/${b.budget} token，${b.calls} 次调用；` +
-          `凭证${cred.apiKey ? '已配置' : '缺失'}（env 或 .env）；${extras}`,
+          `本周期 ${periods}：${b.tokens}/${b.budget} token（每把 key ${b.perKeyBudget} × ${b.keyCount}），` +
+          `${b.calls} 次调用；凭证${cred.apiKeys.length ? '已配置' : '缺失'} ${keyLine}（env 或 .env）` +
+          `${legacy > 0 ? `；其中 ${legacy} token 是旧台账遗留用量（无 key 归属，记在第一把头上）` : ''}；${extras}`,
         ...(problems.length
           ? {
               hint:

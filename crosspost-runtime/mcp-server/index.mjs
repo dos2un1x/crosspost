@@ -873,8 +873,15 @@ server.registerTool(
 // 返回里 `verdict` 三态，看清再动手：
 //   · pass  —— 低于阈值，可以继续走审稿/发布；
 //   · fail  —— 超阈值，按 `rewriteTargets`（片段序号）定向改写后复检；
-//   · skip  —— **这次没检测成**（无 key / 配额不足 / 接口故障 / 正文 < 350 字）。
+//   · skip  —— **这次没检测成**（无 key / 配额不足 / 接口故障 / 抽样挡下 / 正文 < 350 字）。
 //              必须如实按"未检测"处理并记日志，**不得当成 pass**（那等于静默放行）。
+// 2026-10-07：`block` 时返回里带 `rewriteRequired`（**本次要不要改**）、`rewriteNeed`
+// （引擎**按检测结果算出来的**需清段数）与 `advise`（建议动作）。注意 `action` 只表**配置强度**：
+// 一篇 `pass` 的稿子在 block 下同样返回 `action:"block"`，**要看"改不改"必须用 `rewriteRequired`**。
+// 每轮改几段由引擎从检测结果算（门禁指标按段数计：允许的 A = ceil(阈值×总段数) − 1），
+// 所以 `rewriteTargets` 就是"刚好够达标"的那几段 —— 照它改，不要自己加量（改多了会回退）。
+// 重写循环与轮数由**调用方**执行，轮数照 `rewriteBudget.maxRounds`；`advise=retain` 表示
+// 需清段数超过"每轮上限 × 轮数"（一轮救不回来），此时**直接留存**，别再改进改一次。
 // 台账：当月 token 用量落在 <repo>/.local/ai-detect-usage.json，超预算即 skip。
 server.registerTool(
   'ai_detect',
@@ -884,7 +891,9 @@ server.registerTool(
       '用腾讯朱雀（EdgeOne Makers 内置模型 @makers/zhuque-text）检测一篇文章的 AI 生成浓度，' +
       '返回整体判定（pass/fail/skip）、AI 特征字符占比，以及**被判 AI 的片段**（含回映射到正文的字符区间与预览）。' +
       '检测对象是剥离 markdown 标记后的纯文本（正文需 >350 字，过短直接 skip）。' +
-      '凭证走 crosspost-runtime/.env 的 ZHUQUE_API_KEY；无凭证或配额不足时返回 skip 而不是报错——' +
+      '凭证走 crosspost-runtime/.env 的 ZHUQUE_API_KEY（追加额度可再用 ZHUQUE_API_KEYS 填多把，' +
+      '引擎在余量最多的 key 之间均衡消耗、某把被限流/额度用尽时自动换下一把）；' +
+      '无凭证或配额不足时返回 skip 而不是报错——' +
       '调用方必须把 skip 记成「未检测」，不得当成通过。',
     inputSchema: {
       file: z.string().optional().describe('草稿文件绝对路径（与 id / text 三选一）'),
@@ -937,7 +946,10 @@ server.registerTool(
         .optional()
         .describe(
           '门禁强度（缺省 config → aiDetect.gate.enforce）：observe=只报不拦（**不进入重写循环**，省配额）；' +
-            'block=硬门禁（按 rewriteTargets 定向改写，仍不达标则留存）。返回里 action 字段给出本次应执行的动作',
+            'block=硬门禁（按 rewriteTargets 定向改写，仍不达标则留存）。返回里 `rewriteRequired` 才是' +
+            '"本次要不要改"的判据（`action` 只表强度：pass 的稿子在 block 下也是 "block"）；' +
+            '`rewriteNeed.mustRewrite` = 引擎算出的"本轮至少要清几段"（清单长度就是它），' +
+            '`advise=retain` 表示一轮救不回来、直接留存；轮数照 `rewriteBudget.maxRounds`，别自定',
         ),
       metric: z
         .enum(['confidence', 'labels_ai', 'both'])

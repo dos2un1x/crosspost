@@ -597,13 +597,13 @@
         <!-- AI 检测（朱雀）门禁卡片：此前 aiDetect 只能手改 config.json ——
              面板里既看不到口径，也改不了强度/覆盖/抽样，而这三项直接决定
              "检测跑不跑、跑多少、算不算过"。写入走 /proxy/config（项目级键，按当前项目分层）。
-             凭证与用量**不在这里**：凭证走 crosspost-runtime/.env，用量看 doctor 与 `aiDetect --budget`。 -->
+             凭证与用量**不在这里**：凭证走 crosspost-runtime/.env（额度叠加就再填 ZHUQUE_API_KEYS），用量看 doctor 与 `aiDetect --budget`。 -->
         <section class="card" id="ai-detect-card">
           <h2><span class="cicon">🛡️</span>AI 检测（朱雀）</h2>
           <p class="card-sub">
             AI 生成浓度门禁（config.json → aiDetect）。凭证不在这里：走
-            <code>crosspost-runtime/.env</code> 的 <code>ZHUQUE_API_KEY</code>；用量看自检页或
-            <code>aiDetect --budget</code>。
+            <code>crosspost-runtime/.env</code> 的 <code>ZHUQUE_API_KEY</code>（额度叠加再多填
+            <code>ZHUQUE_API_KEYS</code>）；用量看自检页或 <code>aiDetect --budget</code>。
           </p>
 
           <!-- 2026-10-06：这一卡原本是 9 条等重的 .dial-row（实测 803px 高），
@@ -627,6 +627,21 @@
           </div>
 
           <div class="def-grid ai-grid">
+            <!-- 改写轮数（2026-10-07）——**成本闸**：每篇最多 `1 + maxRounds` 次朱雀检测，
+                 直接决定额度够不够撑一个月，所以留在面板上并带实时成本提示；
+                 observe（不进改写循环）下置灰，免得出现"摆了却不起作用"的旋钮。
+                 「每轮改写段数」**不在面板**（连只读格也不摆）：门禁指标按段数计
+                 （接口占比 ≈ 判 AI 段数 / 总段数），"这一轮该改几段"由引擎从检测结果算出来
+                 （需清几段就改几段）；摆一个不能设置的读数只是噪声，该说明并进本格提示。 -->
+            <div class="def-cell" id="ai-max-rounds-row">
+              <label class="def-label" for="ai-max-rounds">改写轮数（仅 block）</label>
+              <div class="unit-in">
+                <input type="number" id="ai-max-rounds" min="0" max="10" step="1" />
+              </div>
+              <div class="def-hint" id="ai-rewrite-hint">
+                每轮改完复检（每轮改几段由引擎按检测结果自动算），轮数用尽仍不达标则留存
+              </div>
+            </div>
             <div class="def-cell" id="ai-threshold-row">
               <label class="def-label" for="ai-threshold">AI 特征阈值（metric 口径）</label>
               <div class="unit-in">
@@ -678,11 +693,14 @@
               <div class="def-hint">1-31；对齐额度开通日即可与台账归零点一致（1 = 自然月）</div>
             </div>
             <div class="def-cell">
-              <label class="def-label" for="ai-budget">周期 token 硬闸</label>
+              <label class="def-label" for="ai-budget">每把 key 的周期硬闸</label>
               <div class="unit-in">
                 <input type="number" id="ai-budget" min="0" step="1000" />
               </div>
-              <div class="def-hint">累计超过即不再调用（只记"未检测"，不阻断出稿）</div>
+              <div class="def-hint">
+                单把 key 累计超过即不再用它；总额度 = 此值 × 已配置 key
+                数（只记"未检测"，不阻断出稿）
+              </div>
             </div>
             <div class="def-cell">
               <label class="def-label" for="ai-slots">覆盖栏目</label>

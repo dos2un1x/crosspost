@@ -678,6 +678,23 @@ function normalizeAiDetect(cfg) {
   if (out.requireSnapshotOnPublish !== undefined) {
     out.requireSnapshotOnPublish = out.requireSnapshotOnPublish === true
   }
+  // 改写预算（2026-10-07）：`maxRounds` 在 block 下就是**每篇检测次数的上限**
+  // （1 + maxRounds）——它直接决定朱雀额度够不够撑一个月，所以越界值不能落盘。
+  // 面板已按 0-10 / 1-20 约束，这里兜住手改 config.json 的情形（此前完全不夹取）。
+  if (out.rewrite && typeof out.rewrite === 'object') {
+    const rw = { ...out.rewrite }
+    if (rw.maxRounds !== undefined) {
+      const n = Math.floor(Number(rw.maxRounds))
+      rw.maxRounds = Number.isFinite(n) && n >= 0 && n <= 10 ? n : 3
+    }
+    if (rw.maxSegmentsPerRound !== undefined) {
+      const n = Math.floor(Number(rw.maxSegmentsPerRound))
+      rw.maxSegmentsPerRound = Number.isFinite(n) && n >= 1 && n <= 20 ? n : 5
+    }
+    if (rw.minSegmentConf !== undefined) rw.minSegmentConf = ratio(rw.minSegmentConf, 0.5)
+    if (rw.includeSuspected !== undefined) rw.includeSuspected = rw.includeSuspected === true
+    out.rewrite = rw
+  }
   // 风格护栏：开关是布尔，阈值是 0-1 / 正整数（只做类型与范围兜底，阈值给缺省）
   if (out.styleGuard && typeof out.styleGuard === 'object') {
     const sg = { ...out.styleGuard }

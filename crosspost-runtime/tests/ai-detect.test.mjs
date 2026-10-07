@@ -12,11 +12,17 @@ import path from 'node:path'
 
 import {
   AI_DETECT_DEFAULTS,
+  UNASSIGNED_KEY,
   addUsage,
   budgetState,
   clampAnchorDay,
+  clearExhaustedKeys,
   detectText,
   formatSnapshot,
+  keyId,
+  markKeyExhausted,
+  parseKeyList,
+  poolBreakdown,
   shouldSample,
   formatVerdictLine,
   judgeResult,
@@ -27,6 +33,8 @@ import {
   quotaPeriod,
   readAiDetectConfig,
   readUsage,
+  segmentAllowance,
+  segmentPlan,
   stripMarkdown,
   usagePath,
 } from '../src/ai-detect.mjs'
@@ -54,7 +62,12 @@ import {
  */
 const TEST_API_KEY = 'test-key'
 const TEST_GATEWAY = 'https://gw.test'
-const testEnvKeys = ['ZHUQUE_API_KEY', 'EDGEONE_AI_GATEWAY_BASE', 'CROSSPOST_CONFIG']
+const testEnvKeys = [
+  'ZHUQUE_API_KEY',
+  'ZHUQUE_API_KEYS',
+  'EDGEONE_AI_GATEWAY_BASE',
+  'CROSSPOST_CONFIG',
+]
 const prevEnv = Object.fromEntries(testEnvKeys.map((k) => [k, process.env[k]]))
 process.on('exit', () => {
   for (const k of testEnvKeys) {
@@ -64,6 +77,9 @@ process.on('exit', () => {
 })
 process.env.ZHUQUE_API_KEY = TEST_API_KEY
 process.env.EDGEONE_AI_GATEWAY_BASE = TEST_GATEWAY
+// 多 key 的用例一律**显式传参**（`apiKey: 'a,b'`），所以这里把追加列表清掉：
+// 否则开发机 env 里真填了 ZHUQUE_API_KEYS 时，入口级用例会连上真实的多把 key。
+delete process.env.ZHUQUE_API_KEYS
 
 /** 沙箱 config.json：钉住 aiDetect（值 = 内置默认），使入口级用例与开发机配置无关 */
 const SANDBOX_CONFIG = path.join(os.tmpdir(), `cp-aidetect-config-${process.pid}.json`)
@@ -470,8 +486,12 @@ test('detectText：响应不是合法 JSON → skip bad-json', async () => {
 
 /* ────────────────── ③ 改写目标挑选 ────────────────── */
 
-test('pickRewriteTargets：只挑明确判 AI 的段、按置信度降序、受上限约束', () => {
+test('pickRewriteTargets：长度 = "需清几段"（自动算，不再是固定上限），判 AI 优先、置信度降序', () => {
+  // 5 段里 3 段判 AI → threshold 0.3 时允许 ceil(1.5)−1 = 1 段 → 只需清 2 段
   const result = {
+    verdict: 'fail',
+    value: 0.6,
+    threshold: 0.3,
     segments: [
       { order: 1, label: 0, conf: 0.9 },
       { order: 2, label: 1, conf: 0.6 },
@@ -480,19 +500,46 @@ test('pickRewriteTargets：只挑明确判 AI 的段、按置信度降序、受�
       { order: 5, label: 1, conf: 0.2 },
     ],
   }
-  const cfg = { ...CFG, rewrite: { ...CFG.rewrite, maxSegmentsPerRound: 2, minSegmentConf: 0.5 } }
+  const cfg = {
+    ...CFG,
+    gate: { metric: 'labels_ai', threshold: 0.3, enforce: 'block' },
+    rewrite: { ...CFG.rewrite, maxSegmentsPerRound: 5, minSegmentConf: 0.5 },
+  }
   const picked = pickRewriteTargets(result, cfg)
   assert.deepEqual(
     picked.map((s) => s.order),
     [3, 2],
+    '清单长度由需清段数决定：置信度高的判 AI 段先改',
   )
 
-  // includeSuspected=true 时才把"疑似"算进来
+  // 单指标（labels_ai）口径只看 label=1 的比例，所以**疑似段不占名额**：
+  // 清单长度由"需清几段"决定（这里是 2），不是由候选池有多大决定
   const withSuspected = pickRewriteTargets(result, {
     ...cfg,
-    rewrite: { ...cfg.rewrite, includeSuspected: true, maxSegmentsPerRound: 5 },
+    rewrite: { ...cfg.rewrite, includeSuspected: true, minSegmentConf: 0 },
   })
-  assert.ok(withSuspected.some((s) => s.order === 4))
+  assert.deepEqual(
+    withSuspected.map((s) => s.order),
+    [3, 2],
+    '候选池里判 AI 的段有 3 个，但只需清 2 段 → 清单就是 2 段（不多改）',
+  )
+  assert.ok(!withSuspected.some((s) => s.order === 4), '疑似段（order 4）在单指标口径下不进清单')
+  // 置信度门槛把判 AI 的候选也筛掉时，缺口用疑似段补 —— 宁可多给一段，也不让这一轮注定清不干净
+  const topped = pickRewriteTargets(result, {
+    ...cfg,
+    rewrite: { ...cfg.rewrite, minSegmentConf: 0.7 },
+  })
+  assert.deepEqual(
+    topped.map((s) => s.order),
+    [3, 4],
+    '判 AI 的候选只剩 1 段（需 2 段）→ 缺口由疑似段补上',
+  )
+
+  // pass：没有任何"必需项" → 空清单（要观察看 segments[]，不再是"给几个目标看看"）
+  assert.deepEqual(
+    pickRewriteTargets({ ...result, verdict: 'pass', value: 0.2 }, cfg).map((s) => s.order),
+    [],
+  )
 })
 
 /* ────────────────── ④ 栏目白名单（额度收口） ────────────────── */
@@ -600,6 +647,278 @@ test('周期锚点：越界/非数字一律回落到自然月', () => {
   const b = budgetState({ monthlyTokenBudget: 1000, quotaAnchorDay: 99 }, new Date(2026, 9, 5, 12))
   assert.equal(b.periodAnchorDay, 1)
   assert.equal(b.periodStart, '2026-10')
+})
+
+/* ────────── ⑤-c 多把 key（额度叠加）：分桶台账 + 余额排序 + 失败自动切换 ────────── */
+
+test('多 key：解析与指纹——逗号/空白/分号都能分隔、去重保序，指纹不含明文', () => {
+  assert.deepEqual(parseKeyList('a,b c;;a\n d'), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(parseKeyList(''), [])
+  assert.deepEqual(parseKeyList(undefined), [])
+  assert.deepEqual(parseKeyList(['sk-1', 'sk-2']), ['sk-1', 'sk-2'], '数组写法也要认')
+  const id = keyId('sk-secret-value')
+  assert.equal(id.length, 12)
+  assert.equal(keyId('sk-secret-value'), id, '同一把 key 的指纹必须稳定（否则分桶对不上）')
+  assert.ok(!id.includes('secret'), '指纹里不能出现明文片段')
+})
+
+test('多 key：预算 = 每把 key 的额度 × key 数；顶层聚合与分桶明细都对得上', () => {
+  freshLocalRoot()
+  const now = new Date('2026-10-05T00:00:00Z')
+  addUsage(1000, now, 1, 'key-a')
+  addUsage(300, now, 1, 'key-b')
+
+  // 单 key 口径不变
+  const single = budgetState({ monthlyTokenBudget: 5000 }, now)
+  assert.equal(single.budget, 5000)
+  assert.equal(single.keyCount, 1)
+  assert.equal(single.tokens, 1300, '顶层仍是全池聚合')
+  assert.equal(single.keys, undefined, '不给 key 列表就不该有分桶')
+
+  // 池口径：两把 key = 两份额度
+  const pool = budgetState({ monthlyTokenBudget: 5000 }, now, ['key-a', 'key-b'])
+  assert.equal(pool.perKeyBudget, 5000)
+  assert.equal(pool.keyCount, 2)
+  assert.equal(pool.budget, 10000, '总额度必须是 5000 × 2（否则多填一把 key 等于白填）')
+  assert.equal(pool.tokens, 1300, '聚合用量不随 key 数放大')
+  assert.equal(pool.remaining, 8700)
+  assert.equal(pool.exhausted, false)
+  assert.deepEqual(
+    pool.keys.map((k) => [k.id, k.tokens, k.remaining, k.exhausted]),
+    [
+      [keyId('key-a'), 1000, 4000, false],
+      [keyId('key-b'), 300, 4700, false],
+    ],
+  )
+  // 单把读法（第三个参数给 key）
+  assert.equal(readUsage(now, 1, 'key-a').tokens, 1000)
+  assert.equal(readUsage(now, 1, 'key-b').tokens, 300)
+})
+
+test('多 key：台账里**只有指纹没有明文**（台账保护级别低于 .env）', () => {
+  freshLocalRoot()
+  const now = new Date('2026-10-05T00:00:00Z')
+  addUsage(1000, now, 1, 'sk-plain-text-key-a')
+  const raw = fs.readFileSync(usagePath(), 'utf8')
+  assert.ok(!raw.includes('sk-plain-text-key-a'), `台账不得出现 key 明文：${raw}`)
+  assert.ok(raw.includes(keyId('sk-plain-text-key-a')), '但要有指纹，否则分桶没法对账')
+  assert.equal(JSON.parse(raw).tokens, 1000, '顶层聚合仍在（旧消费方读它）')
+})
+
+test('多 key：单把额度用完只该换下一把，不该整体停摆', () => {
+  freshLocalRoot()
+  const now = new Date('2026-10-05T00:00:00Z')
+  addUsage(1000, now, 1, 'key-a') // a 已用满
+  const pool = budgetState({ monthlyTokenBudget: 1000 }, now, ['key-a', 'key-b'])
+  assert.equal(pool.keys[0].exhausted, true)
+  assert.equal(pool.keys[1].exhausted, false)
+  assert.equal(pool.exhausted, false, '还有余量就整体不算用尽')
+
+  addUsage(1000, now, 1, 'key-b')
+  const both = budgetState({ monthlyTokenBudget: 1000 }, now, ['key-a', 'key-b'])
+  assert.equal(both.exhausted, true, '每把都被闸住才算池子用尽')
+})
+
+test('多 key：旧台账（无 key 归属）记到第一把头上——最保守的记法', () => {
+  freshLocalRoot()
+  // 单 key 时代写下的账：只有顶层，没有 keys
+  fs.writeFileSync(
+    usagePath(),
+    JSON.stringify({ month: '2026-10', tokens: 1500, calls: 3 }),
+    'utf8',
+  )
+  const now = new Date(2026, 9, 5, 12)
+  const pool = budgetState({ monthlyTokenBudget: 1000 }, now, ['key-a', 'key-b'])
+  assert.equal(pool.keys[0].tokens, 1500, '旧账记到第一把')
+  assert.equal(pool.keys[0].calls, 3, 'calls 也跟着转记，否则逐把与聚合口径对不上')
+  // 归属规则依赖书写顺序，所以必须显式给出"这一把里有多少是遗留归属"，
+  // 否则看到"第一把凭空多了 15 万"会以为是漏账
+  assert.equal(pool.keys[0].legacyTokens, 1500)
+  assert.equal(pool.keys[1].legacyTokens, 0)
+  assert.equal(pool.keys[0].exhausted, true, '宁可让第一把提前退出，也不让池子多算额度')
+  assert.equal(pool.keys[1].tokens, 0, '第二把不该被旧账牵连')
+  assert.equal(pool.exhausted, false, '第二把还有余量 → 池子还能用')
+  assert.equal(pool.tokens, 1500, '聚合口径不变（旧消费方读到的还是 1500）')
+  // unassigned 桶只被认一次，不会被两把 key 各扣一遍
+  assert.equal(
+    poolBreakdown({ monthlyTokenBudget: 1000 }, ['key-a', 'key-b'], now).keys[1].tokens,
+    0,
+  )
+  assert.equal(UNASSIGNED_KEY, 'unassigned')
+  // 归属跟着"第一把"走：换顺序就把这份遗留用量挪到另一把（池子总额不变）。
+  // 钉住它是因为这行为确实是顺序相关的——不写下来，排查时会以为是漏账/串账。
+  const swapped = budgetState({ monthlyTokenBudget: 1000 }, now, ['key-b', 'key-a'])
+  assert.equal(swapped.keys[0].id, keyId('key-b'))
+  assert.equal(swapped.keys[0].tokens, 1500, '遗留用量跟着第一把走')
+  assert.equal(swapped.keys[1].tokens, 0)
+  assert.equal(swapped.tokens, 1500, '池子聚合口径与顺序无关')
+})
+
+test('多 key：一把 401 → 自动换下一把成功，并把坏 key 标记为本周期失效', async () => {
+  freshLocalRoot()
+  await withFetch(
+    (url, opts) =>
+      opts.headers.Authorization === 'Bearer key-a'
+        ? jsonResponse('invalid api key', 401)
+        : jsonResponse(successBody()),
+    async (calls) => {
+      const cfg = { ...CFG, monthlyTokenBudget: 400000 }
+      const r = await detectText(longText(), {
+        config: cfg,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.notEqual(r.verdict, 'skip', `应该由第二把 key 接住：${JSON.stringify(r)}`)
+      assert.equal(calls.length, 2, '401 不重试（fetchRetry 对 4xx 直接返回），只换 key')
+      assert.equal(calls[0].opts.headers.Authorization, 'Bearer key-a')
+      assert.equal(calls[1].opts.headers.Authorization, 'Bearer key-b')
+
+      // 坏 key 被记下：本周期不再拿它撞墙
+      const now = new Date()
+      assert.ok(readUsage(now, 1, 'key-a').exhaustedAt, '被鉴权拒绝的 key 应标记本周期失效')
+      assert.equal(readUsage(now, 1, 'key-b').exhaustedAt, null)
+
+      // 下一篇（正文不同以免命中内容缓存）直接用好的那把：只有 1 次请求
+      const r2 = await detectText(`${longText()}换一篇。`, {
+        config: cfg,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.notEqual(r2.verdict, 'skip')
+      assert.equal(calls.length, 3)
+      assert.equal(calls[2].opts.headers.Authorization, 'Bearer key-b', '失效的 key 不该再被选中')
+
+      // 误判时的手工出口
+      const cleared = clearExhaustedKeys(now, 1)
+      assert.equal(cleared, 1)
+      assert.equal(readUsage(now, 1, 'key-a').exhaustedAt, null)
+    },
+  )
+})
+
+test('多 key：200 + "额度用尽"文案也换下一把；普通 PROVIDER 错误不换（省额度）', async () => {
+  freshLocalRoot()
+  // ① 配额类文案 → 换 key
+  await withFetch(
+    (url, opts) =>
+      opts.headers.Authorization === 'Bearer key-a'
+        ? jsonResponse({ status: 'error', msg: 'quota exceeded for this month' })
+        : jsonResponse(successBody()),
+    async (calls) => {
+      const r = await detectText(longText(), {
+        config: CFG,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.notEqual(r.verdict, 'skip', JSON.stringify(r))
+      assert.equal(calls.length, 2)
+      assert.equal(calls[1].opts.headers.Authorization, 'Bearer key-b')
+    },
+  )
+
+  // ② 与 key 无关的 PROVIDER 错误 → 直接返回，不白烧第二把的额度
+  freshLocalRoot()
+  await withFetch(
+    () => jsonResponse({ status: 'error', msg: 'invalid request payload' }),
+    async (calls) => {
+      const r = await detectText(longText(), {
+        config: CFG,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r.verdict, 'skip')
+      assert.equal(r.reason, 'api-error')
+      assert.equal(r.errorCode, 'PROVIDER')
+      assert.equal(calls.length, 1, '非 key 级错误换 key 没有意义，不许再发一次')
+    },
+  )
+})
+
+test('多 key：每把都没余量 → skip/budget-exhausted 且零请求；被标记失效的也一样', async () => {
+  freshLocalRoot()
+  const now = new Date()
+  addUsage(1000, now, 1, 'key-a')
+  addUsage(1000, now, 1, 'key-b')
+  await withFetch(
+    () => {
+      throw new Error('两把 key 都没余量时不该发起请求')
+    },
+    async (calls) => {
+      const r = await detectText(longText(), {
+        config: { ...CFG, monthlyTokenBudget: 1000 },
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r.verdict, 'skip')
+      assert.equal(r.reason, 'budget-exhausted')
+      assert.equal(calls.length, 0)
+
+      // 第二把被标记失效 + 第一把没余量 → 同样零请求
+      freshLocalRoot()
+      addUsage(1000, new Date(), 1, 'key-a')
+      markKeyExhausted('key-b', new Date(), 1)
+      const r2 = await detectText(longText(), {
+        config: { ...CFG, monthlyTokenBudget: 1000 },
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r2.reason, 'budget-exhausted')
+      assert.equal(calls.length, 0)
+    },
+  )
+})
+
+test('多 key：--no-budget-check 要放过被标记失效的 key（否则这个开关比不加还受限）', async () => {
+  freshLocalRoot()
+  const now = new Date()
+  markKeyExhausted('key-a', now, 1)
+  markKeyExhausted('key-b', now, 1)
+  await withFetch(
+    () => jsonResponse(successBody()),
+    async (calls) => {
+      // 不传开关：两把都被标记 → 零请求
+      const blocked = await detectText(longText(), {
+        config: CFG,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(blocked.reason, 'budget-exhausted')
+      assert.equal(calls.length, 0)
+
+      // 传开关：放回候选，真的发一次（手工验证被误判的 key 靠它）
+      const forced = await detectText(longText(), {
+        config: CFG,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+        skipBudgetCheck: true,
+      })
+      assert.notEqual(forced.verdict, 'skip', JSON.stringify(forced))
+      assert.equal(calls.length, 1)
+    },
+  )
+})
+
+test('多 key：全部候选都失败 → 返回最后一次失败，并带 keysTried/keyCount 供事后判断', async () => {
+  freshLocalRoot()
+  await withFetch(
+    () => jsonResponse('rate limited', 429),
+    async (calls) => {
+      const r = await detectText(longText(), {
+        config: CFG,
+        apiKey: 'key-a,key-b',
+        gateway: 'https://gw.test',
+      })
+      assert.equal(r.verdict, 'skip')
+      assert.equal(r.errorCode, 'RATE')
+      assert.equal(calls.length, 2, '两把都试过')
+      assert.equal(r.keysTried, 2)
+      assert.equal(r.keyCount, 2)
+      assert.equal(r.apiKeyId, keyId('key-b'), 'apiKeyId 是最后失败那把的指纹')
+      // 两把都被标记失效 → 下一次连请求都不发
+      const both = budgetState(CFG, new Date(), ['key-a', 'key-b'])
+      assert.equal(both.exhausted, true)
+    },
+  )
 })
 
 /* ────────────────── ⑥ 三分布口径（人工 50% / AI 30% / 疑似 20%） ────────────────── */
@@ -813,10 +1132,127 @@ test('旧口径（metric 模式）行为不变，避免老配置静默改语义'
   assert.equal(r.fails, undefined, '旧口径不应产生 fails 字段')
 })
 
+test('segmentPlan：门禁按段数计 → "需清几段"由检测结果算（真实数据表驱动）', () => {
+  // 这批 (总段数 N, 判 AI 段数 A) 全部来自 2026-10-07 线上真实检测结果（24 条里的代表样本）。
+  // 为什么能这么算：接口给的 `labels_ratio.ai` 贴着 A/N（实测），口径又是**严格小于**阈值，
+  // 所以允许的 A = ceil(t·N) − 1，需清 = A − 允许值。
+  const LAB = { metric: 'labels_ai', threshold: 0.3, enforce: 'block' }
+  const cfg = {
+    ...CFG,
+    gate: LAB,
+    rewrite: { ...CFG.rewrite, maxRounds: 1, maxSegmentsPerRound: 5 },
+  }
+  const segs = (n, label) =>
+    Array.from({ length: n }, (_, i) => ({ order: i + 1, label, conf: 0.9 }))
+  const mk = (N, A) => ({
+    verdict: 'fail',
+    value: A / N,
+    threshold: 0.3,
+    segments: [...segs(A, 1), ...segs(N - A, 0)],
+  })
+  const table = [
+    // [N, A, 允许的 A, 需清几段]  —— 允许值 = ceil(0.3N) − 1
+    [5, 5, 1, 4],
+    [5, 2, 1, 1],
+    [6, 3, 1, 2],
+    [6, 5, 1, 4],
+    [9, 2, 2, 0],
+    [10, 4, 2, 2],
+    [11, 5, 3, 2],
+    [12, 7, 3, 4],
+    [12, 4, 3, 1],
+    [2, 2, 0, 2],
+  ]
+  for (const [N, A, allow, need] of table) {
+    const plan = segmentPlan(mk(N, A), cfg)
+    assert.equal(plan.allow.ai, allow, `N=${N} A=${A} 允许值`)
+    assert.equal(plan.mustRewrite, need, `N=${N} A=${A} 需清段数`)
+  }
+  // 边界：允许值随 N 变化，所以同样的"判 5 段"在长文里能过、在短文里过不了
+  assert.equal(segmentPlan(mk(12, 3), cfg).mustRewrite, 0, '12 段里 3 段判 AI = 25% → 达标')
+  assert.equal(segmentPlan(mk(5, 2), cfg).mustRewrite, 1, '5 段里 2 段判 AI = 40% → 需清 1 段')
+  // 阈值恰好落在整数上时必须再减 1（口径是严格小于）：N=10 → 3/10 = 30% 不算达标
+  assert.equal(segmentAllowance({ gate: LAB }, 10).ai, 2, '严格小于 30% → 10 段最多允许 2 段')
+  assert.equal(
+    segmentAllowance({ gate: { ...LAB, threshold: 0.5 } }, 10).ai,
+    4,
+    '50% 时 10 段最多 4 段',
+  )
+})
+
+test('segmentPlan.advise：一轮救不回来就建议留存（别白花一次改写与检测）', () => {
+  const segs = (n, label) =>
+    Array.from({ length: n }, (_, i) => ({ order: i + 1, label, conf: 0.9 }))
+  const base = {
+    ...CFG,
+    gate: { metric: 'labels_ai', threshold: 0.3, enforce: 'block' },
+  }
+  // 12 段里 9 段判 AI → 允许 3 段 → 需清 6 段；每轮上限 5 × 轮数 1 = 5 → 清不完
+  const hard = {
+    verdict: 'fail',
+    value: 0.75,
+    threshold: 0.3,
+    segments: [...segs(9, 1), ...segs(3, 0)],
+  }
+  const one = segmentPlan(hard, {
+    ...base,
+    rewrite: { ...base.rewrite, maxRounds: 1, maxSegmentsPerRound: 5 },
+  })
+  assert.equal(one.mustRewrite, 6)
+  assert.equal(one.reachable, false)
+  assert.equal(one.advise, 'retain', '一轮清不完 → 直接建议留存')
+  assert.equal(one.perRoundTargets, 5, '清单仍给满上限，便于人工/多轮时参考')
+  // 同一篇给 2 轮（容量 10 ≥ 6）→ 可达，改成建议改写
+  const two = segmentPlan(hard, {
+    ...base,
+    rewrite: { ...base.rewrite, maxRounds: 2, maxSegmentsPerRound: 5 },
+  })
+  assert.equal(two.reachable, true)
+  assert.equal(two.advise, 'rewrite')
+  // 轮数 0 = 不做改写 → 容量 0，任何需清都不可达
+  const zero = segmentPlan(hard, { ...base, rewrite: { ...base.rewrite, maxRounds: 0 } })
+  assert.equal(zero.capacity, 0)
+  assert.equal(zero.advise, 'retain')
+
+  // 只有护栏（碎句）不达标：指标那条线是过的 → 不是"改片段"，而是按 style.fails 并回句子
+  const styleOnly = {
+    verdict: 'fail',
+    value: 0.2,
+    threshold: 0.3,
+    fails: ['style:short-run:段2'],
+    styleFails: ['short-run:段2'],
+    segments: [...segs(1, 1), ...segs(4, 0)],
+  }
+  const s = segmentPlan(styleOnly, { ...base, rewrite: { ...base.rewrite, maxRounds: 1 } })
+  assert.equal(s.mustRewrite, 0)
+  assert.equal(s.styleOnly, true)
+  assert.equal(s.advise, 'fix-style')
+
+  // pass → none；observe → none（只报不拦，不进改写循环）
+  assert.equal(segmentPlan({ ...hard, verdict: 'pass', value: 0.2 }, base).advise, 'none')
+  assert.equal(
+    segmentPlan(hard, {
+      ...base,
+      gate: { metric: 'labels_ai', threshold: 0.3, enforce: 'observe' },
+      rewrite: { ...base.rewrite, maxRounds: 1 },
+    }).advise,
+    'none',
+  )
+  // confidence 口径与段无关 → 算不出"需清几段"，但要如实说 computable=false（调用方自行处置）
+  const conf = segmentPlan(hard, {
+    ...CFG,
+    gate: { metric: 'confidence', threshold: 0.5, enforce: 'block' },
+  })
+  assert.equal(conf.computable, false)
+  assert.equal(conf.advise, 'rewrite')
+})
+
 test('includeSuspected 默认 true：分布口径下必须能改"疑似"段', () => {
   assert.equal(AI_DETECT_DEFAULTS.rewrite.includeSuspected, true)
   const picked = pickRewriteTargets(
     {
+      verdict: 'fail',
+      fails: ['uncertain'],
       segments: [
         { order: 1, label: 2, conf: 0.9 },
         { order: 2, label: 2, conf: 0.4 },
@@ -835,6 +1271,8 @@ test('includeSuspected 默认 true：分布口径下必须能改"疑似"段', ()
 test('改写目标排序：判 AI 的段排在疑似之前（危害大的先改）', () => {
   const picked = pickRewriteTargets(
     {
+      verdict: 'fail',
+      fails: ['human', 'uncertain'],
       segments: [
         { order: 1, label: 2, conf: 0.99 },
         { order: 2, label: 1, conf: 0.2 },
@@ -883,8 +1321,25 @@ test('runAiDetect：enforce 决定 action（observe 不重写，block 才进改�
       ])
       assert.equal(observed.verdict, 'fail')
       assert.equal(observed.action, 'observe', 'observe 模式必须明确告知调用方不要重写')
+      assert.equal(observed.rewriteRequired, false, 'observe 下任何判定都不该要求改写')
       assert.deepEqual(observed.fails, ['human', 'uncertain'])
-      assert.deepEqual(observed.rewriteTargets, [1, 2], '仍要给改写方向，且判 AI 的段排在疑似之前')
+      // 2026-10-07 起清单按"需清几段"自动算：这份样例里 AI 比例 26% 其实**达标**
+      // （分布口径的 aiMax=50%），真正不达标的是"人工不足 + 疑似超 40% 上界"——
+      // 所以只递疑似段（order 2），不去让人白改那段本来合格的判 AI 文字。
+      assert.deepEqual(observed.rewriteTargets, [2], '只给真正需要清的那一类段')
+      assert.equal(observed.advise, 'none', 'observe 只报不拦 → 不进入改写循环')
+      assert.equal(observed.rewriteNeed.mustRewrite, 1, '需清 1 段（疑似超上界）')
+      assert.equal(observed.rewriteNeed.allowedAiSegments, 1, 'AI 上界 50% → 2 段里允许 1 段判 AI')
+      // 2026-10-07：重写循环由调用方执行，轮数必须随结果下发——
+      // 调用方自己猜轮数，额度规划用的"每篇最多 1+maxRounds 次检测"这个上限就失效了。
+      assert.deepEqual(
+        observed.rewriteBudget,
+        {
+          maxRounds: AI_DETECT_DEFAULTS.rewrite.maxRounds,
+          maxSegmentsPerRound: AI_DETECT_DEFAULTS.rewrite.maxSegmentsPerRound,
+        },
+        '必须把改写预算（轮数/每轮段数）交给调用方',
+      )
 
       const blocked = await runAiDetect([
         `--file=${file}`,
@@ -893,6 +1348,46 @@ test('runAiDetect：enforce 决定 action（observe 不重写，block 才进改�
         '--mode=distribution',
       ])
       assert.equal(blocked.action, 'block')
+      assert.equal(blocked.rewriteRequired, true, 'block + fail 才要求改写')
+      assert.equal(blocked.advise, 'rewrite', 'block + 需清 1 段 ≤ 容量 → 按清单定向改写')
+      assert.equal(blocked.rewriteNeed.mustRewrite, 1)
+      assert.ok(
+        blocked.rewriteBudget && blocked.rewriteBudget.maxRounds > 0,
+        'block 下预算更要明确',
+      )
+    },
+  )
+})
+
+test('runAiDetect：block 下 `pass` 不许要求改写（action 只表强度，不能当"现在就改"读）', async () => {
+  freshLocalRoot()
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-drafts-'))
+  const file = path.join(dir, '2026-01-01-noon-passing.md')
+  fs.writeFileSync(file, longText(), 'utf8')
+  const { runAiDetect } = await import('../src/commands/ai-detect-cli.mjs')
+
+  // human 90% / ai 5% / 疑似 5% → distribution 口径下三条线全过
+  await withFetch(
+    () =>
+      jsonResponse(
+        successBody({
+          labels_ratio: { 0: 0.9, 1: 0.05, 2: 0.05 },
+          // 故意留一段被判 AI：`rewriteTargets` 非空 ≠ 必须改写，这正是要靠
+          // `rewriteRequired` 区分开的地方（只给 targets 会让调用方误改达标稿）
+          segment_labels: [{ text: '判AI段', label: 1, conf: 0.9, order: 1, position: [0, 10] }],
+        }),
+      ),
+    async () => {
+      const r = await runAiDetect([
+        `--file=${file}`,
+        '--min-chars=1',
+        '--enforce=block',
+        '--mode=distribution',
+      ])
+      assert.equal(r.verdict, 'pass')
+      assert.equal(r.action, 'block', 'action 仍反映配置强度（block）')
+      assert.equal(r.rewriteRequired, false, 'pass + block 绝不能被理解为"要改写"')
+      assert.deepEqual(r.rewriteTargets, [], 'pass 没有必需项 → 空清单（要观察请看 segments[]）')
     },
   )
 })

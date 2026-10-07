@@ -11,10 +11,26 @@
 | 端点     | `POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify`                                             |
 | 鉴权     | `Authorization: Bearer <API_KEY>`，Key 在控制台 **Makers → Models → API Key** 创建                                   |
 | 凭证位置 | `crosspost-runtime/.env` 的 `ZHUQUE_API_KEY`（env 优先；两者都 gitignored。模板见 `crosspost-runtime/.env.example`） |
-| 额度     | 内置模型 50 万 token/月，按开通日为周期起点自动刷新；不足可工单提额                                                  |
+| 多把 key | 追加写 `ZHUQUE_API_KEYS`（逗号/空格分隔，可写多把），**额度叠加**；见下面「钥匙池」                                  |
+| 额度     | 内置模型 50 万 token/月**每把 key**，按开通日为周期起点自动刷新；不足可再填一把 key 或工单提额                       |
 | 官方文档 | <https://cloud.tencent.com/document/product/1552/137539>                                                             |
 
 **密钥不落 `config.json`**：凭证只走 env / `.env`，与微信凭证同一规矩。
+
+### 钥匙池：多把 key 叠加额度
+
+免费额度是**账号级**的，所以"多填一把 key"就是"多一份额度"：
+
+- `ZHUQUE_API_KEY` 是主 key（本身也可写成逗号分隔的多把），`ZHUQUE_API_KEYS` 是追加列表，两者**叠加**而非二选一。
+- 总额度 = `aiDetect.monthlyTokenBudget`（**每把 key** 的值）× key 数。台账**按 key 分桶**记账（只存 key 的
+  `sha256` 前 12 位指纹，**不存明文**），所以"哪把还剩多少"是可查的。
+- 每次检测优先用**余量最多**的那把 → 两把是均衡消耗，而不是把第一把烧穿才轮到第二把。
+- 某把返回 `401/403`（key 失效）、`429`（限流）、`402`（配额）或 200 + "额度用尽"文案时：**自动换下一把重试**，
+  并把该把标记为**本周期失效**（此后直接跳过它，不再拿它撞墙）。标记只作用当前周期，跨周期自动清零。
+- 全部候选都不可用时才返回 `skip/budget-exhausted`（`apiKeyId` / `keysTried` / `keyCount` 能区分
+  "一把被限"与"两把都被限"）。`5xx` / 网络 / 响应格式类失败**不换 key**——那跟 key 无关，换了是白烧另一把的额度。
+- 限流被误判时（例如一阵突发限流），用 `aiDetect --clear-exhausted` 把标记清掉放回池子；
+  `aiDetect --budget` 的 `keys[]` 会列出每把的 `tokens` / `remaining` / `exhaustedAt`。
 
 ## 2. 字段语义
 
@@ -108,10 +124,10 @@
 
 ### 门禁强度：observe / block
 
-| 值                | 行为                                                                                                                     | 适用                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `observe`（默认） | 只报不拦：照常返回真实 `verdict` 与 `fails`，但**不进入重写循环**，调用方记日志后继续走原流程。每篇仅 1 次调用，配额最优 | 目标刚调整、还在看真实分布 |
-| `block`           | 硬门禁：按 `rewriteTargets` 定向改写 ≤`rewrite.maxRounds` 轮，仍不达标则留存                                             | 分布已稳定、要开始强制时   |
+| 值                | 行为                                                                                                                                     | 适用                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `observe`（默认） | 只报不拦：照常返回真实 `verdict` 与 `fails`，但**不进入重写循环**，调用方记日志后继续走原流程。每篇仅 1 次调用，配额最优                 | 目标刚调整、还在看真实分布 |
+| `block`           | 硬门禁：按 `rewriteTargets`（长度 = 引擎算出的需清段数）定向改写 ≤`rewrite.maxRounds` 轮，仍不达标则留存；`advise=retain` 时连改写都不做 | 分布已稳定、要开始强制时   |
 
 返回里的 `action` 字段直接给出本次应执行的动作（`observe` / `block`），调用方不必自己推断 config。
 
@@ -154,7 +170,7 @@
 | -------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
 | **内容缓存**   | 按 `sha256(通道+网关+剥离后正文)` 缓存**归一化结果**（判定每次用当前 gate 重算，改阈值不会拿到旧结论） | 重复检测：Console 复推、同一篇既走手动又走定时、block 模式下未改动正文的复检 |
 | **确定性抽样** | `aiDetect.sampleRate`（0-1，默认 1 全检）。按正文哈希决定检不检——同一篇每次判定一致，可复现、可审计    | 覆盖率换额度（0.5 即省一半）。被抽掉返回 `skip/sampled-out`                  |
-| **额度硬闸**   | `monthlyTokenBudget`，累计超过即不再调用                                                               | 兜底，防止把额度烧穿                                                         |
+| **额度硬闸**   | `monthlyTokenBudget`（**每把 key** 的值），单把累计超过即不再用它；每把都被闸住才算池子用尽            | 兜底，防止把额度烧穿                                                         |
 
 抽样用哈希而不是随机数，是为了让"这篇为什么没检测"可复现——否则排查会变成玄学。
 
@@ -164,11 +180,19 @@
   `usage.total_tokens` ≈ 1.0 × 字数，用它估额度会低估约 40%。**控制台「模型用量」页是权威口径**。
 - 台账在 `<repo>/.local/ai-detect-usage.json`，按**计费周期**累计、跨周期归零；额度是**账号级**，全引擎共用一份台账。
   注意：台账只统计**经引擎发起的**调用，直接用 curl/脚本打接口的部分不在里面——对账以控制台为准。
+- 台账形状 `{month, periodStart, tokens, calls, keys: {<指纹>: {tokens, calls, exhaustedAt?}}}`：
+  顶层 `tokens`/`calls` 是**全池聚合**（控制台/自检/文章库读这两个），`keys` 是按 key 分桶的明细。
+  旧台账（单 key 时代只有顶层）照读不误——那些量没有 key 归属，池化后记到**第一把** key 头上
+  （最保守的记法：宁可让第一把提前退出，也不让池子多算出一份额度）。这条规则**依赖书写顺序**：
+  换顺序会把这份遗留用量挪到另一把 key（池子总额不变，只影响"哪把看起来用得多"），所以逐把明细里
+  显式给出 `legacyTokens` / `legacyCalls`——看到"第一把凭空多了十几万"先看这个字段，那不是漏账。
+  单个 key 的用量也可直接读：`readUsage(now, anchorDay, apiKey)`。
 - 周期默认是**自然月**，而朱雀的免费额度是**按开通日**为起点刷新的：两者错位时把
   `aiDetect.quotaAnchorDay` 设为开通日（1-31，小月自动夹到当月最后一天）即可对齐。
 - `config.json → aiDetect.monthlyTokenBudget`（代码默认 **40 万**，部署可改；当前生效值以 `aiDetect --budget` 为准）
-  是硬闸：累计超过即不再调用，返回 `skip/budget-exhausted`（按"未检测"放行，不阻断出稿）。
-  留出的余量用于基线重跑与人工抽检。
+  是硬闸，口径是**每把 key**：总额度 = 该值 × 已配置 key 数（`--budget` 的 `budget` 即总额、
+  `perKeyBudget` 是单把、`keys[]` 是逐把明细）。每把都被闸住（或标记失效）才返回
+  `skip/budget-exhausted`（按"未检测"放行，不阻断出稿）。留出的余量用于基线重跑与人工抽检。
 - **量级与覆盖率的关系**（按接入方的字数为准重算；均篇 ≈ 1.7 × 字数）：
 
   | 覆盖                                   | 月度消耗（30 天） | 是否落在 50 万免费额度内 |
@@ -180,6 +204,8 @@
   这张表只是**估算**，实际有两道闸要同时满足：既不能超免费额度，也不能超 `monthlyTokenBudget`
   （代码默认 40 万，比表里的估算**先**到线）。要按自己的真实消耗核对，看 `aiDetect --budget`
   返回的 `tokens` / `calls`（两者相除即均篇 token）。
+  上面的"50 万"是**单把 key** 的免费额度；填了 N 把 key 就是 50 万 × N，`monthlyTokenBudget`
+  也按同一倍数放大（`--budget` 里的 `budget` 已是放大后的总额）。
   全栏目覆盖几乎没有余量，因此**每篇只在定稿后检测一次**（`observe` 不做复检正是为此）。
   `aiDetect.slots` 是一个**可选**的栏目白名单：
 
@@ -197,8 +223,11 @@
 ## 5. 用法
 
 ```bash
-# 查台账与 key 状态（不调接口）
+# 查台账与 key 状态（不调接口；keys[] 是逐把明细）
 node crosspost-runtime/src/cli.mjs aiDetect --budget
+
+# 限流被误判成"本周期失效"时，把 key 放回池子（不调接口）
+node crosspost-runtime/src/cli.mjs aiDetect --clear-exhausted
 
 # 检测一篇草稿（自动剥离 frontmatter 与 markdown 标记）
 node crosspost-runtime/src/cli.mjs aiDetect --file=/abs/path/to/draft.md
@@ -219,10 +248,28 @@ MCP 面是同名工具 `ai_detect`（AI 会话侧入口，同一个实现）：�
 `uncertainMin` / `uncertainMax` / `sampleRate` / `enforce`，旧口径另有 `metric` / `threshold`；
 `budget: true` 只看台账不调接口。
 
-CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `--metric` / `--file` / `--id` /
-`--text` / `--stdin` 外，还接受 `--mode` / `--enforce` / `--human-min` / `--human-max` /
-`--ai-min` / `--ai-max` / `--uncertain-min` / `--uncertain-max` / `--sample-rate` /
+`gate.enforce=block` 时，返回里除 `rewriteTargets`（本轮要定向改写的片段序号）之外，还给三个字段：
+
+- **`rewriteRequired`** —— **本次要不要改**的判据（= `fail` 且 `block`）。**别用 `action` 判断**：`action` 只反映配置强度，一篇 `pass` 的稿子在 `block` 下同样返回 `action:"block"`；把它读成"现在就改"会去改本来达标的稿子。
+- **`rewriteNeed`** —— **需清几段是算出来的，不是配置里的固定数**。门禁指标按**段数**计（接口给的 AI 占比 ≈ 判 AI 段数 / 总段数），所以"至少要让几段脱掉 AI 标记"是确定的：
+  `allowedAiSegments = ceil(阈值 × 总段数) − 1`（口径是**严格小于**阈值）、`mustRewrite = 判 AI 段数 − allowedAiSegments`。
+  `perRoundTargets` 就是 `rewriteTargets` 的长度（受 `rewrite.maxSegmentsPerRound` 这个**保险上限**约束，它不再决定清单长度）；`capacity = 每轮上限 × maxRounds`；`reachable=false` 表示一轮救不回来。
+  短文的容错更小是同一算式的结果：一篇 5 段的稿子最多只能有 1 段判 AI（`ceil(1.5)−1`），而 12 段的长文允许 3 段。
+- **`advise`** —— 引擎的建议动作：`none`（不用改）/ `rewrite`（按 `rewriteTargets` 定向改写）/
+  `fix-style`（指标达标、只有风格护栏不达标 → 按 `style.fails` 的段号**并回句子**，不是改片段）/
+  `retain`（`mustRewrite > capacity`：**一轮救不回来 → 直接留存**，别白花一轮改写与一次检测）。
+- **`rewriteBudget`** —— `{maxRounds, maxSegmentsPerRound}`。重写循环由**调用方**执行（引擎没有 LLM，不代改稿），所以轮数必须照它走：一篇稿子的检测次数上限 = `1 + maxRounds`，额度就是按这个上限规划的；调用方自己猜轮数会让上限失效。
+
+> 清单里只放**必需**的段：单指标口径（`metric` + `labels_ai`）只看 `label=1` 的比例，所以改"疑似"段对本次达标没有贡献，它们不进清单；只有 `distribution` / `bands` 这类给疑似（或"AI + 疑似"）也设了上界的口径，疑似段才算必需。`maxSegmentsPerRound` 与 `minSegmentConf` 仍是配置项，但**只作保险**：前者限单轮批量上限，后者是纳入清单的最低置信度。
+
+CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `--clear-exhausted` / `--metric` /
+`--file` / `--id` / `--text` / `--stdin` 外，还接受 `--mode` / `--enforce` / `--human-min` /
+`--human-max` / `--ai-min` / `--ai-max` / `--uncertain-min` / `--uncertain-max` / `--sample-rate` /
 `--slots=a,b` / `--threshold` / `--segments` / `--project=…`。
+
+`--no-budget-check` 是"别拿台账拦我"的手工出口：越过额度硬闸，并放过被标记为失效的 key
+（否则所有 key 都被标记时，加了这个开关反而比不加更受限——想手工验证一把被误判的 key 都做不到）。
+注意它只解除**引擎侧**的护栏，朱雀账号侧的真实额度照样生效。
 
 ## 6. 三态语义
 
@@ -237,6 +284,9 @@ CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `-
 `sampleRate` 的确定性抽样抽掉）/
 `no-api-key` / `budget-exhausted` / `timeout` / `network-error` / `api-error`（附 `errorCode`：
 `AUTH` / `RATE` / `QUOTA` / `SERVER` / `PROVIDER` / `HTTP_<n>`）/ `bad-json` / `bad-response` / `metric-unavailable`。
+
+多把 key 时，`api-error` 只有在**所有**候选 key 都失败后才会返回，并带 `apiKeyId`（失败的那把的指纹）、
+`keysTried` / `keyCount`（试了几把、一共有几把）——`keysTried === keyCount` 说明两把都被限了。
 
 取向：**凭证缺失、额度不足、接口故障一律放行但显式标注**，不静默、也不阻断出稿——与槽位门禁
 "绝不因配置故障静默停发"一致。但"未检测"必须在日志、通知、文章库记录三处都可见，
@@ -266,16 +316,21 @@ CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `-
 - **失败分类要分清"接口错误"与"网络不通"**：`fetchRetry` 重试用尽后抛的是 `HTTP <n> for <url>`，
   必须还原成 `api-error` + `errorCode`，不能一律归成 `network-error`。
 - **限流(429) 与鉴权(401/403) 不重试**，只有 5xx 与网络错误才重试一次。
+- **多把 key 的失败切换只认"key 级"错误**：`AUTH`/`RATE`/`QUOTA`（含 200 响应里"额度用尽"文案）才换下一把，
+  并把这把标记为本周期失效；`5xx`/网络/响应格式不换——那跟 key 无关，换了是白烧另一把的额度。
+- **key 明文绝不落台账**：分桶键是 `sha256(key)` 前 12 位（`keyId`），台账在 `localRoot`，
+  保护级别低于 `.env`。
 
 ## 8. 排障
 
 | 现象                        | 查什么                                                                                             |
 | --------------------------- | -------------------------------------------------------------------------------------------------- |
 | `skip/no-api-key`           | `crosspost-runtime/.env` 是否有 `ZHUQUE_API_KEY`（模板 `.env.example`）；`npm run doctor` 也会提醒 |
-| `skip/budget-exhausted`     | `aiDetect --budget` 看当月累计；核对 `monthlyTokenBudget`                                          |
+| `skip/budget-exhausted`     | `aiDetect --budget` 看当月累计与 `keys[]`；核对 `monthlyTokenBudget`（口径是每把 key）             |
+| 检测突然只用一把 key        | `aiDetect --budget` 看另一把的 `exhaustedAt`（被 401/429 标记失效）；误判就 `--clear-exhausted`    |
 | `skip/sampled-out`          | 正常（被 `sampleRate` 抽掉）；要全检就把 `sampleRate` 调回 1                                       |
-| `skip/api-error` + `AUTH`   | Key 失效或额度被停；到 EdgeOne 控制台确认                                                          |
-| `skip/api-error` + `RATE`   | 触发限流；降频或错峰                                                                               |
+| `skip/api-error` + `AUTH`   | Key 失效或额度被停；到 EdgeOne 控制台确认（多把 key 时会自动换下一把，`keysTried` 表明换了几把）   |
+| `skip/api-error` + `RATE`   | 触发限流；降频或错峰（多把 key 时先换手，全被限才返回）                                            |
 | `skip/text-too-short`       | 正文不足 `minChars`（默认 350 字）；短文按"未检测"处理                                             |
 | `segments` 为空但整体分正常 | 接口未返回分段；此时只能按整体判定，无法定向改写                                                   |
 | 改完稿分数不降              | 先确认看的是哪个字段：`confidence` 恒饱和，要看 `labels_ratio["1"]`                                |

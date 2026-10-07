@@ -1122,14 +1122,53 @@ async function testNotify() {
 /* ══ AI 检测（朱雀）门禁 ══════════════════════════════════════════════════
    为什么要有这张卡片：`aiDetect` 是**项目级**写作政策键，但此前只能手改 config.json ——
    面板里看不到当前口径，也改不了强度/覆盖/抽样，而这三项直接决定"检测跑不跑、算不算过"。
-   凭证（`ZHUQUE_API_KEY`）与用量（台账）**不在这里**：前者走 `.env`，后者看自检页与
-   `aiDetect --budget`（额度是账号级、全引擎一份台账，所以不放进按项目切换的面板）。
+   凭证（`ZHUQUE_API_KEY`，额度叠加用 `ZHUQUE_API_KEYS` 追加多把）与用量（台账）**不在这里**：
+   前者走 `.env`，后者看自检页与 `aiDetect --budget`（额度是账号级、全引擎一份台账，
+   所以不放进按项目切换的面板）。注意这一卡里的"周期 token 硬闸"是**每把 key** 的额度，
+   总额度 = 该值 × 已配置 key 数。
    ══════════════════════════════════════════════════════════════════════════ */
 
 /** 0-1 的读数格式化：留两位小数，避免浮点尾巴显示成 0.30000000000000004 */
 function fmtRatio(v) {
   const n = Number(v)
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : ''
+}
+
+/**
+ * 每次朱雀检测的**实测**均值（Makers 计费口径），只用来给"改写轮数"算一句人话成本。
+ * 依据（2026-10-07 实测）：会话与检测缓存两个独立来源一致，均 3.5-4.0k/次；分栏目看
+ * 深度分析 ~4.7k、热点解读 ~2.1k。这里是**估算**，权威口径永远看控制台「模型用量」页。
+ */
+const AI_DETECT_TOKENS_PER_CALL = 3800
+
+/**
+ * 改写预算两格的联动（2026-10-07 加进面板）。
+ *
+ * 为什么在 `observe` 下必须**禁用**：observe 不进重写循环（引擎返回 `action=observe`，
+ * SKILL 直接进审稿），`maxRounds` / `maxSegmentsPerRound` 那时取任何值都没有效果。
+ * 让它们看起来可调，正是这个仓库反复修过的那类缺陷——"面板里摆着点了必然失败的按钮"、
+ * "界面写 A、实际是 B"。所以：不可用时置灰 + 说明原因，而不是留一个空转旋钮。
+ */
+function syncAiRewriteRows() {
+  const enforce = ($('#ai-enforce') || {}).value || 'observe'
+  const blocking = enforce === 'block'
+  const roundsRow = $('#ai-max-rounds-row')
+  if (roundsRow) roundsRow.classList.toggle('is-off', !blocking)
+  const roundsEl = $('#ai-max-rounds')
+  if (roundsEl) roundsEl.disabled = !blocking
+  const hint = $('#ai-rewrite-hint')
+  if (!hint) return
+  if (!blocking) {
+    hint.textContent = 'observe（只报不拦）下此键无效：不做改写复检，每篇只 1 次检测'
+    return
+  }
+  const raw = Number(($('#ai-max-rounds') || {}).value)
+  const rounds = Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0
+  const calls = 1 + rounds
+  const perArticle = Math.round(calls * AI_DETECT_TOKENS_PER_CALL * 10) / 10000
+  hint.textContent =
+    `每轮改完复检（每轮改几段由引擎按检测结果自动算），轮数用尽仍不达标则留存 rejected；` +
+    `每篇最多 ${calls} 次检测 ≈ ${perArticle}k token/篇（按每次 3.8k 估）`
 }
 
 /** 区间口径（bands/distribution）才显示三段占比；metric 只显示一个阈值 */
@@ -1139,6 +1178,7 @@ function syncAiDetectRows() {
   if (bounds) bounds.classList.toggle('is-off', mode === 'metric')
   const thr = $('#ai-threshold-row')
   if (thr) thr.classList.toggle('is-off', mode !== 'metric')
+  syncAiRewriteRows() // 改写预算只在 block 下可调（见该函数注释）
 }
 
 function loadAiDetectFields(ai) {
@@ -1163,6 +1203,12 @@ function loadAiDetectFields(ai) {
   }
   $('#ai-slots').value = Array.isArray(ai.slots) ? ai.slots.join(',') : ''
   $('#ai-sample-rate').value = fmtRatio(ai.sampleRate === undefined ? 1 : ai.sampleRate)
+  // 改写轮数（2026-10-07）：只在 block 下可调，缺省与引擎默认一致（3 轮）。
+  // `maxSegmentsPerRound` 有意**不进面板**：每轮改几段由引擎按检测结果算（需清几段就改几段），
+  // 让人拍一个固定数字只会鼓励过度改写；它作为保险上限留在 config 层。
+  const rw = ai.rewrite || {}
+  const mr = $('#ai-max-rounds')
+  if (mr) mr.value = Number.isFinite(Number(rw.maxRounds)) ? Number(rw.maxRounds) : 3
   $('#ai-budget').value = Number.isFinite(Number(ai.monthlyTokenBudget))
     ? Number(ai.monthlyTokenBudget)
     : ''
@@ -1208,6 +1254,14 @@ async function saveAiDetect() {
     if (!Number.isInteger(anchor) || anchor < 1 || anchor > 31) {
       throw new Error('周期锚点日必须是 1-31 的整数')
     }
+    // 改写轮数（只在 block 下有效，但**照原样提交**：切回 observe 再切回来时不该丢值）。
+    // 不提交 `maxSegmentsPerRound`：面板不再编辑它，而桥对 `aiDetect` 是深合并，
+    // 所以 config 里那个保险上限不会被清掉。
+    const roundsRaw = Number(($('#ai-max-rounds') || {}).value)
+    if (!Number.isInteger(roundsRaw) || roundsRaw < 0 || roundsRaw > 10) {
+      throw new Error('改写轮数必须是 0-10 的整数')
+    }
+    const rewrite = { maxRounds: roundsRaw }
     const gate = {
       mode,
       enforce: $('#ai-enforce').value,
@@ -1246,6 +1300,9 @@ async function saveAiDetect() {
         requireSnapshotOnPublish: $('#ai-require-snapshot').value === 'on',
         // 风格护栏只提交开关：阈值沿用引擎默认（要在 Console 调阈值就改 config.json）
         styleGuard: { enabled: $('#ai-style-guard').value === 'on' },
+        // 改写预算：桥对 aiDetect 是**深合并**，所以这里只提交这两个键，
+        // `minSegmentConf` / `includeSuspected` 不会被清掉（仍是手改 config.json 的项）
+        rewrite,
       },
     })
     if (r.error) throw new Error(r.error)
@@ -1437,6 +1494,12 @@ export function initSettingsView() {
   if (aiSaveBtn) aiSaveBtn.addEventListener('click', saveAiDetect)
   const aiModeSel = $('#ai-mode')
   if (aiModeSel) aiModeSel.addEventListener('change', syncAiDetectRows)
+  // 门禁强度一变，改写预算两格的可调状态跟着切（observe 下它们无效 → 置灰）
+  const aiEnforceSel = $('#ai-enforce')
+  if (aiEnforceSel) aiEnforceSel.addEventListener('change', syncAiDetectRows)
+  // 改写轮数改一格，成本提示实时重算（"每篇最多 N 次检测 ≈ Xk token/篇"）
+  const aiRoundsIn = $('#ai-max-rounds')
+  if (aiRoundsIn) aiRoundsIn.addEventListener('input', syncAiRewriteRows)
   $('#btn-brand-apply').addEventListener('click', saveBrandIcon)
   $('#btn-brand-reset').addEventListener('click', resetBrandIcon)
   // v2.96.1：这两个按钮此前**只改勾选框、既不刷新读数、也不管过滤**——

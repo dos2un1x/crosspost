@@ -660,6 +660,67 @@ try {
     `改前=${segBefore} 点后=${JSON.stringify(segAfter)} 还原=${segRestored}`,
   ])
 
+  // ④-b AI 检测卡·改写预算两格（2026-10-07）
+  //
+  // 为什么值得冒烟：这张卡片此前**零自动化覆盖**（没有任何断言碰过 #ai-*）；而改写轮数在
+  // `block` 下就是"每篇检测次数"的上限（1 + maxRounds）——它直接决定朱雀额度够不够撑一个月。
+  // 两条判据：① 读数来自接口（不是前端写死）；② observe 下**置灰**（observe 不进重写循环，
+  // 让旋钮看起来可调就是"摆了却不起作用"的那类缺陷）。
+  const aiCard = await page.evaluate(async () => {
+    const b = await (await fetch('/proxy/bootstrap')).json()
+    const h = { 'X-CrossPost-Token': b.token }
+    const pid = localStorage.getItem('crosspost.activeProject') || ''
+    if (pid) h['X-CrossPost-Project'] = pid
+    const cfg = await (await fetch('/proxy/config', { headers: h })).json()
+    const ai = cfg.aiDetect || {}
+    const rw = ai.rewrite || {}
+    return {
+      apiEnforce: (ai.gate || {}).enforce || null,
+      apiRounds: rw.maxRounds,
+      selEnforce: document.querySelector('#ai-enforce').value,
+      rounds: (document.querySelector('#ai-max-rounds') || {}).value,
+      // 面板里**不许**再出现"每轮改写段数"（输入框或只读格都不行）：
+      // 它由引擎按检测结果算，摆一个不能设置的项只是噪声
+      segInput: document.querySelector('#ai-max-segments'),
+      segRow: [...document.querySelectorAll('#ai-detect-card .def-cell')].some((c) =>
+        (c.textContent || '').includes('每轮改写段数'),
+      ),
+      hint: ((document.querySelector('#ai-rewrite-hint') || {}).textContent || '').trim(),
+    }
+  })
+  results.push([
+    'AI 检测卡·改写轮数读接口值；面板不含"每轮改写段数"（自动算的项不摆进来）',
+    String(aiCard.apiRounds) === aiCard.rounds &&
+      aiCard.selEnforce === aiCard.apiEnforce &&
+      aiCard.segInput === null &&
+      !aiCard.segRow &&
+      aiCard.hint.includes('自动算'),
+    JSON.stringify(aiCard),
+  ])
+  const origEnforce = await page.evaluate(() => document.querySelector('#ai-enforce').value)
+  await page.selectOption('#ai-enforce', 'observe')
+  const offState = await page.evaluate(() => ({
+    d1: document.querySelector('#ai-max-rounds').disabled,
+    off1: document.querySelector('#ai-max-rounds-row').classList.contains('is-off'),
+    hint: ((document.querySelector('#ai-rewrite-hint') || {}).textContent || '').trim(),
+  }))
+  await page.selectOption('#ai-enforce', 'block')
+  const onState = await page.evaluate(() => ({
+    d1: document.querySelector('#ai-max-rounds').disabled,
+    hint: ((document.querySelector('#ai-rewrite-hint') || {}).textContent || '').trim(),
+  }))
+  if (origEnforce !== 'block') await page.selectOption('#ai-enforce', origEnforce)
+  results.push([
+    'AI 检测卡·observe 下改写轮数置灰并说明原因（不留空转旋钮），block 下恢复可调 + 报成本',
+    offState.d1 &&
+      offState.off1 &&
+      offState.hint.includes('无效') &&
+      !onState.d1 &&
+      /次检测/.test(onState.hint) &&
+      /token\/篇/.test(onState.hint),
+    `observe=${JSON.stringify(offState)} blockHint="${onState.hint}" 原值=${origEnforce}`,
+  ])
+
   // ⑤ 备份读数：大号数字 = 接口份数，行数 = 接口文件数
   const backupProbe = await page.evaluate(async () => {
     const b = await (await fetch('/proxy/bootstrap')).json()
