@@ -1314,6 +1314,22 @@ try {
     await page.waitForTimeout(600)
     const histLen = await page.locator('#d-history li').count()
     results.push(['发布历史时间线', histLen >= 0, `items=${histLen}`])
+    // 「记录概览」必须有内容（2026-10-08 补）：此处原先一条断言都没有，于是"记录被扫描登记成空骨架
+    // （history/decision/review/aiDetect 全缺）"在冒烟里完全看不见 —— 面板上表现为记录概览只剩
+    // 「风险分类 / 质量评分 / 平台推送 0·0·0 / 通知 none」，发布历史空白。
+    // 注意 `renderRecordGrid(null)` 也会渲染 1 条「尚未发布」占位，所以 >=1 对"记录不存在"同样成立：
+    // 这条锁的是"renderDetail 跑过且面板拿到了内容"，不是"记录一定存在"。
+    const recGrid = await page.locator('#d-record-grid .rg-item').count()
+    results.push(['记录概览渲染', recGrid >= 1, `items=${recGrid}`])
+    const recKeys = await page
+      .locator('#d-record-grid .rg-item .k')
+      .allTextContents()
+      .catch(() => [])
+    results.push([
+      '记录概览·平台推送行在',
+      recGrid === 0 || recKeys.includes('平台推送'),
+      recKeys.join('|').slice(0, 80),
+    ])
     await page.click('#d-close')
     await page.waitForTimeout(300)
 
