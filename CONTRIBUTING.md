@@ -154,7 +154,7 @@ bridge/brand/                    md-backup/
 ## 10. 许可
 
 **全仓唯一许可是 `GPL-3.0-only`**，正文只在仓库根维护一份：[`LICENSE`](LICENSE)
-（版权 `Copyright (C) 2026 CrossPost`）。向本项目提交贡献即表示同意以同一许可分发你的贡献
+（版权 `Copyright (C) 2026 dos2un1x`，作者与署名见 [`AUTHORS`](AUTHORS)）。向本项目提交贡献即表示同意以同一许可分发你的贡献
 （inbound = outbound，无需额外签署文件）。
 
 **为什么是「only」而不是「or later」**：`LICENSE` 正文里没有 "or later" 声明，`GPL-3.0-only`
@@ -185,5 +185,8 @@ bridge/brand/                    md-backup/
 shell / Python / YAML / TOML / Dockerfile / `.env.example`，排除 `node_modules`、`vendor`、
 `dist`、`.local`、`md-backup`），任何一个文件缺仓库地址或作者名就红。
 **所以新增自研代码文件时，记得把这一行带上**；`.md` 文档与 JSON 不在范围内。
+
+集中一份在 [`AUTHORS`](AUTHORS)（作者 / 版权 / 许可 / 代码署名 / 第三方组件各一段）；
+下面这段规则与那个文件说的是同一件事。
 
 不想要这条约束时：**删掉那一个测试文件即可**，没有别的联动。

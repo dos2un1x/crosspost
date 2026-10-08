@@ -1,0 +1,27 @@
+CrossPost —— 作者与署名（集中一份）
+====================================
+
+作者（Author）
+  dos2un1x
+  https://github.com/dos2un1x
+
+项目（Project）
+  CrossPost —— 文章多平台分发引擎（CrossPost Console）
+  https://github.com/dos2un1x/crosspost
+
+版权（Copyright）
+  Copyright (C) 2026 dos2un1x
+
+许可（License）
+  GPL-3.0-only —— 许可证正文只在仓库根维护一份：LICENSE。
+  随发布物（npm 包 / 容器镜像）分发时，LICENSE 之外也请一并保留本文件。
+
+代码里的署名
+  自研代码文件都带一行「作者 + 仓库地址」的注释，位置与措辞不限；
+  package.json 这类放不下注释的文件走 author 字段。
+  规则与护栏见 CONTRIBUTING.md 的「署名注释（自研代码文件）」一节；
+  .md 文档与 JSON 不在范围内。
+
+第三方组件
+  本项目依赖的第三方包各自保留其原始许可；条目白名单与合规校验见
+  CONTRIBUTING.md 的「许可」一节。

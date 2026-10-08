@@ -178,6 +178,6 @@ Console、MCP 工具描述与文档都从它派生：
 
 ## 许可
 
-[GPL-3.0-only](LICENSE)，版权 `Copyright (C) 2026 CrossPost`。
+[GPL-3.0-only](LICENSE)，版权 `Copyright (C) 2026 dos2un1x`。作者与署名集中一份在 [`AUTHORS`](AUTHORS)。
 仓库只在根目录维护这一份许可证正文，随发布物分发时由构建步骤带入（npm 包走 `prepack`，镜像走 `COPY`）；
 分发与依赖许可政策（含依赖许可白名单）见 [`CONTRIBUTING.md`](CONTRIBUTING.md) §10。

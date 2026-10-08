@@ -88,6 +88,19 @@ test('署名：自研代码文件都带作者与仓库地址（package.json 走 
   )
 })
 
+test('署名：AUTHORS 集中文件存在，且带作者与仓库地址', () => {
+  const p = path.join(ROOT, 'AUTHORS')
+  assert.ok(fs.existsSync(p), 'AUTHORS 是署名的集中一份，不能没有')
+  const src = fs.readFileSync(p, 'utf8')
+  assert.ok(src.includes(REPO_URL), `AUTHORS 必须含仓库地址 ${REPO_URL}`)
+  assert.ok(src.includes(AUTHOR), `AUTHORS 必须含作者名 ${AUTHOR}`)
+  // README 与 CONTRIBUTING 都要能指到它，否则"集中一份"等于藏起来
+  for (const rel of ['README.md', 'CONTRIBUTING.md']) {
+    const doc = fs.readFileSync(path.join(ROOT, rel), 'utf8')
+    assert.ok(doc.includes('AUTHORS'), `${rel} 应指向 AUTHORS`)
+  }
+})
+
 test('署名：package.json 的 author 字段（JSON 放不下注释，署名只在这里）', () => {
   for (const rel of [
     'package.json',
