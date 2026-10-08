@@ -174,3 +174,16 @@ bridge/brand/                    md-backup/
 并说明理由；白名单之外一律判红。当前依赖树的许可分布就登记在 `ALLOWED` 里，每条为什么允许写在它的注释里。
 
 > 这些是**机器检查**（白名单 + 文件齐备性），不是法律意见；对外发布前建议让法务过一眼。
+
+## 11. 署名注释（自研代码文件）
+
+自研代码文件都带一行署名注释：**作者名 `dos2un1x` + 仓库地址
+`https://github.com/dos2un1x/crosspost`**。位置不限、措辞不限，两者都在即可；
+`package.json` 这类放不下注释的文件走 `author` 字段。
+
+护栏是 `crosspost-runtime/tests/attribution.test.mjs`：它扫同一份清单（JS 家族 / CSS / HTML /
+shell / Python / YAML / TOML / Dockerfile / `.env.example`，排除 `node_modules`、`vendor`、
+`dist`、`.local`、`md-backup`），任何一个文件缺仓库地址或作者名就红。
+**所以新增自研代码文件时，记得把这一行带上**；`.md` 文档与 JSON 不在范围内。
+
+不想要这条约束时：**删掉那一个测试文件即可**，没有别的联动。
