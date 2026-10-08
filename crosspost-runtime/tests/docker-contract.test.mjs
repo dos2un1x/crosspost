@@ -193,6 +193,33 @@ test('Docker⑦b：依赖判据必须共用 src/deps.mjs，且 core 判"产物"�
   )
 })
 
+test('Docker⑦c：产物过期要在启动时就地重建（判据仍走共享模块，且失败不挡启动）', () => {
+  // 为什么单列：`core/dist` 是容器私有卷，`docker compose restart` 只重启进程 —— 只补"缺产物"
+  // 不够，**产物比源码旧**同样会让容器跑着旧编译结果，而报错与仓库代码对不上。
+  // 三条一起钉：①用共享判据（不许手抄一份 mtime 比较）；②真的会重建；
+  // ③重建失败不拒绝启动（一次依赖/磁盘抖动不该让整个服务不可用，不同步由 doctor 提醒）。
+  const e = read(ENTRYPOINT)
+  assert.match(
+    e,
+    /coreDistFreshness/,
+    '过期判据必须走 src/deps.mjs 的 coreDistFreshness（与 doctor 同一份）',
+  )
+  assert.ok(
+    !/-nt\b|find[^\n]*-newer\b/.test(e),
+    '别在 entrypoint 里手写 mtime 比较：判据只留一份，否则又会与 doctor 飘开',
+  )
+  assert.match(
+    e,
+    /npm -C crosspost-runtime\/core run build/,
+    '过期时要就地重建 core（不需要网络，别去跑完整 setup）',
+  )
+  assert.match(
+    e,
+    /core 产物重建失败[^\n]*先用现有产物启动/,
+    '重建失败要 fail-open，不能把容器拦在启动外',
+  )
+})
+
 test('Docker⑧：装了 docker 就实跑 compose 校验，没装就明确 skip', (t) => {
   if (!hasDocker) {
     t.skip('本机没有 docker：容器实跑由使用者按 docs/docker.md 执行')

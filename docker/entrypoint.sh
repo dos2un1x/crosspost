@@ -5,7 +5,8 @@
 #   ① 校验 CROSSPOST_REPO（必须是仓库的**绝对路径**，且与宿主机上的路径逐字相同）
 #   ② 需要时按 CROSSPOST_UID/GID 降权（Linux 宿主上避免把 root 属主文件写进挂载目录）
 #   ③ 缺依赖时跑一次 `setup`（装进容器私有卷 + 构建 core/dist）
-#   ④ 按第一个参数分派：bridge（缺省）/ doctor / cli … / scheduler / setup / sh
+#   ④ core 产物**比源码旧**时就地重建（容器私有卷不会随 restart 更新，见下面 ④ 的注释）
+#   ⑤ 按第一个参数分派：bridge（缺省）/ doctor / cli … / scheduler / setup / sh
 #
 # 为什么宿主与容器路径必须一致：`paths.json`、`config.json`、项目 manifest 里存的
 # 都是**绝对路径**；路径一变，所有指向都会失效（容器里看不到宿主那些目录）。
@@ -73,7 +74,49 @@ if [ "$need_setup" = "1" ]; then
   node crosspost-runtime/src/commands/setup-cli.mjs
 fi
 
-# ── ④ 分派 ──
+# ── ④ core 产物过期（源码比 dist 新）就地重建 ──
+#
+# 为什么必须有这一步：`core/dist` 在容器里是**私有卷**，`docker compose restart` 只重启进程、
+# 不重建产物。于是容器可能跑着好几周前编译出来的适配器/渲染器，而报错文案与仓库代码对不上
+# （有过一次：追到 WAF 上去了）。
+#
+# 判据**不在这里另写一份**：调用 src/deps.mjs 的 `coreDistFreshness` —— 与 doctor、
+# setup 共用同一套规则（这里当年手抄过一次"目录在不在"，后果见 ③ 的注释）。
+# 只重建，不跑完整 setup：构建不需要网络，只要 tsup/dts 在依赖树里（③ 已保证）。
+need_rebuild=0
+node -e '
+const repo = process.cwd()
+import("file://" + repo + "/crosspost-runtime/src/deps.mjs")
+  .then((d) => {
+    const f = d.coreDistFreshness(repo)
+    if (f && f.stale) {
+      const behind =
+        f.behindMs >= 3600000
+          ? Math.round(f.behindMs / 3600000) + " 小时"
+          : Math.round(f.behindMs / 60000) + " 分钟"
+      console.error("[entrypoint] core 产物比源码旧（落后约 " + behind + "）：就地重建")
+      process.exit(1)
+    }
+    process.exit(0)
+  })
+  .catch((e) => {
+    // 探针本身跑不起来（依赖树还没就位等）：交给 ③ 的 setup 路径，不在这里硬判
+    console.error("[entrypoint] 产物新鲜度探针跳过：" + String((e && e.message) || e))
+    process.exit(0)
+  })
+' || need_rebuild=1
+
+if [ "$need_rebuild" = "1" ]; then
+  if npm -C crosspost-runtime/core run build; then
+    echo "[entrypoint] core 产物已重建"
+  else
+    # 构建失败**不拒绝启动**：容器里还有上一份产物，能跑（doctor 会把不同步报成提醒）。
+    # 反过来"构建失败就起不来"会让一次磁盘/依赖抖动变成整个服务不可用。
+    echo "[entrypoint] 警告：core 产物重建失败，先用现有产物启动（doctor 会提示不同步）" >&2
+  fi
+fi
+
+# ── ⑤ 分派 ──
 case "$CMD" in
   bridge)
     exec node bridge/run-bridge.mjs "$@"

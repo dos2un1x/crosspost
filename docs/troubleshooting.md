@@ -223,18 +223,21 @@ curl -s localhost:9540/proxy/status -H "X-CrossPost-Token: $(cat bridge/token.lo
   | python3 -c "import sys,json;print(json.load(sys.stdin)['version'])"
 ```
 
-容器部署另有一条**重启不够**的：`crosspost-runtime/core/dist` 在容器里是**私有卷**，
-`docker compose restart crosspost` 只重启进程、不重建产物 —— 于是容器里的编译产物可能停在
-几天前，而源码已经是新的：引擎跑的是旧适配器，报出来的错误文案与仓库代码对不上。
-改了 `core/` 下的源码要**先重建产物、再重启**：
+容器部署还有一条关于**产物**的：`crosspost-runtime/core/dist` 在容器里是**私有卷**，
+不随 `docker compose restart crosspost` 更新。所以入口脚本在启动时自己比一次"产物 vs 源码"
+（判据与 `doctor` 的 `coreDistFreshness` 同一份）：**过期就地重建，再启桥** —— 容器下
+`docker compose restart crosspost` 就够了，不用手动 build。
+
+想跳过启动时那十几秒构建，也可以先把产物建好再重启：
 
 ```bash
 docker compose exec crosspost sh -c 'cd "$CROSSPOST_REPO" && npm -C crosspost-runtime/core run build'
 docker compose restart crosspost
 ```
 
-`doctor` 的「core 产物比源码旧」一项会直接报出这种不同步（原生与容器都适用）；
-等价的文档口径是 `docker compose down -v && docker compose up -d` —— 它把依赖卷一起再生，只是慢几分钟。
+`doctor` 的「core 产物比源码旧」一项在原生部署下仍会直接报出这种不同步（原生不会自动重建）；
+容器下若重建失败，入口脚本**不拦启动**（继续用现有产物，`doctor` 报提醒），
+等价的彻底重建口径是 `docker compose down -v && docker compose up -d` —— 它把依赖卷一起再生，只是慢几分钟。
 
 ## 10. 默认域里出现了属于某个项目的记录
 
