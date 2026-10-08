@@ -255,12 +255,14 @@ MCP 面是同名工具 `ai_detect`（AI 会话侧入口，同一个实现）：�
   `allowedAiSegments = ceil(阈值 × 总段数) − 1`（口径是**严格小于**阈值）、`mustRewrite = 判 AI 段数 − allowedAiSegments`。
   `perRoundTargets` 就是 `rewriteTargets` 的长度（受 `rewrite.maxSegmentsPerRound` 这个**保险上限**约束，它不再决定清单长度）；`capacity = 每轮上限 × maxRounds`；`reachable=false` 表示一轮救不回来。
   短文的容错更小是同一算式的结果：一篇 5 段的稿子最多只能有 1 段判 AI（`ceil(1.5)−1`），而 12 段的长文允许 3 段。
+  **`charGuard` / `projectedAiShare`** —— 段数达标 ≠ 指标达标：`allowedAiSegments` 是从**段数**推的，而门禁实际比的是接口给的**字符加权**占比（同一篇 `N=5, A=2` 的段数比是 40%，接口给的是 44.47%）。引擎按"判 AI 段的平均字数"把占比折到"清完只剩 `allowedAiSegments` 段"上（`projectedAiShare`）；若它仍 ≥ 阈值，`charGuard=false` → `reachable=false`、`advise=retain`（剩下的那段太长，段数清够了也过不了线，别再花这一轮）。拿不到占比时该字段为 `true`（不拦）。
 - **`advise`** —— 引擎的建议动作：`none`（不用改）/ `rewrite`（按 `rewriteTargets` 定向改写）/
   `fix-style`（指标达标、只有风格护栏不达标 → 按 `style.fails` 的段号**并回句子**，不是改片段）/
-  `retain`（`mustRewrite > capacity`：**一轮救不回来 → 直接留存**，别白花一轮改写与一次检测）。
+  `retain`（`mustRewrite > capacity` 或 `charGuard=false`：**一轮救不回来 → 直接留存**，别白花一轮改写与一次检测）。
 - **`rewriteBudget`** —— `{maxRounds, maxSegmentsPerRound}`。重写循环由**调用方**执行（引擎没有 LLM，不代改稿），所以轮数必须照它走：一篇稿子的检测次数上限 = `1 + maxRounds`，额度就是按这个上限规划的；调用方自己猜轮数会让上限失效。
 
 > 清单里只放**必需**的段：单指标口径（`metric` + `labels_ai`）只看 `label=1` 的比例，所以改"疑似"段对本次达标没有贡献，它们不进清单；只有 `distribution` / `bands` 这类给疑似（或"AI + 疑似"）也设了上界的口径，疑似段才算必需。`maxSegmentsPerRound` 与 `minSegmentConf` 仍是配置项，但**只作保险**：前者限单轮批量上限，后者是纳入清单的最低置信度。
+> **同类里按置信度升序递目标**：置信度就是"这一段有多像 AI"的读数。置信度 0.99 的段改完通常仍是 0.99（改写后不降反升的情形很常见），而 0.5~0.7 的边界段才最可能被改写推过线 —— 降序等于专挑最铁的段改、把最容易翻的那段留在清单外，对"这一轮能不能过"是反着的。段长拿不到（接口只给首段的 `position`），所以"翻哪段最省字"无法排序，只能按可翻概率排。
 
 CLI（`aiDetect`）是同一实现的命令行面，除上面的 `--budget` / `--clear-exhausted` / `--metric` /
 `--file` / `--id` / `--text` / `--stdin` 外，还接受 `--mode` / `--enforce` / `--human-min` /

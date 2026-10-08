@@ -189,6 +189,9 @@ function compactReport(result, cfg) {
             perRoundCap: plan.perRoundCap,
             capacity: plan.capacity,
             reachable: plan.reachable,
+            // 段数清够了、字符占比是否也能过线（门禁比的是字符加权占比，不是段数比）
+            charGuard: plan.charGuard,
+            ...(plan.projectedAiShare === null ? {} : { projectedAiShare: plan.projectedAiShare }),
             styleOnly: plan.styleOnly,
             basis: plan.allow.basis,
           },

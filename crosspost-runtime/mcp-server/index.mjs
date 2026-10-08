@@ -880,8 +880,11 @@ server.registerTool(
 // 一篇 `pass` 的稿子在 block 下同样返回 `action:"block"`，**要看"改不改"必须用 `rewriteRequired`**。
 // 每轮改几段由引擎从检测结果算（门禁指标按段数计：允许的 A = ceil(阈值×总段数) − 1），
 // 所以 `rewriteTargets` 就是"刚好够达标"的那几段 —— 照它改，不要自己加量（改多了会回退）。
+// 清单在同一类里**按置信度升序**递（2026-10-08 改）：0.99 的段改完还是 0.99（实测改写后
+// 置信度 0.9934→0.9937、0.9962→0.9995，一个都没翻），0.5~0.7 的边界段才最可能被推过线。
 // 重写循环与轮数由**调用方**执行，轮数照 `rewriteBudget.maxRounds`；`advise=retain` 表示
-// 需清段数超过"每轮上限 × 轮数"（一轮救不回来），此时**直接留存**，别再改进改一次。
+// 需清段数超过"每轮上限 × 轮数"、或 `rewriteNeed.charGuard=false`（段数清够了、按字符加权
+// 投影仍过不了线，剩下的那段太长）—— 两种情况都**直接留存**，别再改进改一次。
 // 台账：当月 token 用量落在 <repo>/.local/ai-detect-usage.json，超预算即 skip。
 server.registerTool(
   'ai_detect',
@@ -948,8 +951,9 @@ server.registerTool(
           '门禁强度（缺省 config → aiDetect.gate.enforce）：observe=只报不拦（**不进入重写循环**，省配额）；' +
             'block=硬门禁（按 rewriteTargets 定向改写，仍不达标则留存）。返回里 `rewriteRequired` 才是' +
             '"本次要不要改"的判据（`action` 只表强度：pass 的稿子在 block 下也是 "block"）；' +
-            '`rewriteNeed.mustRewrite` = 引擎算出的"本轮至少要清几段"（清单长度就是它），' +
-            '`advise=retain` 表示一轮救不回来、直接留存；轮数照 `rewriteBudget.maxRounds`，别自定',
+            '`rewriteNeed.mustRewrite` = 引擎算出的"本轮至少要清几段"（清单长度就是它，同类里按置信度升序递），' +
+            '`advise=retain` 表示一轮救不回来（需清段数超容量，或 `rewriteNeed.charGuard=false`）、直接留存；' +
+            '轮数照 `rewriteBudget.maxRounds`，别自定',
         ),
       metric: z
         .enum(['confidence', 'labels_ai', 'both'])

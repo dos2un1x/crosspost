@@ -486,7 +486,7 @@ test('detectText：响应不是合法 JSON → skip bad-json', async () => {
 
 /* ────────────────── ③ 改写目标挑选 ────────────────── */
 
-test('pickRewriteTargets：长度 = "需清几段"（自动算，不再是固定上限），判 AI 优先、置信度降序', () => {
+test('pickRewriteTargets：长度 = "需清几段"（自动算，不再是固定上限），判 AI 优先、置信度升序', () => {
   // 5 段里 3 段判 AI → threshold 0.3 时允许 ceil(1.5)−1 = 1 段 → 只需清 2 段
   const result = {
     verdict: 'fail',
@@ -508,8 +508,8 @@ test('pickRewriteTargets：长度 = "需清几段"（自动算，不再是固定
   const picked = pickRewriteTargets(result, cfg)
   assert.deepEqual(
     picked.map((s) => s.order),
-    [3, 2],
-    '清单长度由需清段数决定：置信度高的判 AI 段先改',
+    [2, 3],
+    '清单长度由需清段数决定：置信度低的判 AI 段先改（最可能被推过线的那段）',
   )
 
   // 单指标（labels_ai）口径只看 label=1 的比例，所以**疑似段不占名额**：
@@ -520,7 +520,7 @@ test('pickRewriteTargets：长度 = "需清几段"（自动算，不再是固定
   })
   assert.deepEqual(
     withSuspected.map((s) => s.order),
-    [3, 2],
+    [5, 2],
     '候选池里判 AI 的段有 3 个，但只需清 2 段 → 清单就是 2 段（不多改）',
   )
   assert.ok(!withSuspected.some((s) => s.order === 4), '疑似段（order 4）在单指标口径下不进清单')
@@ -1268,7 +1268,7 @@ test('includeSuspected 默认 true：分布口径下必须能改"疑似"段', ()
   )
 })
 
-test('改写目标排序：判 AI 的段排在疑似之前（危害大的先改）', () => {
+test('改写目标排序：判 AI 的段排在疑似之前，同类里置信度低的先改', () => {
   const picked = pickRewriteTargets(
     {
       verdict: 'fail',
@@ -1283,7 +1283,66 @@ test('改写目标排序：判 AI 的段排在疑似之前（危害大的先改�
   )
   assert.deepEqual(
     picked.map((s) => s.order),
-    [2, 1, 3],
+    [2, 3, 1],
+    '判 AI 的段（2）在前；疑似段里置信度低的（3）先于高的（1）',
+  )
+})
+
+test('segmentPlan.charGuard：段数清够了、字符占比仍过不了线 → 别再花这一轮', () => {
+  // 实测形状（2026-10-08 真实结果）：N=5、A=2，段数比 40%，接口给的字符加权占比 44.47%。
+  // 允许 1 段 → 需清 1 段 → 段数上"可达"。但剩下那一段按均值占 22.2% < 30% → 真能过。
+  const segs = (n, label, conf = 0.9) =>
+    Array.from({ length: n }, (_, i) => ({ order: i + 1, label, conf }))
+  const cfg = {
+    ...CFG,
+    gate: { metric: 'labels_ai', threshold: 0.3, enforce: 'block' },
+    rewrite: { ...CFG.rewrite, maxRounds: 1, maxSegmentsPerRound: 5 },
+  }
+  const ok = {
+    verdict: 'fail',
+    value: 0.4447,
+    threshold: 0.3,
+    chars: 1581,
+    labelsRatio: { human: 0, ai: 0.4447, uncertain: 0.5553 },
+    segments: [...segs(2, 1), ...segs(3, 2)],
+  }
+  const a = segmentPlan(ok, cfg)
+  assert.equal(a.mustRewrite, 1)
+  assert.equal(a.charGuard, true, '清掉 1 段后剩 1 段 ≈22% → 能过线')
+  assert.ok(Math.abs(a.projectedAiShare - 0.4447 / 2) < 1e-9)
+  assert.equal(a.advise, 'rewrite')
+
+  // 反例：5 段里 2 段判 AI，但这两段吃掉了 63% 的字（长段落）→ 清 1 段后剩 ≈31.5% > 30%
+  // 段数上仍然"可达"（需清 1 ≤ 容量 5），只有字符加权这一层看得出来。
+  const fat = {
+    ...ok,
+    value: 0.63,
+    labelsRatio: { human: 0, ai: 0.63, uncertain: 0.37 },
+  }
+  const b = segmentPlan(fat, cfg)
+  assert.equal(b.mustRewrite, 1, '段数上仍需清 1 段')
+  assert.equal(b.charGuard, false, '但按段长均值投影仍过不了线')
+  assert.equal(b.reachable, false)
+  assert.equal(b.advise, 'retain', '段数够了也过不了 → 别白花一轮改写与检测')
+
+  // 缺 labelsRatio / chars 时不许猜：一律当"不拦"，照常建议改写
+  const blind = segmentPlan({ ...ok, labelsRatio: undefined }, cfg)
+  assert.equal(blind.projectedAiShare, null)
+  assert.equal(blind.charGuard, true)
+  assert.equal(blind.advise, 'rewrite')
+  // 全线达标（A ≤ 允许值、占比也低）→ 照旧 none
+  assert.equal(
+    segmentPlan(
+      {
+        ...ok,
+        verdict: 'pass',
+        value: 0.2,
+        labelsRatio: { human: 0, ai: 0.2, uncertain: 0.8 },
+        segments: [...segs(1, 1), ...segs(4, 2)],
+      },
+      cfg,
+    ).advise,
+    'none',
   )
 })
 

@@ -1326,6 +1326,12 @@ function judgeNetResult(result, cfg) {
  * 一个诚实的余量：接口内部切段比它返回的略细（实测一条 `N=10, A=3, 占比 27.47%` 被接口判
  * **pass**，而按返回的 10 段算会得出"该清 1 段"）。所以算式在"刚好卡线"时可能偏保守一格 ——
  * 宁可多改一段，也不要因为少算一段而白花一整轮（`maxRounds=1` 时等于整篇作废）。
+ *
+ * 第二条余量（2026-10-08 补）：**段数达标 ≠ 指标达标**。`allow` 是从段数推的，而门禁实际比的
+ * 是接口给的**字符加权**占比（实测同一篇 `N=5, A=2` 的段数比是 40%，接口占比是 44.47%）。
+ * 于是"清到只剩 1 段"也可能过不了线 —— 如果剩下那一段特别长。用 `占比 × 字数 ÷ 段数` 估出
+ * 判 AI 段的平均字数，就能在改写**之前**预判这件事（`projectedAiShare` / `charGuard`）：
+ * 预判过不了线时 `advise` 直接给 `retain`，省掉一轮注定失败的改写兼检测。
  */
 
 /**
@@ -1453,12 +1459,22 @@ export function segmentPlan(result, cfg) {
   const computable = allow.ai !== null || allow.uncertain !== null || allow.aiPlusUncertain !== null
   const blocking = (gate.enforce || 'observe') === 'block'
   const styleOnly = !metricFail && styleFails.length > 0
+  // 段数达标 ≠ 指标达标：接口给的占比是**字符加权**的，而 `allow` 是从段数推的。
+  // 改完这一批（= 把判 AI 段数压到 `allow.ai`）之后，剩下 `allow.ai` 段仍判 AI，它们吃掉多少字？
+  // 按"判 AI 段的平均字数"线性折算就是 `占比 × allow.ai ÷ 判 AI 段数`。这一条只有段数与
+  // 占比都拿得到时才判；拿不到就给 true（不拦）—— 别凭猜把还能救的稿子劝退。
+  const aiShare = result.labelsRatio ? Number(result.labelsRatio.ai) : NaN
+  const bound = mode === 'metric' ? Number(gate.threshold) : Number(gate.aiMax)
+  const projectedAiShare =
+    allow.ai !== null && ai > 0 && Number.isFinite(aiShare) ? (aiShare * allow.ai) / ai : null
+  const charGuard =
+    projectedAiShare === null || !Number.isFinite(bound) ? true : projectedAiShare < bound
   let advise = 'none'
   if (blocking && result.verdict === 'fail') {
     if (styleOnly) advise = 'fix-style'
     else if (!computable)
       advise = 'rewrite' // 口径不能按段算 → 交给调用方按结果自行处置
-    else if (mustRewrite > capacity) advise = 'retain'
+    else if (mustRewrite > capacity || !charGuard) advise = 'retain'
     else advise = 'rewrite'
   }
   return {
@@ -1475,7 +1491,11 @@ export function segmentPlan(result, cfg) {
     capacity,
     /** 本轮清单的目标长度（= 需清段数，受保险上限约束） */
     perRoundTargets: Math.min(mustRewrite, perRoundCap),
-    reachable: mustRewrite <= capacity,
+    reachable: mustRewrite <= capacity && charGuard,
+    /** 按"清光本轮容量"投影的 AI 字符占比（null = 缺字数/占比，无法投影） */
+    projectedAiShare,
+    /** 段数清够了、字符占比仍过不了线（含"无法投影"时的 true） */
+    charGuard,
     computable,
     styleOnly,
     styleFails,
@@ -1494,6 +1514,12 @@ export function segmentPlan(result, cfg) {
  * "AI 比例达标、疑似超上界"的情形 —— 先递判 AI 的段等于让调用方去改一段本来合格的文字，
  * 白花改写量还抬高回退风险（实测过：这一改动让 `N=2/A=1/U=1` 的分布口径样例从"给 2 段"
  * 变成"只给真正需要改的那 1 段"）。
+ *
+ * 同一类里**按置信度升序**（2026-10-08 改，此前是降序）：置信度是"这一段有多像 AI"的直接读数，
+ * 0.99 的段改完仍然是 0.99（实测：10-08 三篇改写后判 AI 段的置信度 0.9934→0.9937、
+ * 0.9962→0.9995，一个都没翻），而 0.5~0.7 的段本来就是边界态，改写最容易把它推过线。
+ * 降序等于"专挑最铁的段改、把最容易翻的那段留在清单外"，对"这一轮能不能过门禁"是反着的。
+ * 段长拿不到（接口只给首段 position），所以"翻哪段最省字"无法排序，只能按可翻概率排。
  */
 export function pickRewriteTargets(result, cfg) {
   if (!result || !Array.isArray(result.segments)) return []
@@ -1507,10 +1533,11 @@ export function pickRewriteTargets(result, cfg) {
   const suspectedEligible =
     includeSuspected || plan.allow.uncertain !== null || plan.allow.aiPlusUncertain !== null
   const passConf = (s) => typeof s.conf !== 'number' || !Number.isFinite(min) || s.conf >= min
-  const byConf = (a, b) => (Number(b.conf) || 0) - (Number(a.conf) || 0)
-  const aiPool = result.segments.filter((s) => s.label === 1 && passConf(s)).sort(byConf)
+  /** 置信度升序：最可能被改写推过线的段排最前 */
+  const byConfAsc = (a, b) => (Number(a.conf) || 0) - (Number(b.conf) || 0)
+  const aiPool = result.segments.filter((s) => s.label === 1 && passConf(s)).sort(byConfAsc)
   const uncPool = suspectedEligible
-    ? result.segments.filter((s) => s.label === 2 && passConf(s)).sort(byConf)
+    ? result.segments.filter((s) => s.label === 2 && passConf(s)).sort(byConfAsc)
     : []
   const picked = []
   // ① 各上界点名的类别按缺口取（不足则有多少取多少）
