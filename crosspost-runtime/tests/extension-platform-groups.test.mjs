@@ -19,6 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import {
   groupPlatforms,
   loggedTabParts,

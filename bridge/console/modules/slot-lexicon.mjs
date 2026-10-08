@@ -35,6 +35,7 @@
 // 词典是异步的、按项目缓存；`app.js` 在两处 `await loadSlotLexicon()` 之后再渲染
 // （首屏、切换项目），所以视图拿到的名字不会先错后对。请求带 5s 超时：桥忙时宁可
 // 用兜底常量渲染，也不让首屏挂 90 秒（api.mjs 的默认超时）。
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import { getJSON } from './api.mjs'
 import { activeProject } from './active-project.mjs'
 import { SLOT_NAMES } from './const.mjs'

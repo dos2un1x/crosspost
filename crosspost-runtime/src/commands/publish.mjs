@@ -37,6 +37,7 @@ import {
   normalizeBoldFlanking,
 } from '@crosspost/core'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // 默认推送平台（2026-09-01：与 bridge/console/modules/const.mjs 的 DEFAULT_PLATFORMS 保持一致；真实默认以 config.json platforms.default 为准）

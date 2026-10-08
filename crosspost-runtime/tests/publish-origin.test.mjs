@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const {
   resolvePublishOrigin,
   resolveDispatch,

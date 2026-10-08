@@ -96,6 +96,7 @@ export function projectConfigPathOf(projectId) {
  * 每次都读盘不可接受；写者只有桥（可能另有进程），mtime 失效保证写完即新值。
  */
 const overlayCache = new Map() // path -> { mtime, data }
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 export function readProjectConfig(projectId) {
   const file = projectConfigPathOf(projectId)
   if (!file) return {}

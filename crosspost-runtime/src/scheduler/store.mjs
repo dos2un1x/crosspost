@@ -43,6 +43,7 @@ export function runsFile(dayKey, dir = schedulerDir()) {
   return path.join(dir, `runs-${dayKey}.jsonl`)
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 let runSeq = 0
 /** 生成一次运行的 id（同进程内单调；跨进程靠 pid 区分） */
 export function newRunId() {

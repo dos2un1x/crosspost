@@ -13,6 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { schedBadge, schedDriftChip } from '../../bridge/console/modules/views-settings.mjs'
 
 /** 一个"命令可用 + 定时器在跑 + 已启用"的槽位基线 */

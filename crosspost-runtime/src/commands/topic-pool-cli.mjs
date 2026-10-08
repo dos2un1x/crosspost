@@ -21,6 +21,7 @@ import {
   validateRows,
 } from '../topic-pool.mjs'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const ROW_HINT =
   '每行应为 [keyword, title, score, status, reason, articleId(可选)]；' +
   '落选也要给空 title，例如：["<kw>","",87,"rejected","<原因>"]'

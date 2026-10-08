@@ -112,6 +112,7 @@ async function ensureEditorBuilt() {
   }
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 function currentMarkdown() {
   return (store.editor.draft && store.editor.draft.markdown) || ''
 }

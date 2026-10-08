@@ -124,6 +124,7 @@ const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-screenshots-'))
 const localRoot = path.join(sandbox, '.local')
 const pathsFile = path.join(sandbox, 'crosspost-runtime', 'paths.json')
 const cfgFile = path.join(sandbox, 'config.json')
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const tokenFile = path.join(sandbox, 'token.local')
 const stylesDir = path.join(sandbox, 'styles')
 const demoDrafts = path.join(sandbox, 'demo-drafts')

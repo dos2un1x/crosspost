@@ -11,6 +11,7 @@
  */
 import { JSDOM } from 'jsdom'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export function preprocessHtml(html: string): string {
   const dom = new JSDOM(html)
   const doc = dom.window.document

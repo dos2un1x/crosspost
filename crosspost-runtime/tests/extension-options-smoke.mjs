@@ -32,6 +32,7 @@ const EXT = path.join(REPO, 'bridge', 'chrome-proxy-extension')
 const KEEP = !!process.env.KEEP
 const SHOT_DIR = process.env.EXT_SHOT_DIR || os.tmpdir()
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const results = []
 const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail })

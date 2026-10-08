@@ -10,6 +10,7 @@
 #
 # 环境变量:
 #   PIPELINE_DATA_DIR  草稿目录（缺省 = 仓库的 drafts/，应与 .crosspost/project.json 的 dataDir 一致）
+# CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 set -euo pipefail
 
 SLOT="${1:?用法: generate.sh <slot> <keyword>}"

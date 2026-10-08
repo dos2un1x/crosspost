@@ -45,6 +45,7 @@ function listen(server) {
   )
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 async function withRunner(opts, fn) {
   const runner = createSlotRunner({ bin: FAKE, logsDir: LOGS, workdir: SANDBOX, ...opts })
   const server = http.createServer(runner.handler)

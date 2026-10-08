@@ -56,3 +56,5 @@ describe('annotateBlocks', () => {
     }
   })
 })
+
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）

@@ -36,6 +36,7 @@ function shouldRetry(value, retryOn) {
   return true // 网络错误/超时：默认重试
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 export async function fetchRetry(
   url,
   opts = {},

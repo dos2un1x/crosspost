@@ -89,3 +89,5 @@ export function resolveDispatch({
       : '生成后自动推送已关闭'
   return { origin: o, manualPush, pushEnabled, dispatchEnabled, wantWechat, skipReason }
 }
+
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）

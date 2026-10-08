@@ -67,6 +67,7 @@ export const DEFAULT_PROBE_TIMEOUT_MS = 1500
 export const BUSY_RETRY_MAX = 3
 const BUSY_RETRY_BASE_MS = 2000
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** 环回主机名（含 IPv6 字面量的方括号形态） */

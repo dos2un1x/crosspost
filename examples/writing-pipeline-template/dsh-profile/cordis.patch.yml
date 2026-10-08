@@ -25,3 +25,4 @@
         env:
           # 与 .crosspost/project.json 的 id 保持一致：定时链路的记录归属指向本流水线
           CROSSPOST_PROJECT: my-pipeline
+# © dos2un1x · https://github.com/dos2un1x/crosspost

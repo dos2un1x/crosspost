@@ -244,6 +244,7 @@ function showEditPanel(show) {
   }
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 async function toggleArchive() {
   const cur = store.detail.record ? store.detail.record.status : 'draft'
   const target = cur === 'archived' ? 'restore' : 'archive'

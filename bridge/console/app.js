@@ -1,6 +1,7 @@
 /* CrossPost Console — 入口（2026-08-24 app.js 拆分：共享层 + 视图模块） */
 'use strict'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import { $ } from './modules/utils.mjs'
 import { initTheme } from './modules/theme.mjs'
 import { initArticlesView, loadArticles, refreshStats } from './modules/views-articles.mjs'

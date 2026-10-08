@@ -10,6 +10,7 @@ import { runDoctor, formatReport } from '../doctor.mjs'
 import { SEVERITY } from '../preflight.mjs'
 
 const argv = process.argv.slice(2)
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const json = argv.includes('--json')
 const wsArg = argv.find((a) => a.startsWith('--ws-port='))
 const httpArg = argv.find((a) => a.startsWith('--http-port='))

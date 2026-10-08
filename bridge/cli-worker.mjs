@@ -43,6 +43,7 @@ import {
   readProjectConfig,
 } from '../crosspost-runtime/src/config-layers.mjs'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BRIDGE_DIR = __dirname
 /** config.json 路径：可用 CROSSPOST_CONFIG 覆盖（测试隔离用，避免污染真实配置）；

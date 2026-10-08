@@ -30,6 +30,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
 const CLI = path.join(RUNTIME, 'src', 'cli.mjs')

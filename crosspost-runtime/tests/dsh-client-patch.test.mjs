@@ -7,6 +7,7 @@
 // 因此这里用**假部署**（临时目录里的同名包布局）把四条契约钉住：
 // 幂等、可还原、语法坏就回滚（脚本内做）、匹配不到就失败且不动文件。
 // 假部署让它在任何机器上都能跑，也不碰真 DSH 安装。
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

@@ -120,6 +120,7 @@ function lowLevelGuard(tool) {
   return `${tool} 被来源守卫拒绝（origin=${origin}）：${lowLevelBlockReason(origin)}`
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const server = new McpServer({ name: 'crosspost', version: '1.0.0' })
 
 // 1. status —— 代理/桥接状态

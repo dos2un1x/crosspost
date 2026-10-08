@@ -76,6 +76,7 @@ await page.route('**/proxy/topics/generate', (route) => {
   return route.continue()
 })
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const banner = page.locator('#topics-banner')
 const cls = () => banner.getAttribute('class')
 const text = async () => (await banner.textContent()).replace(/\s+/g, ' ').trim()

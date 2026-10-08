@@ -6,6 +6,7 @@
  */
 
 // @ts-expect-error - markdown-draft-js 没有类型定义
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import { markdownToDraft as mdToDraft } from 'markdown-draft-js'
 import { Remarkable } from 'remarkable'
 

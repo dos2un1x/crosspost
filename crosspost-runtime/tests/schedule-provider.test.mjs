@@ -14,6 +14,7 @@
 //   ④ 调用层：受理(202) → 轮询 → 归一成 `exit/durationMs`；失败也要能记账
 //   ⑤ 执行器记账写进与本地 spawn **同一套** journal（`started`/`finished` + exit），
 //      否则界面会退化成那句"今日已跑"
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

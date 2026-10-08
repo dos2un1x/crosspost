@@ -189,6 +189,7 @@ function applyTopicFilters() {
   renderTopics()
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 function filteredTopics() {
   const f = store.topicsFilter
   // 行模板里的 title/keyword/reason 一律 `String(x ?? '')` 后再用：写入侧的字段错位

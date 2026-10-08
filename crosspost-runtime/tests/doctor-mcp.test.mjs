@@ -22,6 +22,7 @@ import { probeMcpServer } from '../src/doctor.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REAL = path.resolve(__dirname, '..', 'mcp-server', 'index.mjs')
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-doctor-mcp-'))
 process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }))
 

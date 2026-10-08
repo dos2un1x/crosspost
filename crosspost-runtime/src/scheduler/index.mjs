@@ -460,4 +460,5 @@ export function createScheduler({
 
 export { ACTIONS, REASONS }
 export { schedulerDir }
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export { appendRun, releaseLock, acquireLock, readLock, slotDayState, pruneRuns }

@@ -28,6 +28,7 @@ import { getLogsDir, soleProjectId } from '../src/resources.mjs'
 import { listProjects } from '../src/projects.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const REPO = path.resolve(__dirname, '..', '..')
 
 // 日志目录：优先测试覆盖，其次**项目级解析**（v2.76），最后才是引擎默认域。

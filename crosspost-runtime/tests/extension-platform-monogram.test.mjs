@@ -18,6 +18,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import {
   monogramOf,
   toneOf,

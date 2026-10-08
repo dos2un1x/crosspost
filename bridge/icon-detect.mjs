@@ -1,5 +1,6 @@
 // 品牌图标容器类型嗅探（2026-09-02）：不信任浏览器上报的 MIME（.ico 常报 image/vnd.microsoft.icon 等别名），
 // 优先按字节魔数判定真实类型，兜底再按 MIME 别名。返回 ext（png|jpg|webp|gif|svg|ico）或 null。
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const ICON_MIME_ALIASES = {
   'image/png': 'png',
   'image/jpeg': 'jpg',

@@ -1031,6 +1031,7 @@ function renderPlatformGrid(defaultList) {
   renderPfStats()
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 async function savePlatforms() {
   const msg = $('#pf-msg')
   msg.className = 'repub-result'

@@ -83,6 +83,7 @@ function makeBox({ aliasDefaultToProject = false } = {}) {
   return b
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const envFor = (b) => ({
   ...process.env,
   CROSSPOST_CONFIG: b.config,

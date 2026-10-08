@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const CLI = path.join(RUNTIME, 'src', 'cli.mjs')
 const SERVER = path.join(RUNTIME, 'mcp-server', 'index.mjs')
 const PID = 'env-project'

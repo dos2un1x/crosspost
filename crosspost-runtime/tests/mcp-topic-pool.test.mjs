@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const SERVER = path.join(RUNTIME, 'mcp-server', 'index.mjs')
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-mcp-topic-pool-'))

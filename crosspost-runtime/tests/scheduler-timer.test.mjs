@@ -35,6 +35,7 @@ import {
   sliceSleepMs,
 } from '../src/scheduler/timer.mjs'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const HOUR = 3600 * 1000
 
 test('时区①：既有北京时间 API 行为不变（成本/报表依赖它）', () => {

@@ -63,6 +63,7 @@ function extractGeneric(document, url) {
   }
 }
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export async function extractArticleFromUrl(url) {
   const html = await fetchHtml(url)
   return extractFromHtml(html, url)

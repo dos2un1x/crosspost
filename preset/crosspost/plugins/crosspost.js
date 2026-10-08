@@ -30,6 +30,7 @@ const RUNTIME_ROOT = path.resolve(__dirname, '../runtime')
 // v2.02：路径懒解析 + node 取当前进程可执行文件
 // （原先顶层 loadPaths() 固化路径；NODE 硬编码 /usr/local/bin/node，
 //   在 Apple Silicon 无 Homebrew 的环境不存在 → 插件调用全部失败）
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const paths = lazyPaths()
 const BRIDGE_SCRIPT =
   paths.bridgeScript || path.join(RUNTIME_ROOT, '..', 'bridge', 'run-bridge.mjs')

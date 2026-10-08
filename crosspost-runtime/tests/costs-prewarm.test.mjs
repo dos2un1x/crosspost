@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-prewarm-'))
 const SESSIONS = path.join(TMP, 'sessions')
 process.env.CROSSPOST_SESSIONS_DIRS = SESSIONS

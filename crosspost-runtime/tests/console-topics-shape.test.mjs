@@ -36,6 +36,7 @@ const HTML = `<!doctype html><html><body>
   <div id="topics-pager"></div>
 </body></html>`
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const json = (value) => ({ ok: true, status: 200, json: async () => value })
 
 /**

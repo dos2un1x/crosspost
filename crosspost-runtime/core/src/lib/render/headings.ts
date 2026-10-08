@@ -13,6 +13,7 @@
  * 一次，因此行内标记（加粗/代码/链接）照常生效，且标题文本在输出里只出现一次。
  */
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { resolveParams, type RenderParams } from './engine'
 import type { HeadingStyle } from './styles'
 

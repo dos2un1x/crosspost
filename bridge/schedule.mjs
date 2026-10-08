@@ -46,6 +46,7 @@ export const SLOT_DEFS = DEFAULT_SLOT_TEMPLATES.map((d) => ({
   time: d.time,
 }))
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 export { normalizeSlotId, normalizeSlotTime }
 
 /** 桥内那一个调度器实例（`bridge/run-bridge.mjs` 启动/停止它） */

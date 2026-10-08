@@ -13,6 +13,7 @@ import { store } from './state.mjs'
 
 export const SYNC_HIGHLIGHT_CLASS = 'cm-sync-block'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 let editor = null // createEditor 句柄
 let frame = null // #ed-preview-frame iframe
 let syncLock = false

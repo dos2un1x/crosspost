@@ -11,6 +11,7 @@ import { WeixinOfficialAdapter } from '@crosspost/core/adapters'
 import { renderMarkdownAsync, generateCover } from '@crosspost/core'
 import { runtime } from './platforms.mjs'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..', '..')
 

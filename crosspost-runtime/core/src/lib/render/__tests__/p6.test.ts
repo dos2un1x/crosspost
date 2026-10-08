@@ -43,6 +43,7 @@ interface OpResult {
   warnings?: string[]
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 function op(value: unknown): OpResult {
   return value as OpResult
 }

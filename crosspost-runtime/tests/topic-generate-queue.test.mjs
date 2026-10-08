@@ -141,6 +141,7 @@ async function waitFor(fn, { timeout = 15000, step = 50 } = {}) {
   }
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const statusOf = () => withProject(PROJECT_ID, () => topics.getTopicGenStatus())
 const js = (ms) => new Promise((r) => setTimeout(r, ms))
 

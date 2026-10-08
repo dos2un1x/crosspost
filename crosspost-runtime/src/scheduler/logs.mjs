@@ -52,3 +52,5 @@ export function readLogsDir(logsDir) {
     return []
   }
 }
+
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost

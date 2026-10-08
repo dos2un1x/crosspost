@@ -42,6 +42,7 @@ const { listStyleNames } = await import('@crosspost/core')
 const availableStyles = listStyleNames()
 // autoPush 状态来自上面的沙箱 config（恒为关闭）；仍保留守卫：万一有人把沙箱配置改了，用例要跳过而不是误判。
 const { readConfig } = await import('../src/config-cache.mjs')
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const AUTO_PUSH_ON = !!(readConfig().autoPush && readConfig().autoPush.enabled)
 const hasMianPro = availableStyles.includes('custom-mianpro')
 // 2026-09-18（v2.05）修复：下面「禁用样式回退」用例的正确前置是

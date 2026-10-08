@@ -24,6 +24,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 }
 
 // 检测生产环境 (支持 Vite 和 Node.js)
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const isProd =
   (typeof import.meta !== 'undefined' &&
     (import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD) ||

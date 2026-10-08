@@ -33,6 +33,7 @@ const SERVER = path.resolve(__dirname, 'index.mjs')
 /** 写操作总开关：未显式开启时只跑只读工具 */
 const LIVE = process.env.CROSSPOST_MCP_LIVE === '1'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const child = spawn(NODE, [SERVER], { stdio: ['pipe', 'pipe', 'inherit'] })
 let buf = ''
 let nextId = 1

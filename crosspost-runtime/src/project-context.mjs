@@ -38,6 +38,7 @@ export const PROJECT_FLAG = '--project='
 /** Console / 第三方调用方的请求头（Node 已把请求头名规范化为小写） */
 export const PROJECT_HEADER = 'x-crosspost-project'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const store = new AsyncLocalStorage()
 
 /**

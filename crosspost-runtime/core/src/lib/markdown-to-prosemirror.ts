@@ -86,6 +86,7 @@ function inlineText(tok: Tokens.Strong | Tokens.Em | Tokens.Del): string {
   return s
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 async function imageToPM(
   src: string,
   alt: string,

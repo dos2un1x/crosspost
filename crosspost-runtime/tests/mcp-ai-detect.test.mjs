@@ -25,6 +25,7 @@ const SERVER = path.resolve(__dirname, '../mcp-server/index.mjs')
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-mcp-aidetect-'))
 const LOCAL = path.join(TMP, 'local')
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const DRAFTS = path.join(LOCAL, 'drafts')
 const ARTICLES = path.join(LOCAL, 'articles')
 const HISTORY = path.join(LOCAL, 'history')

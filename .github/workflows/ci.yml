@@ -141,3 +141,5 @@ jobs:
 
       - name: Fresh-clone smoke (README 2 steps → doctor → bridge)
         run: node crosspost-runtime/tests/fresh-clone-smoke.mjs
+
+# CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost

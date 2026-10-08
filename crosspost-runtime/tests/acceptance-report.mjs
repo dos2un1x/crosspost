@@ -192,6 +192,7 @@ const before = mdFingerprint(IMMUTABLE_ROOT)
 console.log(`受保护 md 基线：${before.size} 个\n`)
 
 // ── 0. 版本与环境 ──
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const head = await git(['rev-parse', '--short', 'HEAD'])
 const tag = await git(['describe', '--tags', '--abbrev=0'])
 const dirty = await git(['status', '--porcelain'])

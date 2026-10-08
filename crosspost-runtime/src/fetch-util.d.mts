@@ -16,3 +16,5 @@ export function fetchRetry(
     retryOn?: (value: Response | Error) => boolean
   },
 ): Promise<Response>
+
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost

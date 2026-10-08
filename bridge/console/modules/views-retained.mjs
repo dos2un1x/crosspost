@@ -1,4 +1,5 @@
 // 留存库视图（2026-08-24 app.js 拆分 Phase 1）
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { getJSON, postJSON } from './api.mjs'
 import { SCORE_PASS } from './const.mjs'
 import { slotName } from './slot-lexicon.mjs'

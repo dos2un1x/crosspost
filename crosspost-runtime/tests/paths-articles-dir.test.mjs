@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
 const CLI = path.join(RUNTIME, 'src', 'cli.mjs')
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const PID = 'paths-project'
 
 /** 实验台：paths.json / config.json / 项目 manifest / 各兜底目录全在临时目录 */

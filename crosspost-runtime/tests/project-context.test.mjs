@@ -96,6 +96,7 @@ function makeSandbox() {
   }
 }
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const box = makeSandbox()
 
 // 环境变量必须在**导入后立刻**设置：paths/config 是懒解析的（每次调用读 env），

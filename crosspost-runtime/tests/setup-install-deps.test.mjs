@@ -56,6 +56,7 @@ process.on('exit', () => {
   for (const d of tmpRoots) fs.rmSync(d, { recursive: true, force: true })
 })
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const sha = (file) =>
   fs.existsSync(file)
     ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')

@@ -37,6 +37,7 @@ const LOCKS = [
   'bridge/package-lock.json',
 ]
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const abs = (rel) => path.join(REPO, rel)
 const readPkg = (rel) => JSON.parse(fs.readFileSync(abs(rel), 'utf8'))
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'

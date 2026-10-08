@@ -36,6 +36,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ' — ' + detail : ''}`)
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const run = (args, env = {}) =>
   new Promise((resolve) => {
     const child = spawn(NODE, args, {

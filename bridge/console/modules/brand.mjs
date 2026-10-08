@@ -1,5 +1,6 @@
 // 品牌图标（2026-09-02）：顶栏左上角品牌图标 + 浏览器标签 favicon，由 config.branding.icon 驱动
 // 2026-09-03：默认与浏览器标签统一为 favicon.ico（不再用文本"CP"徽标）
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { getJSON } from './api.mjs'
 
 const DEFAULT_BRAND = '/console/favicon.ico'

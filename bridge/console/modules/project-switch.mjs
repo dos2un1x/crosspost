@@ -14,6 +14,7 @@ import { getJSON } from './api.mjs'
 import { activeProject, setActiveProject } from './active-project.mjs'
 
 // 兼容既有引用（views-onboarding 等）：状态的单一来源在 active-project.mjs
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export { activeProject }
 
 /** 渲染下拉选项 */

@@ -122,3 +122,5 @@ export function uncheckedGroupTitle(g) {
 export function emptyLoggedPaneText(g) {
   return g.coverage.checked ? '暂无平台' : '本轮尚未核验（点「刷新状态」立即查）'
 }
+
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost

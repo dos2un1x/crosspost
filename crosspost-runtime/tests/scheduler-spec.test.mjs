@@ -27,6 +27,7 @@ import {
   validateDeclaration,
 } from '../src/scheduler/spec.mjs'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 function makeProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-decl-'))
   fs.mkdirSync(path.join(root, '.crosspost'), { recursive: true })

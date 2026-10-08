@@ -25,6 +25,7 @@ const PID = 'cfg-split'
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-cfg-split-'))
 const LOCAL = path.join(SANDBOX, 'local')
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const PROJECTS = path.join(SANDBOX, 'projects')
 const CONFIG = path.join(SANDBOX, 'config.json')
 const PROJECT_CONFIG = path.join(LOCAL, 'project-state', PID, 'config.json')

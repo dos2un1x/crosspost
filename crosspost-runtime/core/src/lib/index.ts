@@ -2,6 +2,7 @@
 export * from './turndown'
 
 // Markdown to Draft.js 转换 (豆瓣等)
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 export * from './markdown-to-draft'
 // Markdown 图片解析
 export * from './markdown-images'

@@ -11,6 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.resolve(__dirname, '..', 'src', 'cli.mjs')
 

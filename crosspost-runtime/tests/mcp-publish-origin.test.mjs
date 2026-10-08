@@ -16,6 +16,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const SERVER = path.resolve(__dirname, '../mcp-server/index.mjs')
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-mcp-origin-'))

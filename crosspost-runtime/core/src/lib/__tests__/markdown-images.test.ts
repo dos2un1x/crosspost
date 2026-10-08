@@ -46,3 +46,5 @@ describe('parseMarkdownImages', () => {
     expect(matches[1].src).toBe('https://b.com/2.png')
   })
 })
+
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost

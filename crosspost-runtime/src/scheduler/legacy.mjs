@@ -169,6 +169,7 @@ export function legacyDaemons(opts) {
   return scanLegacy(opts).daemons
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const unesc = (s) =>
   String(s)
     .replace(/&lt;/g, '<')

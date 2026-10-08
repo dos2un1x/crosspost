@@ -54,5 +54,9 @@
     "prettier": "^3.3.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0"
+  },
+  "author": {
+    "name": "dos2un1x",
+    "url": "https://github.com/dos2un1x"
   }
 }

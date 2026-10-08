@@ -14,6 +14,7 @@ import { $ } from './utils.mjs'
 import { getJSON } from './api.mjs'
 import { activeProject } from './project-switch.mjs'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const STEP_ICON = { ok: '✔', warn: '⚠', fail: '✖', unknown: '·' }
 /** 四步状态 → 既有 badge 配色类（v2.88：状态用徽章表达，不再整块填充步骤卡） */
 const STEP_BADGE = { ok: 'published', warn: 'partial', fail: 'failed', unknown: 'draft' }

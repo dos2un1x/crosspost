@@ -277,3 +277,5 @@ export async function installDeps(repoRoot, ids, onLog) {
   }
   return { ok: true, results }
 }
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

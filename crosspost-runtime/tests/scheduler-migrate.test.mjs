@@ -26,6 +26,7 @@ import {
   runSchedulerMigrate,
 } from '../src/commands/scheduler-migrate.mjs'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const SLOT_PLIST = (
   label,
   script,

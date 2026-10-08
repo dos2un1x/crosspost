@@ -24,6 +24,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const REPO = path.resolve(__dirname, '..', '..')
 const SCRIPT = path.join(REPO, 'preset', 'upgrade-check.sh')
 

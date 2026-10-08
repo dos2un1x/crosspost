@@ -68,6 +68,7 @@ xml_escape() {
 }
 
 # 生成 plist 到 stdout（install 与 print 共用，避免两份实现漂移）
+# dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 render_plist() {
   local node_x bridge_x project_x log_x port_x path_x
   node_x="$(xml_escape "$NODE_BIN")"

@@ -25,6 +25,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..', '..')
 

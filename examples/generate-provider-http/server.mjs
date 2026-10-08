@@ -48,6 +48,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const LOG_TAIL_CHARS = 4000
 
 /**

@@ -284,3 +284,5 @@ describe('htmlToMarkdown', () => {
     })
   })
 })
+
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost

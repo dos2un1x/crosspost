@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const REPO = path.resolve(RUNTIME, '..')
 
 function makeBox() {

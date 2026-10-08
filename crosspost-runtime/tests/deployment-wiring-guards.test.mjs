@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const REPO = path.resolve(RUNTIME, '..')
 const CONSOLE = path.join(REPO, 'bridge', 'console', 'modules')
 

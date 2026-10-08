@@ -383,6 +383,7 @@ function batchClear() {
   updateBatchBar()
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 function bindBatchRetainPanel() {
   $('#batch-retain').addEventListener('click', () => {
     // 打开批量留存面板（内嵌，radio 选目录 + 可选原因）

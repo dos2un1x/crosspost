@@ -78,3 +78,5 @@ describe('normalizeBoldFlanking', () => {
     expect(normalizeBoldFlanking('纯正文，无加粗。')).toBe('纯正文，无加粗。')
   })
 })
+
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost

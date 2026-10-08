@@ -24,6 +24,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..', '..')
 const PLUGIN = path.join(REPO, 'preset', 'crosspost', 'plugins', 'crosspost.js')

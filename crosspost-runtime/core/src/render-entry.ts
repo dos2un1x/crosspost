@@ -24,6 +24,7 @@ export {
 } from './lib/render/index'
 
 // 样式定义（内置 + 类型）
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export {
   BUILTIN_STYLES,
   isDarkColor,

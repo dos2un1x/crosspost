@@ -67,6 +67,7 @@ export function markdownBlockRanges(
   return blocks
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export interface AnnotateBlocksResult {
   html: string
   /** 顶层块根元素数（应对应 markdownBlockRanges 的 blocks.length） */

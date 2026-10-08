@@ -288,6 +288,7 @@ async function renderCost(id) {
   }
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 function renderRecordGrid(rec) {
   if (!rec)
     return '<div class="rg-item"><span class="k">尚未发布</span><div class="v">这篇文章还没有推送记录。</div></div>'

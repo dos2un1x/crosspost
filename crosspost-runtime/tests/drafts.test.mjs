@@ -25,6 +25,7 @@ let buf = ''
 let seq = 0
 const pending = new Map()
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 function call(args) {
   return new Promise((resolve, reject) => {
     const s = ++seq

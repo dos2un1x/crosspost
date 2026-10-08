@@ -384,6 +384,7 @@ test('目标解析：--pool 明确给了就用它；说不清项目时拒绝而�
 
 // ─────────────────────────── CLI 面（项目侧就转发这里）───────────────────────────
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 function runCli(...args) {
   return spawnSync(process.execPath, [CLI, ...args], {
     cwd: REPO,

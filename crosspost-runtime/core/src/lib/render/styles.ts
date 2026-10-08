@@ -37,6 +37,7 @@ export type FooterStyle = 'plain' | 'rule'
 export type CalloutSide = 'left' | 'top'
 export type TextAlign = 'left' | 'center' | 'right'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 export interface HeadingSizeScale {
   h1: string
   h2: string

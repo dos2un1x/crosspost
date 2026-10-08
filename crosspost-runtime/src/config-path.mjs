@@ -10,6 +10,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** 默认配置路径（不随 env 变化）。仅供不需要"当前生效路径"的场景引用。 */

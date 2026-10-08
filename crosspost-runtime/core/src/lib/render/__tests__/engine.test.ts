@@ -2,6 +2,7 @@
 // 安全判定原则：
 //  - 属性逃逸（" onerror=）取决于双引号是否转义——断言无 `" onerror=` 裸模式
 //  - caption 文本 XSS（<script>）取决于 < > 是否转义——断言 caption <p> 内无裸 <script>
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { describe, it, expect } from 'vitest'
 import { renderMarkdown, BUILTIN_STYLES } from '../index'
 

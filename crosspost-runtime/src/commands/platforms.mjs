@@ -96,6 +96,7 @@ export function clampConcurrency(n) {
   if (!Number.isFinite(v) || v < 1) return DEFAULT_CHECK_CONCURRENCY
   return Math.min(10, Math.floor(v))
 }
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export function checkConcurrency() {
   try {
     return clampConcurrency(readConfig().platformsCheckConcurrency)

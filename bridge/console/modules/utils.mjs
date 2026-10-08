@@ -3,6 +3,7 @@ import { PAGE_SIZE, RISK_NAMES, SCORE_PASS } from './const.mjs'
 
 export const $ = (sel) => document.querySelector(sel)
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export function escapeHtml(s) {
   return String(s == null ? '' : s).replace(
     /[&<>"']/g,

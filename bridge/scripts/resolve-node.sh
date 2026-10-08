@@ -40,6 +40,7 @@ resolve_node() {
 }
 
 # 解析不到就退出（错误信息里给"怎么修"，而不是让用户去猜）
+# author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 need_node() {
   if [ -z "${NODE_BIN:-}" ] || [ ! -x "$NODE_BIN" ]; then
     echo "错误: 找不到可执行的 node（试过 PATH 与常见位置）" >&2

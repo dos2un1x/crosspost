@@ -69,3 +69,5 @@ export function toneOf(id) {
   h ^= h >>> 16
   return (h >>> 7) % MONO_TONES
 }
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

@@ -57,6 +57,7 @@ const WS_PORT = 26000 + Math.floor(Math.random() * 3000)
 const HTTP_PORT = WS_PORT + 1
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-fresh-clone-'))
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const env = {
   ...process.env,
   CROSSPOST_LOCAL_ROOT: path.join(sandbox, '.local'),

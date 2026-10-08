@@ -18,6 +18,7 @@ import path from 'node:path'
 /** 业务默认时区（与历史行为一致：计费/调度都按北京时间） */
 export const DEFAULT_TZ = 'Asia/Shanghai'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const TZ = DEFAULT_TZ
 
 /** 时区名 → Intl 格式化器（按需创建并缓存；`formatToParts` 是唯一可靠的非本地时区取值方式） */

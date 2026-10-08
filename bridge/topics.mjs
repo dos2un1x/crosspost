@@ -62,6 +62,7 @@ const slotRank = (slot) => {
   return i >= 0 ? i : SLOT_ORDER.length
 }
 // 排序状态优先级：同一天内 未生成(adopted)/已生成(generated) 优先，落选(rejected) 沉底
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const TOPIC_STATUS_ORDER = ['generated', 'adopted', 'rejected']
 
 /* ── 生成任务注册表（v2.111）────────────────────────────────────────────── */

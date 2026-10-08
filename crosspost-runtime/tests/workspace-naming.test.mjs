@@ -30,6 +30,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const REPO = path.resolve(__dirname, '..', '..')
 const DSH_HOME = process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')
 const HOME = process.env.HOME || ''

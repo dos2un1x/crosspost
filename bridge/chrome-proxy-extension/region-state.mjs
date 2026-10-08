@@ -129,3 +129,5 @@ export function regionLabels({ groups, trust }) {
     emptyOk: emptyLoggedPaneText(groups),
   }
 }
+
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost

@@ -18,5 +18,9 @@
   "homepage": "https://github.com/dos2un1x/crosspost#readme",
   "dependencies": {
     "ws": "^8.21.3"
+  },
+  "author": {
+    "name": "dos2un1x",
+    "url": "https://github.com/dos2un1x"
   }
 }

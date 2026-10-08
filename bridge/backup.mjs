@@ -26,6 +26,7 @@ import {
 } from '../crosspost-runtime/src/projects.mjs'
 
 const paths = lazyPaths()
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 let lastBackupDate = ''
 
 /**

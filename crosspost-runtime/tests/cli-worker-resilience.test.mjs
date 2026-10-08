@@ -68,6 +68,7 @@ if (argv.includes('--ipc')) {
 }
 `
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 let worker // 延迟 import：必须在 env 设好之后
 before(async () => {
   fs.writeFileSync(FAKE_CLI, FAKE_SRC)

@@ -46,6 +46,7 @@ export const DEFAULT_INVESTMENT_WEAK = [
   '卖身',
 ]
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 function escapeRe(w) {
   return String(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

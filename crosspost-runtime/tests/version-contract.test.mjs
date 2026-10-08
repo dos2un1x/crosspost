@@ -6,6 +6,7 @@
 //     —— 二者一个对内一个对外，指向同一件事，漂移了接入方就会按错版本适配
 //   · 引擎版本必须能真实读出（不是 'unknown'）
 //   · CLI / HTTP 两个出口都必须带上版本块
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

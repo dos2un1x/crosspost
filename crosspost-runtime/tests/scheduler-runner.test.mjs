@@ -9,6 +9,7 @@
 //   · 同槽位不重叠；并发上限由编排层兜
 //   · 单实例锁：两个宿主只能有一个 arm（否则每天的计划各跑一遍）
 //   · 编排层：到点触发一次、当天不再触发、桥不在时不 arm
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

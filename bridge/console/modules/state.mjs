@@ -1,5 +1,6 @@
 // 共享状态 store（2026-08-24 app.js 拆分 Phase 0）
 // 普通对象（非响应式）：视图读写 store.x，写后手动重渲染，与拆分前行为一致
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import { DEFAULT_PLATFORMS } from './const.mjs'
 import { getJSON } from './api.mjs'
 

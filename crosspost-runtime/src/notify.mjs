@@ -29,6 +29,7 @@ import { readConfig } from './config-cache.mjs'
 // 原先此处与 console/modules/const.mjs 各存一份，必然漂移。
 import { platformName as matrixPlatformName, PLATFORM_NAMES } from './platform-matrix.mjs'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export { PLATFORM_NAMES }
 
 export function platformName(id) {

@@ -43,6 +43,7 @@ const { runPublishArticle, buildPublishNotifyCopy } = await import(
   new URL('../src/commands/publish.mjs', import.meta.url).href
 )
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 function writeDraft(name, { title = '快照门禁测试' } = {}) {
   const file = path.join(DRAFTS, name)
   fs.writeFileSync(file, `---\ntitle: ${title}\nscore: 90\n---\n\n正文内容\n\n第二段。\n`)

@@ -4,6 +4,7 @@
 //   ① markdown 剥离后**偏移映射**必须还能指回正文——错一个字符，改写就会改错段；
 //   ② 一切失败都必须表达成 `verdict:'skip'` 且带 reason，**绝不能悄悄变成 pass**；
 //   ③ 限流/鉴权不重试、5xx 才重试（重试 429 只会把额度与风控烧得更快）。
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

@@ -70,6 +70,7 @@ export const CHECK_ONLY_REASONS = {
   douyin: '仅检查 · 仅手动推送',
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export function platformName(id) {
   return PLATFORM_NAMES[id] || id
 }

@@ -157,6 +157,7 @@ function readOptionalString(bag: Bag, key: string): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 function readNumber(bag: Bag, key: string, fallback: number): number {
   const value = bag[key]
   if (typeof value === 'number' && Number.isFinite(value)) return value

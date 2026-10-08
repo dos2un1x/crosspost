@@ -40,6 +40,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const RUNTIME_ROOT = path.resolve(__dirname, '..')
 /** 仓库根：`crosspost-runtime/..`（git describe 的工作目录） */
 const REPO_ROOT = path.resolve(RUNTIME_ROOT, '..')

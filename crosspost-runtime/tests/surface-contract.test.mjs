@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const CLI_PATH = path.join(ROOT, 'src', 'cli.mjs')
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const MCP_PATH = path.join(ROOT, 'mcp-server', 'index.mjs')
 
 /**

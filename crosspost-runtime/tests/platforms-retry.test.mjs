@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import {
   CHECK_ONLY_PLATFORMS,
   TARGET_PLATFORMS,

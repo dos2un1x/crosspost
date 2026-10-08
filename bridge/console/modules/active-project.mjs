@@ -8,6 +8,7 @@
 //   · `''` = 不指定项目 → 桥走默认路径（单项目部署的既有行为，逐字不变）
 //   · 非空 id = 该项目的注册 id（引擎按 .crosspost/project.json 解析）
 // 切换器是**可选项**，不是使用门槛：没有接入任何项目时 Console 一切照旧。
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const STORAGE_KEY = 'crosspost.activeProject'
 
 /** 当前选中的项目 id（`''` = 未指定/默认） */

@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const json = argv.includes('--json')
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const noBuild = argv.includes('--no-build')
 const noInstall = argv.includes('--no-install')
 const start = argv.includes('--start')

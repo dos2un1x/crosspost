@@ -1,4 +1,5 @@
 // ending-card.ts 结束语图单测（2026-08-28 阶段 C1）
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 import { describe, it, expect } from 'vitest'
 import { generateEndingCard } from '../ending-card'
 

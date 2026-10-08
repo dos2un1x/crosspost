@@ -23,6 +23,7 @@ const arg = (name, dflt) => {
   return hit ? hit.slice(name.length + 3) : dflt
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const art = await import('../src/articles.mjs')
 const { listArchive, listRetained } = await import('../src/commands/publish.mjs')
 const { allCostRecords } = await import('../src/commands/costs.mjs')

@@ -26,6 +26,7 @@ import { parseDraftFile } from '../src/articles.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..', '..')
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const TEMPLATE = path.join(REPO, 'examples', 'writing-pipeline-template')
 
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(TEMPLATE, rel), 'utf8'))

@@ -147,4 +147,5 @@ export const PAGE_SIZE = 30
 export const TOPICS_PAGE_SIZE = 40
 
 // 评分及格线（2026-09-01 抽常量：消除 utils/settings/retained/archive 5 处魔数 68）
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 export const SCORE_PASS = 68

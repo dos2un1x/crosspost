@@ -9,6 +9,7 @@ import { TARGET_PLATFORMS, CHECK_ONLY_PLATFORMS } from '../src/platform-ids.mjs'
 import { ADAPTER_CLASSES } from '../src/commands/platforms.mjs'
 import * as core from '@crosspost/core/adapters'
 // Console 常量模块零 import（纯常量），Node 可直接读——用于锁死「锁定平台」两侧口径
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { PF_LOCKED, PLATFORM_GROUPS } from '../../bridge/console/modules/const.mjs'
 
 // 跳过的导出：抽象基类（无平台 meta）+ 微信官方 API 通道（独立于多平台分发，不属于 TARGET_PLATFORMS）

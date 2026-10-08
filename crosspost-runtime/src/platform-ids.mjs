@@ -49,3 +49,5 @@ export const CHECK_ONLY_PLATFORMS = ['weixin', 'douyin']
 
 /** @deprecated 旧名（2026-09-12 上一版的"锁定平台"含义已作废）；保留一个版本避免外部引用断裂 */
 export const LOCKED_PLATFORMS = CHECK_ONLY_PLATFORMS
+
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）

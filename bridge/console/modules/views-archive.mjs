@@ -6,6 +6,7 @@ import { store } from './state.mjs'
 import { $, escapeHtml, riskBadge, fmtTime, pageSlice, renderPager } from './utils.mjs'
 import { loadArticles } from './views-articles.mjs'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export async function loadArchive() {
   const el = $('#archive-tbody')
   el.innerHTML = '<tr><td colspan="7" class="placeholder">加载中…</td></tr>'

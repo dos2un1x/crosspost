@@ -97,3 +97,5 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: BodyInit | Record<string, unknown>
   timeout?: number
 }
+
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost

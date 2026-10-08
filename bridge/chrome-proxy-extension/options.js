@@ -67,6 +67,7 @@ function bridgeBase() {
 }
 
 // 平台 homepage 映射（与 crosspost-runtime 适配器 meta 一致；zip-download 为本地导出无网页）
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const HOMEPAGES = {
   zhihu: 'https://www.zhihu.com',
   csdn: 'https://editor.csdn.net/md/',

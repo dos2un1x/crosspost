@@ -12,6 +12,7 @@ import {
 import { invalidateCustomStyleCache } from '../custom'
 import { isDarkColor } from '../styles'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const SAMPLE_MD = `# 标题一
 
 一段正文，包含 **加粗** 和 \`行内代码\`。

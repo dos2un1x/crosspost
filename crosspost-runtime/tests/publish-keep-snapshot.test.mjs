@@ -45,6 +45,7 @@ fs.writeFileSync(
   }),
 )
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const { runPublishArticle } = await import(
   new URL('../src/commands/publish.mjs', import.meta.url).href
 )

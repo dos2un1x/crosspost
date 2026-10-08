@@ -125,3 +125,5 @@ export function checkExtensionCompatibility(extVersion) {
     message: `扩展 ${extVersion} 与桥兼容`,
   }
 }
+
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost

@@ -44,3 +44,5 @@ export function parseFlags(args, opts = {}) {
   }
   return out
 }
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

@@ -55,6 +55,7 @@ import { collectSpecs } from './scheduler/index.mjs'
 import { legacyDaemons, legacyTasks } from './scheduler/legacy.mjs'
 import { budgetState, readAiDetectConfig, resolveDetectCredentials } from './ai-detect.mjs'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 

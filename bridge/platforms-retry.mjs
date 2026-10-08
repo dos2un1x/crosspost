@@ -19,6 +19,7 @@
  */
 import { TARGET_PLATFORMS, CHECK_ONLY_PLATFORMS } from '../crosspost-runtime/src/platform-ids.mjs'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export { CHECK_ONLY_PLATFORMS, TARGET_PLATFORMS }
 
 /** 平台状态文件结构版本（字段不兼容时靠它迁移） */

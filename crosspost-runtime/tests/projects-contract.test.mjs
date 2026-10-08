@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import {
   MANIFEST_VERSION,
   KNOWN_CAPABILITIES,

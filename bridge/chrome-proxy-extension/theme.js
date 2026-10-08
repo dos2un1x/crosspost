@@ -71,3 +71,5 @@
     apply(pref()) // 按钮字形/aria 要在 DOM 就绪后再写一次
   })
 })()
+
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost

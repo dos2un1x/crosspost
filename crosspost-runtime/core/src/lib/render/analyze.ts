@@ -550,6 +550,7 @@ interface BrowserRawSample {
   secondaryCandidates?: string[]
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 function borderHas(sample: BrowserRawSample['heading'], side: string): boolean {
   const border = sample?.borders?.[side]
   if (!border) return false

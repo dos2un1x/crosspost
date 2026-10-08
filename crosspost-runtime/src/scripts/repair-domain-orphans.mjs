@@ -20,6 +20,7 @@
  */
 import { planDomainOrphanRepair, applyDomainOrphanRepair } from '../domain-orphans.mjs'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const argv = process.argv.slice(2)
 const apply = argv.includes('--apply')
 const json = argv.includes('--json')

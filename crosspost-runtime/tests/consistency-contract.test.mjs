@@ -40,6 +40,7 @@ function collectAdapterNames() {
   return map
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const ADAPTER_NAMES = collectAdapterNames()
 const ADAPTER_IDS = sort(Object.keys(ADAPTER_NAMES))
 

@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { versionInfo } from '../src/version.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const RUNTIME = path.resolve(__dirname, '..')
 const REPO = path.resolve(RUNTIME, '..')
 const NODE = process.execPath

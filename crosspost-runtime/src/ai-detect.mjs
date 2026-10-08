@@ -289,6 +289,7 @@ export function resolveDetectCredentials() {
  * 对检测分数没有实质影响，换来的是实现可预测、偏移映射不会错位。
  */
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const RE_HR = /[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*(?=\r?\n|$)/y
 const RE_TABLE_SEP =
   /[ \t]*\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|?[ \t]*(?=\r?\n|$)/y

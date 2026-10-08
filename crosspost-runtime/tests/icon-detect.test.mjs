@@ -1,4 +1,5 @@
 // detectIconExt 魔数嗅探 + MIME 兜底单测（2026-09-02，修复 .ico 误报）
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { detectIconExt } from '../../bridge/icon-detect.mjs'

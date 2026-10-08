@@ -50,6 +50,7 @@ const RUNTIME = path.resolve(__dirname, '..', '..') // crosspost-runtime
 const REPO = path.resolve(RUNTIME, '..')
 const CORE = path.join(RUNTIME, 'core')
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const argv = process.argv.slice(2)
 const flag = (name) => argv.includes(name)
 const opt = (name, def = null) => {

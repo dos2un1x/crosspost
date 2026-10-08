@@ -28,6 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..', '..')
 
 const DSH_HOME = process.env.DSH_HOME || path.join(process.env.HOME || '', '.dsh')
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const PROFILES = path.join(DSH_HOME, 'profiles')
 const REPO_PRESET = path.join(REPO, 'preset', 'crosspost')
 const LEGACY_PRESET = path.join(DSH_HOME, '.agent-presets', 'crosspost')

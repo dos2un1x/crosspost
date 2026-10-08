@@ -42,6 +42,7 @@ function formatDateStamp(date: Date): string {
   return date.toISOString().slice(0, 10).replace(/-/g, '')
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export interface AWS4SignParams {
   method: string
   url: string

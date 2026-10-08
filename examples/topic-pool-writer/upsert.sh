@@ -6,6 +6,7 @@
 #     --json='[["<kw>","",87,"rejected","<原因>"]]' [--manual --article-id=<草稿名>]
 #
 # 找引擎：CROSSPOST_ENGINE_REPO（缺省见下）。**找不到就 exit 1**——不要退回"自己写一遍"。
+# 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 set -uo pipefail
 
 ENGINE_REPO="${CROSSPOST_ENGINE_REPO:-/Users/me/crosspost}"

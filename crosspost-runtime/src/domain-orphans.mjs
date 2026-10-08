@@ -32,6 +32,7 @@ import { createRequire } from 'node:module'
 import { defaultArticlesDir } from './articles.mjs'
 import { projectOwningDraftFile } from './project-context.mjs'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const require = createRequire(import.meta.url)
 
 /** 以默认域为"事实来源"的字段 */

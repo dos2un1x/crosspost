@@ -5,6 +5,7 @@
 // 2026-09-19 v2.22：带上当前项目的 `X-CrossPost-Project`（切换器选择）。这是
 //   **唯一收口**——所有内容域请求经此自动落到所选项目的数据源；未选项目时
 //   不带该头，桥走默认路径，生产单项目行为逐字不变。
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import { API } from './const.mjs'
 import { activeProject } from './active-project.mjs'
 

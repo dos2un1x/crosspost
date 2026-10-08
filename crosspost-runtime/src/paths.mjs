@@ -35,6 +35,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const ROOT = path.resolve(__dirname, '..')
 
 /** 展开 ~ 前缀为用户主目录 */

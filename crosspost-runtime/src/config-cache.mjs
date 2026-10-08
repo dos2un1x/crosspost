@@ -44,6 +44,7 @@ export const CONFIG_PATH = DEFAULT_CONFIG_PATH
 export { configPath }
 
 // 缓存按**路径**分开记：同一进程内切换 CROSSPOST_CONFIG（测试常见）不会串味
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const cache = new Map() // path -> { mtime, data }
 
 /**

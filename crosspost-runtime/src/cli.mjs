@@ -791,6 +791,7 @@ async function main(args = process.argv.slice(2)) {
 }
 
 // IPC 常驻模式（bridge 复用同一 Node 进程，消除每次冷启动）
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 async function ipcLoop() {
   const rl = process.stdin
   let buf = ''

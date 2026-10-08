@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { renderMarkdown } from '../index'
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const MD = [
   '# 一级标题',
   '',

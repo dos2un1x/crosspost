@@ -14,6 +14,7 @@
  *   7. 公开导出：`htmlToMarkdown` / `extractCodeFromHtml` / `markdownToHtml`
  */
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import { marked } from 'marked'
 import { normalizeBoldFlanking } from './render/markdown-flanking'
 

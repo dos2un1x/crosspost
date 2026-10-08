@@ -39,6 +39,7 @@ import { loadPaths } from '../src/paths.mjs'
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-generate-'))
 const PROJECTS = path.join(SANDBOX, 'projects')
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const LOGS = path.join(SANDBOX, 'logs')
 const TOPIC_POOL = path.join(SANDBOX, 'topic-pool.json')
 const HISTORY = path.join(SANDBOX, 'history')

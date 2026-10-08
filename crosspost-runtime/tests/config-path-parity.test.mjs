@@ -27,6 +27,7 @@ const RUNTIME = path.resolve(__dirname, '..')
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-cfg-parity-'))
 process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }))
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const writeCfg = (name, marker) => {
   const p = path.join(tmp, name)
   fs.writeFileSync(p, JSON.stringify({ scoring: { threshold: marker } }))

@@ -26,6 +26,7 @@ const ENTRYPOINT = path.join(REPO, 'docker', 'entrypoint.sh')
 const DOCKERIGNORE = path.join(REPO, '.dockerignore')
 
 const read = (f) => fs.readFileSync(f, 'utf8')
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const hasDocker = spawnSync('docker', ['--version'], { encoding: 'utf8' }).status === 0
 
 test('Docker①：四个文件都在，且 compose 能被 YAML 解析出结构', () => {

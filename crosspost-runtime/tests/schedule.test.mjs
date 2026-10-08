@@ -102,6 +102,7 @@ function fixture({ declaration = true } = {}) {
   }
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'))
 
 test('薄壳①：默认域没有任何槽位（槽位按项目安装；引擎不再自带任务）', async () => {

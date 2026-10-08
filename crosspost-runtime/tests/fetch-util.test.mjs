@@ -1,5 +1,6 @@
 // fetch-util 单元测试（node:test，零外部依赖——本地起 HTTP server）
 // 运行: node --test tests/fetch-util.test.mjs
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'

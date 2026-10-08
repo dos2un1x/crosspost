@@ -84,6 +84,7 @@ export function currentResources() {
   return resolveResources()
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const cfg = () => loadPaths()
 
 /** 日志目录：项目 > env > paths.json > 内置 */

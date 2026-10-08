@@ -41,6 +41,7 @@ const STYLES_PACK_DIR = path.resolve(__dirname, '..', '..', 'styles')
 /** 任意抛出物 → 一行文案 */
 const errText = (err) => String((err && err.message) || err)
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 
 /**

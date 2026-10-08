@@ -10,6 +10,7 @@
 # 为什么宿主与容器路径必须一致：`paths.json`、`config.json`、项目 manifest 里存的
 # 都是**绝对路径**；路径一变，所有指向都会失效（容器里看不到宿主那些目录）。
 # 所以 docker-compose.yml 用 `${HOME}:${HOME}` 这种同路径挂载。
+# © dos2un1x · https://github.com/dos2un1x/crosspost
 set -euo pipefail
 
 REPO="${CROSSPOST_REPO:-}"

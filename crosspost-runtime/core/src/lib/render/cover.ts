@@ -12,6 +12,7 @@
  */
 import sharp from 'sharp'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export type CoverRatio = '2_35_1' | '1_1'
 
 /** 画布基准尺寸（2026-08-28 D1 常量层；各模板坐标/字号保持设计值） */

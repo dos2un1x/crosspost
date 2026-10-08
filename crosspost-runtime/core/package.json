@@ -14,7 +14,10 @@
     "url": "https://github.com/dos2un1x/crosspost/issues"
   },
   "homepage": "https://github.com/dos2un1x/crosspost#readme",
-  "author": "CrossPost",
+  "author": {
+    "name": "dos2un1x",
+    "url": "https://github.com/dos2un1x"
+  },
   "keywords": [
     "crosspost",
     "markdown",

@@ -69,6 +69,7 @@ const NON_EXPORT_KEYS = new Set<string>([
   'border_width',
 ])
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 export interface CustomStylesLoadResult {
   styles: Record<string, StyleDefinition>
   warnings: string[]

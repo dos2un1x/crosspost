@@ -193,3 +193,5 @@ describe('detectAsciiTable', () => {
     expect(segments!.some(([k]) => k === 'table')).toBe(true)
   })
 })
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

@@ -78,5 +78,6 @@ RUN chmod +x /usr/local/bin/crosspost-entrypoint \
   && ln -s /usr/local/bin/crosspost-entrypoint /usr/local/bin/crosspost \
   && chmod 0644 /usr/local/share/doc/crosspost/LICENSE
 
+# © dos2un1x · https://github.com/dos2un1x/crosspost
 ENTRYPOINT ["/usr/local/bin/crosspost-entrypoint"]
 CMD ["bridge"]

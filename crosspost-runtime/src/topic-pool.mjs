@@ -275,6 +275,7 @@ export function acquirePoolLock(dir, opts = {}) {
   }
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 export function releasePoolLock(dir) {
   try {
     fs.rmdirSync(dir)

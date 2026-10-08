@@ -62,6 +62,7 @@ function baseline(root, entries) {
   return f
 }
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 function run(root, drafts, base) {
   const env = {
     ...process.env,

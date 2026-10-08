@@ -1,4 +1,5 @@
 // cover.ts 封面生成单测（2026-08-28 阶段 C1）
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 import { describe, it, expect } from 'vitest'
 import { generateCover, generateCoverSet, COVER_TEMPLATE_NAMES } from '../cover'
 

@@ -41,6 +41,7 @@ export * from './markdown-flanking'
 
 /* ────────────────────────────── 选项与结果 ────────────────────────────── */
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export interface RenderOptions {
   /** 样式名（内置或 `custom-*`），缺省 `swiss` */
   style?: string

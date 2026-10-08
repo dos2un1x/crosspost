@@ -8,6 +8,7 @@
  * 颜色来自样式参数 `calloutPalette`，缺省值取自参数模型（见下）。
  */
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import { escapeHtml, resolveParams, type RenderParams } from './engine'
 import { DEFAULT_CALLOUT_PALETTE, type CalloutTypeStyle } from './styles'
 

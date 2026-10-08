@@ -17,6 +17,7 @@
 import { chromium } from 'playwright'
 
 const PORT = Number(process.env.CONSOLE_TEST_PORT || 19540)
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const BASE = `http://127.0.0.1:${PORT}`
 const results = []
 

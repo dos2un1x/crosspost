@@ -41,6 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(__dirname, '..', '..')
 const FULL = process.argv.includes('--full')
 const KEEP = process.argv.includes('--keep')
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const IMAGE = 'crosspost-runtime:local'
 const WS_PORT = 9539
 const HTTP_PORT = 9540

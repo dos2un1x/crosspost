@@ -94,6 +94,7 @@ ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31m✖\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }
 warn() { printf '  \033[33m⚠\033[0m %s\n' "$*"; WARN=$((WARN+1)); }
 sec()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
+# © dos2un1x · https://github.com/dos2un1x/crosspost
 hint() { printf '      ↳ %s\n' "$*"; }
 # 会话文件按 mtime 倒序（最新在前）。
 #

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 export default defineConfig({
   test: {
     // 测试文件串行：多个文件会写 CROSSPOST_CUSTOM_STYLES_DIR 环境变量，并行会互相干扰

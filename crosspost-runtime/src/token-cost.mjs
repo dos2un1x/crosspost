@@ -44,6 +44,7 @@ export const PRICING = {
   ], // 高峰时段（北京时间）
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const SESSIONS_DIRS = loadPaths().sessionsDirs
 
 // ── 会话文件代际（2026-09-11 修复：DSH 升级后由 session.jsonl.zstd 改为 session.v3.jsonl.zstd）──

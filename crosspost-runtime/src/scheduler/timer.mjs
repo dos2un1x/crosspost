@@ -50,6 +50,7 @@ export function nextOccurrence(spec, now = Date.now()) {
   return tzNextOccurrence(spec.time, normalizeTz(spec.tz), now)
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 function splitTime(hhmm) {
   const [h, m] = String(hhmm)
     .split(':')

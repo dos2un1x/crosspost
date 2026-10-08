@@ -135,3 +135,5 @@ describe('P2 renderMarkdownAsync with uploader', () => {
     expect(r.images!.handled).toBe(1)
   })
 })
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

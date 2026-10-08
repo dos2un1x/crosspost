@@ -43,6 +43,7 @@ NODE_BIN="$(resolve_node)"
 
 # 单元里的路径与值：理论上可以是任意字符串，但换行/制表符会写坏单元文件（systemd 会拒载），
 # 所以先把这类字符挡掉，并给出可执行的报错。
+# dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 check_value() {
   case "$2" in
     *$'\n'* | *$'\t'*)

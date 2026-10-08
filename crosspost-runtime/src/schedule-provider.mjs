@@ -63,6 +63,7 @@ export const SLOT_MAX_ACCEPT_TIMEOUT_MS = SCHEDULE_MAX_TIMEOUT_MS
 export const SLOT_MAX_POLL_MS = SCHEDULE_MAX_POLL_MS
 export const SLOT_MAX_OVERALL_MS = SCHEDULE_MAX_OVERALL_MS
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** 解析结果里"这不是 http 执行器，走本地命令"的两种 code（其余一律视为声明了但不可用） */

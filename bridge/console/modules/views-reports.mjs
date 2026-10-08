@@ -25,6 +25,7 @@ function recordsWithPlatforms() {
 /** 本次报表渲染的令牌：三库是后台补齐的，迟到的旧批次不得覆盖新批次 */
 let reportsSeq = 0
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 export async function loadReports() {
   // 2026-08-31：统一由 refreshStats 并行拉三库并填 store（替代 loadArticles，避免渲染文章视图的副作用 + 空 store 竞态）。
   // 2026-09-25（2026-09-25 容器模式）：**不再 await 三库**。容器里三库要走 Docker Desktop 的

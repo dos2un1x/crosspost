@@ -12,6 +12,7 @@
 //
 // 设计取舍：静态扫描而不是起浏览器。这条护栏要守的是"哪里写错了"，静态就够了，
 // 而且不依赖 playwright、任何机器都能跑。
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

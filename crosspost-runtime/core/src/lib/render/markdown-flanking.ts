@@ -16,3 +16,5 @@ export function normalizeBoldFlanking(md: string): string {
   // `(?!\*)` 避免误命中 `***`（粗斜体，语义不同）。
   return md.replace(/(?<![\s\p{P}])\*\*(?!\*)(?=\p{P})/gu, '**\u200b')
 }
+
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）

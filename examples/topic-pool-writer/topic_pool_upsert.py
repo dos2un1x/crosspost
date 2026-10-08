@@ -43,3 +43,5 @@ def main(argv):
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))
+
+# 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）

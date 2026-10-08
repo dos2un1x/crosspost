@@ -159,6 +159,7 @@ function deriveParams(style: unknown): DerivedParams {
   }
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 function createSection(document: Document, declarations: Declarations): HTMLElement {
   const section = document.createElement('section')
   writeStyle(section, declarations)

@@ -24,6 +24,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 import {
   trustState,
   regionLabels,

@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-costs-'))
 process.env.CROSSPOST_ARTICLE_COST_FILE = path.join(TMP, 'article-cost.json')
 process.env.CROSSPOST_SESSIONS_DIRS = path.join(TMP, 'sessions') // 空会话目录：走「无会话记录」分支，确定性强

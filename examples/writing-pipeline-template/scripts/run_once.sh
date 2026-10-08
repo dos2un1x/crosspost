@@ -6,6 +6,7 @@
 #   · P3 的 HTTP 执行器：POST /slot/run 里映射到本脚本
 #
 # 用法: run_once.sh <slot>
+# author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 set -euo pipefail
 
 SLOT="${1:?用法: run_once.sh <slot>}"

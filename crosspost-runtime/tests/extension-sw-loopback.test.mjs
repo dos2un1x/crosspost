@@ -32,6 +32,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SW = path.resolve(__dirname, '..', '..', 'bridge', 'chrome-proxy-extension', 'sw.js')
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function waitFor(fn, { timeout = 2000, step = 5 } = {}) {

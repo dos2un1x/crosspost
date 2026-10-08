@@ -28,6 +28,7 @@ const SCRIPT = path.join(REPO, 'bridge', 'install-systemd.sh')
 const tmproot = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-systemd-'))
 process.on('exit', () => fs.rmSync(tmproot, { recursive: true, force: true }))
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 function mkHome(tag) {
   const home = path.join(tmproot, `home-${tag}-${Math.random().toString(36).slice(2, 8)}`)
   fs.mkdirSync(home, { recursive: true })

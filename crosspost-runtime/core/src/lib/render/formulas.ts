@@ -66,6 +66,7 @@ function placeholderIndex(text: string): number {
   return /^\d+$/.test(middle) ? Number(middle) : -1
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const CJK_RANGE =
   /[\u2e80-\u2eff\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/
 

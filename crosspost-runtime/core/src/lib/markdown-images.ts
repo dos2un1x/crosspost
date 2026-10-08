@@ -181,3 +181,5 @@ export function parseMarkdownImages(markdown: string): MarkdownImageRef[] {
 
   return refs
 }
+
+// © dos2un1x · https://github.com/dos2un1x/crosspost

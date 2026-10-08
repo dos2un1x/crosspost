@@ -36,6 +36,7 @@ const inject = ['commands', 'subprocess', 'timer']
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** 引擎根：经预设目录内的 `runtime` 软链解析（`preset/crosspost/runtime → crosspost-runtime`） */
 const RUNTIME_ROOT = path.resolve(__dirname, '../runtime')
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const NATIVE_CLI = path.join(RUNTIME_ROOT, 'src', 'cli.mjs')
 /** node 取当前进程可执行文件，可用 CROSSPOST_NODE 覆盖（与 plugins/crosspost.js 同款） */
 const NODE = process.env.CROSSPOST_NODE || process.execPath

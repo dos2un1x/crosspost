@@ -94,6 +94,7 @@ const BASELINE =
  * 所以下面只在"目录不存在"时给出更明确的提示，仍然走"删除"路径。
  */
 const DRAFTS_DIR = process.env.CROSSPOST_IMMUTABLE_DRAFTS || draftsRootFromBaseline(BASELINE)
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const MDBACKUP_DIR = path.join(ROOT, 'md-backup')
 
 /** 目录存在吗（推导默认值时用；判定路径不依赖它） */

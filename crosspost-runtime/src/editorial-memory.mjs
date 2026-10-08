@@ -29,6 +29,7 @@ export function editorialMemoryPath() {
   return getEditorialMemoryPath()
 }
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const CAPS = { recentArticles: 30, topicFeedback: 60, humanFeedback: 30 }
 
 /** 读编辑记忆，文件缺失/损坏返回空结构 */

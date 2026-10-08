@@ -47,3 +47,5 @@ describe('renderFormulas', () => {
     expect(res.bad.ok).toBe(false) // 单个坏公式降级为失败，不抛
   })
 })
+
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost

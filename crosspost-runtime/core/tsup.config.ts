@@ -1,5 +1,6 @@
 import { defineConfig } from 'tsup'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export default defineConfig({
   entry: {
     index: 'src/index.ts',

@@ -338,3 +338,5 @@ export async function runAiDetect(args) {
   const report = compactReport(result, cfg)
   return { ...report, source }
 }
+
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost

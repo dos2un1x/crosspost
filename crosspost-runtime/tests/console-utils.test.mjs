@@ -1,6 +1,7 @@
 // 前端纯函数单测（2026-09-01 P1-9）：bridge/console/modules/utils.mjs 的无 DOM 纯函数。
 // 运行: node --test tests/console-utils.test.mjs
 // 说明：utils.mjs 仅在定义 $ 时引用 document（不调用），模块加载无 DOM 副作用，可安全 import。
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {

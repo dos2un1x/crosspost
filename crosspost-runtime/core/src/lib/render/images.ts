@@ -54,6 +54,7 @@ export interface ImagePipelineOptions {
 const REMOTE_PATTERN = /^https?:\/\//i
 const INLINE_PATTERN = /^data:/i
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 function classify(source: string): ImageSourceKind {
   return REMOTE_PATTERN.test(source) ? 'remote' : 'local'
 }

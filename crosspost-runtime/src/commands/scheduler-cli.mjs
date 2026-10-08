@@ -35,6 +35,7 @@ const opt = (name) => {
 }
 const json = flag('json')
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 function printStatus(st) {
   if (json) {
     process.stdout.write(JSON.stringify(st, null, 2) + '\n')

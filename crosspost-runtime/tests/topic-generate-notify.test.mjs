@@ -108,6 +108,7 @@ async function withProvider({ fail = false } = {}) {
   return { server, port, close: () => new Promise((r) => server.close(r)) }
 }
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 function writeProject(port) {
   const dir = path.join(PROJECTS, PROJECT_ID)
   fs.mkdirSync(path.join(dir, '.crosspost'), { recursive: true })

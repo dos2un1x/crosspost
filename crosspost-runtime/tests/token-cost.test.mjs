@@ -645,6 +645,7 @@ test('estimateHiddenCalls 窗口过滤：只统计窗口内的隐藏调用', () 
 //   下面的 v4 用例把这条件钉住：若将来某代际又搬动 usage，报表会静默归零，这里会先红。
 // ═══════════════════════════════════════════════════════════════════════════
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const USAGE = { inputTokens: 1000, cacheReadTokens: 200, outputTokens: 500, reasoningTokens: 0 }
 
 /** 按代际造 usage 事件行：v0/v1/v2 → assistant/chunk；v3+ → assistant/message */

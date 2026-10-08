@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
 const REPO = path.resolve(RUNTIME, '..')
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const CLI = path.join(RUNTIME, 'src', 'cli.mjs')
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'crosspost-rechealth-'))

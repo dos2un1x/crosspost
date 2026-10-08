@@ -295,3 +295,4 @@
           # 只消费 host 服务（commands/subprocess/timer），不发布服务，无需 isolate realm。
           - id: crosspost-commands
             name: 'preset-crosspost/plugins/commands.js'
+# © dos2un1x · https://github.com/dos2un1x/crosspost

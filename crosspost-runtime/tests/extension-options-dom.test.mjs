@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 import { JSDOM } from 'jsdom'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

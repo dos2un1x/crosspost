@@ -71,6 +71,7 @@ function writeDraftFile(sub, id) {
   fs.writeFileSync(path.join(dir, `${id}.md`), `---\ntitle: 草稿 ${id}\nscore: 88\n---\n\n正文\n`)
 }
 
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const IDS = (n) =>
   Array.from(
     { length: n },

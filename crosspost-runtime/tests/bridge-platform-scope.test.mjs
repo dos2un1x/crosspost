@@ -23,6 +23,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 import { resolveScopeFromLayers } from '../../bridge/platforms-retry.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

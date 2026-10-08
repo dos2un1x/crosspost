@@ -4,6 +4,7 @@ import tseslint from 'typescript-eslint'
 import globals from 'globals'
 import eslintConfigPrettier from 'eslint-config-prettier'
 
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 export default tseslint.config(
   {
     ignores: [

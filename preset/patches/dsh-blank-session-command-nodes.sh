@@ -34,6 +34,7 @@
 #   DSH_DEPLOY    DSH 部署目录（默认从启动器 realpath 推导）
 #   DSH_CLIENT    client.js 路径（默认 <部署>/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js）
 # 退出码：0 = 目标状态已达成（打好 / 已还原 / 本来就是）；1 = 失败（找不到文件、版本漂移）
+# CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 set -uo pipefail
 
 MODE="patch"

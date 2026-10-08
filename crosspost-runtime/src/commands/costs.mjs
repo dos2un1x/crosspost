@@ -15,6 +15,7 @@ import path from 'node:path'
 import { scanAndList, listRecords, parseDraftFile, getDraftsDir } from '../articles.mjs'
 import { listArchive } from './publish.mjs'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 export function allCostRecords() {
   const list = scanAndList() // 顶层文章（已排除归档/留存）
   const byId = new Map(listRecords().map((r) => [r.id, r]))

@@ -43,5 +43,9 @@
     "jsdom": "^24.1.1",
     "ws": "^8.21.3",
     "zod": "^3.22.4"
+  },
+  "author": {
+    "name": "dos2un1x",
+    "url": "https://github.com/dos2un1x"
   }
 }

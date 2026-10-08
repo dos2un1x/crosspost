@@ -295,6 +295,7 @@ function notifyPlatformDrops(drops) {
 }
 
 // ===== 代理通道（迷你扩展） =====
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 let proxyWs = null
 const proxyPending = new Map()
 let proxyMsgId = 0

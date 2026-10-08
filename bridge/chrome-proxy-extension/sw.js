@@ -17,6 +17,7 @@
  * 配置存 chrome.storage.local：{ bridgeHost, wsPort, httpPort, token }
  */
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const DEFAULT_CFG = { bridgeHost: '127.0.0.1', wsPort: 9539, token: '' }
 
 let cfg = { ...DEFAULT_CFG }

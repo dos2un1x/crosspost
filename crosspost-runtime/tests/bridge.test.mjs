@@ -14,6 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BRIDGE = path.resolve(__dirname, '..', '..', 'bridge', 'run-bridge.mjs')
 

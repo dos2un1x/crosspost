@@ -3,6 +3,7 @@
 // 本模块负责：按钮图标同步、点击切换、持久化。
 'use strict'
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const THEME_KEY = 'console-theme'
 
 export function currentTheme() {

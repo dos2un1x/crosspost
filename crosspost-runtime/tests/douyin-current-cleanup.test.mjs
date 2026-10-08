@@ -57,6 +57,7 @@ function put(id, extra = {}) {
   return rec
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const PUSHED = '2099-01-01-hotspot-pushed' // 刚推成功的那条，指针要保留
 
 // 四条"旧实现清不到"的形态 + 一条顶层的（旧实现本来就能清）

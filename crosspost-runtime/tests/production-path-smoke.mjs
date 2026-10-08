@@ -320,6 +320,7 @@ if (!target) {
 // ── ⑤ 只读性断言：草稿一字未改 ──
 const after = fingerprint(DRAFTS_DIR)
 const added = [...after.keys()].filter((k) => !before.has(k))
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 const removed = [...before.keys()].filter((k) => !after.has(k))
 const modified = [...before.keys()].filter((k) => after.has(k) && after.get(k) !== before.get(k))
 

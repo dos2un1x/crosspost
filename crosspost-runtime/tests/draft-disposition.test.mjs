@@ -24,6 +24,7 @@ const RUNTIME = path.resolve(__dirname, '..')
 const REPO = path.resolve(RUNTIME, '..')
 const CLI = path.join(RUNTIME, 'src', 'cli.mjs')
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'crosspost-disposition-'))
 process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }))
 

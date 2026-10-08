@@ -64,6 +64,7 @@ function classify(line: string): RowKind {
   return 'text'
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 const isTableRow = (kind: RowKind): boolean =>
   kind === 'pipe' || kind === 'separator' || kind === 'box-border' || kind === 'box-data'
 

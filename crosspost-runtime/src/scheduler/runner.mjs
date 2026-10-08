@@ -43,6 +43,7 @@ export const SCHEDULER_ENV = {
   CROSSPOST_SCHEDULED_BY: 'crosspost-scheduler',
 }
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export function createRunner({
   env = process.env,
   spawnImpl = spawn,

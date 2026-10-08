@@ -19,6 +19,7 @@ export interface EndingCardOptions {
   outPath?: string
 }
 
+// author: dos2un1x · repo: https://github.com/dos2un1x/crosspost
 export interface EndingCardResult {
   ok: boolean
   path?: string

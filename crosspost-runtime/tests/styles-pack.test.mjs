@@ -18,6 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RUNTIME = path.resolve(__dirname, '..')
 const PACK_DIR = path.join(RUNTIME, 'styles')
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 const CORE = path.join(RUNTIME, 'core', 'dist', 'index.mjs')
 const { BASE_STYLE_PARAMS, BUILTIN_STYLES, validateStyleParams } = await import(CORE)
 const { installStyles } = await import('../src/commands/cover-styles.mjs')

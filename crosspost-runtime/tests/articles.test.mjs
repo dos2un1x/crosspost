@@ -29,6 +29,7 @@ const {
   getDraftsDir,
 } = mod
 const CLI = fileURLToPath(new URL('../src/cli.mjs', import.meta.url).href)
+// 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 const cls = await import(new URL('../src/commands/classify.mjs', import.meta.url).href)
 const {
   investmentRegex,

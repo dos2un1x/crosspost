@@ -33,6 +33,7 @@ import { configPath } from '../config-path.mjs'
 import { checkNodeVersion, SEVERITY, checkWritableDir } from '../preflight.mjs'
 import { SUBPACKAGES, missingDeps, manualInstallCommands, coreBuilt } from '../deps.mjs'
 // 只为取 AI 检测的出厂默认值（该模块及其依赖同样只用 node 内置模块，见文件头的"只装依赖"约束）
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 import { AI_DETECT_DEFAULTS } from '../ai-detect.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

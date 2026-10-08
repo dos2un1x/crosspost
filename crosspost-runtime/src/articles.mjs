@@ -300,6 +300,7 @@ export function parseDraftFile(file) {
   }
 }
 
+// dos2un1x / CrossPost · https://github.com/dos2un1x/crosspost
 export function recordPath(id) {
   assertSafeId(id) // 2026-08-28：路径穿越防护（所有记录读写必经此函数）
   return path.join(getArticlesDir(), `${id}.json`)

@@ -19,6 +19,7 @@
 //     错误路径崩掉的代价比正常路径更大——那正是最需要它说话的时刻。
 //
 // 修法永远是 `${VAR}`（大括号划清边界），本测试就钉这一条。
+// 源码：https://github.com/dos2un1x/crosspost（作者 dos2un1x）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

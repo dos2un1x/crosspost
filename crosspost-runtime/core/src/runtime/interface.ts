@@ -25,6 +25,7 @@
  * · 不做隐式重试、不做隐式节流：重试与节流属调用方，避免放大平台风控。
  */
 
+// CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 import type { Cookie, HeaderRule } from '../types'
 
 /** 运行时提供方：浏览器扩展，或 Node 引擎侧（经桥转发） */

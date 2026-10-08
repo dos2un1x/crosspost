@@ -296,6 +296,7 @@ export async function runSchedulerMigrate({
   return result
 }
 
+// © dos2un1x · https://github.com/dos2un1x/crosspost
 function safeReadJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'))
