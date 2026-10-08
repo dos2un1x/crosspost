@@ -378,6 +378,24 @@ body {
   flex-shrink: 0;
 }
 
+/* 右上角源码链接（2026-10-08）：图标按钮，做法对齐 dos2unix.cn 的右上角（图标 + tooltip、
+   新标签打开）。只放图标不放文字：`.topbar-actions` 里 `⟳ 刷新` 在 1280px 已经贴边
+   （见 v2.87 那条注释），所以这里按"一个 ghost 按钮的宽度"控制，不引入新文字。 */
+.topbar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.topbar-link:hover {
+  color: var(--ink);
+}
+.topbar-link .gh-mark {
+  display: block;
+}
+
 /* ── 按钮 ─────────────────────────── */
 .btn {
   font-family: var(--sans);

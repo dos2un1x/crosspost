@@ -189,6 +189,7 @@ try {
           '.project-switch',
           '.project-select',
           '#btnRefresh',
+          '#btnSource', // 右上角源码链接（2026-10-08）：图标按钮，同样不许被挤没/截断
         ]) {
           const el = document.querySelector(sel)
           if (!el) {
@@ -205,6 +206,11 @@ try {
         const hOverflow = document.documentElement.scrollWidth > vpw + 1
         const statsText = (document.querySelector('#stats').textContent || '').replace(/\s+/g, '')
         const statsMissing = ['共', '文章', '留存', '归档'].filter((k) => !statsText.includes(k))
+        const src = document.querySelector('#btnSource')
+        const srcRight =
+          src && refresh
+            ? src.getBoundingClientRect().right >= refresh.getBoundingClientRect().right
+            : false
         return {
           vw: vpw,
           total: tabs.length,
@@ -215,6 +221,17 @@ try {
           barH,
           hOverflow,
           statsMissing,
+          src: src
+            ? {
+                href: src.getAttribute('href'),
+                target: src.getAttribute('target'),
+                rel: src.getAttribute('rel'),
+                title: src.getAttribute('title') || '',
+                rightMost: srcRight,
+                inViewport: src.getBoundingClientRect().right <= vpw,
+                svg: !!src.querySelector('svg'),
+              }
+            : null,
         }
       }),
     )
@@ -241,6 +258,22 @@ try {
     '顶栏统计·四项齐全（共/文章/留存/归档）',
     layout.every((r) => r.statsMissing.length === 0),
     fmt(layout, (r) => (r.statsMissing.length ? `缺${r.statsMissing.join(',')}` : '✓')),
+  ])
+  // 右上角源码链接（2026-10-08，做法对齐 dos2unix.cn 的右上角）：指向仓库、新标签打开、
+  // 在最右且不出视口、tooltip 里带作者名。四条一起钉，避免哪天换成 href="#" 或忘了 rel。
+  const srcOk = (r) =>
+    r.src &&
+    r.src.href === 'https://github.com/dos2un1x/crosspost' &&
+    r.src.target === '_blank' &&
+    /noopener/.test(r.src.rel || '') &&
+    r.src.rightMost &&
+    r.src.inViewport &&
+    r.src.svg &&
+    /dos2un1x/.test(r.src.title)
+  results.push([
+    '顶栏·右上角源码链接（GitHub / 作者 dos2un1x）',
+    layout.every(srcOk),
+    fmt(layout, (r) => (srcOk(r) ? '✓' : JSON.stringify(r.src))),
   ])
 
   // 3) 各 tab 切换
