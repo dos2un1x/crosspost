@@ -71,6 +71,9 @@
      hover 只做同一方向的轻微位移（浅色略提亮、深色略压暗），保持按钮身份不变成第二种颜色。 */
   --dy-bg: var(--ink);
   --dy-ink: var(--paper);
+  /* 品牌音符的青/红（抖音 logo 的错位双色）：只用在极小的标记上，不参与正文配色 */
+  --dy-c: #25f4ee;
+  --dy-r: #fe2c55;
   --dy-hover-bg: #322c24;
   --dy-shadow: 0 2px 8px rgba(29, 26, 21, 0.18);
 
@@ -566,6 +569,16 @@ tbody tr:last-child td {
 .cell-title {
   font-weight: 500;
   max-width: 420px;
+  /* 2026-10-08：改成 flex —— 抖音标识必须**永远可见**。原先靠单元格的 text-overflow 截断，
+     长标题会把标识一起截掉（实测 420px 列宽下标题一长就整个看不到标识），而短标题时它又紧贴
+     省略号，位置随机。现在：标题自己截断（可伸缩），标识固定宽度、永不被裁。 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cell-title > .has-file,
+.cell-title > .no-file {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1735,13 +1748,32 @@ html[data-theme='dark'] .batch-count {
   border-color: var(--dy-hover-bg);
   color: var(--dy-ink);
 }
+/* 抖音标识（2026-10-08 重做）：原先用「📱 当前草稿」——手机 emoji 在 10.5px 下渲染成
+   一个灰白方块，看着像开关控件（列表面板截图里就是这个），而且文本偏长。
+   现在统一成"品牌音符 + 两字标签"：`♪` 用文字画（青底 + 红色向右错位，就是抖音 logo 的
+   错位感，小尺寸下比 emoji 锐利、也不依赖平台 emoji 字体），标签只留「抖音」，
+   完整含义（单槽覆盖、再推会覆盖）交给 title 与上方状态条。 */
+.dy-mark {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--dy-c);
+  text-shadow: 1px 0 0 var(--dy-r);
+}
 .dy-badge {
-  font-size: 10.5px;
-  padding: 1px 7px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto; /* 标题截断时不许把它挤掉（父级 .cell-title 是 flex） */
+  gap: 3px;
+  padding: 1px 7px 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  vertical-align: 1px;
   background: var(--dy-bg);
   color: var(--dy-ink);
-  margin-left: 6px;
 }
 
 /* 报表视图页头（`.wf-head` / `.wf-title`）已随"切视图即自动刷新"删除（2026-10-06），

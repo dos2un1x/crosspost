@@ -74,9 +74,12 @@ function fillStatsInBackground() {
 export function renderDouyinBanner() {
   const cur = store.articles.find((a) => a.douyinCurrent)
   const el = $('#douyin-banner')
+  // 2026-10-08：抖音标识统一用**品牌音符**（`.dy-mark`，青/红错位）替代 📱 emoji ——
+  // emoji 在 10-11px 下会渲染成一个灰白方块（截图里像开关控件），文字标记在小尺寸下更锐利。
+  const mark = '<span class="dy-mark" aria-hidden="true">♪</span>'
   el.innerHTML = cur
-    ? `<span class="dy-label">📱 抖音草稿箱当前：</span><span class="dy-title">《${escapeHtml(cur.title || cur.id)}》</span><span style="color:rgba(255,255,255,0.55)">（${fmtTime(cur.douyinPushedAt)} 推送）</span><span style="margin-left:auto;font-size:11px;color:rgba(255,255,255,0.5)">推新内容将覆盖</span>`
-    : `<span class="dy-label">📱 抖音草稿箱：</span><span class="dy-empty">暂无推送记录（手动推送后这里会显示当前草稿）</span>`
+    ? `<span class="dy-label">${mark} 抖音草稿箱当前：</span><span class="dy-title">《${escapeHtml(cur.title || cur.id)}》</span><span style="color:rgba(255,255,255,0.55)">（${fmtTime(cur.douyinPushedAt)} 推送）</span><span style="margin-left:auto;font-size:11px;color:rgba(255,255,255,0.5)">推新内容将覆盖</span>`
+    : `<span class="dy-label">${mark} 抖音草稿箱：</span><span class="dy-empty">暂无推送记录（手动推送后这里会显示当前草稿）</span>`
 }
 
 export function renderStats() {
@@ -208,7 +211,7 @@ function renderTable(list) {
       <td class="sel-col"><input type="checkbox" class="row-sel" data-id="${escapeHtml(a.id)}" ${store.selected.has(a.id) ? 'checked' : ''}></td>
       <td class="cell-date">${escapeHtml(a.date || '—')}</td>
       <td><span class="cell-slot">${escapeHtml(slotName(a.slot) || '—')}</span></td>
-      <td class="cell-title"><span class="${a.hasFile === false ? 'no-file' : 'has-file'}">${escapeHtml(a.title || a.id)}</span>${a.douyinCurrent ? '<span class="dy-badge">📱 当前草稿</span>' : ''}</td>
+      <td class="cell-title"><span class="${a.hasFile === false ? 'no-file' : 'has-file'}">${escapeHtml(a.title || a.id)}</span>${a.douyinCurrent ? '<span class="dy-badge" title="抖音草稿箱当前就是这篇：再推一次会覆盖它"><span class="dy-mark" aria-hidden="true">♪</span>抖音</span>' : ''}</td>
       <td class="cell-risk">${riskBadge(a.risk) || '<span style="color:var(--ink-faint)">—</span>'}</td>
       <td class="cell-score">${renderScoreCell(a.score)}</td>
       <td class="cell-style">${escapeHtml(a.style || '—')}</td>

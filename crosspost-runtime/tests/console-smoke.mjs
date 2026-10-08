@@ -87,6 +87,27 @@ try {
     pidFirst ? rowCount > 0 : true,
     pidFirst ? `rows=${rowCount} @ ${pidFirst}` : '未接入项目（跳过）',
   ])
+  // 1.1) 抖音标识：有 `douyinCurrent` 的行必须显示标识，且标识**完整落在标题单元格内**。
+  //      2026-10-08：标识原本靠单元格的 `text-overflow: ellipsis` 截断，标题一长就把标识一起裁掉
+  //      （420px 列宽下直接看不见），短标题时它又紧贴省略号、位置随机。改成 flex 后由这条锁住。
+  const dyBadge = await page.evaluate(() => {
+    const badge = document.querySelector('#article-tbody .dy-badge')
+    if (!badge) return { badge: 0 }
+    const cell = badge.closest('td')
+    if (!cell) return { badge: 1, inside: false, why: 'no-cell' }
+    const b = badge.getBoundingClientRect()
+    const c = cell.getBoundingClientRect()
+    return {
+      badge: 1,
+      inside: b.right <= c.right + 0.5 && b.left >= c.left - 0.5 && b.width > 0,
+      text: badge.textContent.trim(),
+    }
+  })
+  results.push([
+    '文章列表·抖音标识在行内且未被标题截断',
+    dyBadge.badge === 0 || (dyBadge.inside === true && /抖音/.test(dyBadge.text || '')),
+    JSON.stringify(dyBadge),
+  ])
   // 2026-09-22（v2.103）：统计条改为**后台补齐**（表格只等 /proxy/articles，不再等留存/归档两库）。
   // 所以读统计条之前要有界等待它补齐 —— 否则读到的可能是还没渲染的空条（假红）。
   await page
