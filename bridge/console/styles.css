@@ -566,15 +566,23 @@ tbody tr:last-child td {
 .cell-title {
   font-weight: 500;
   max-width: 420px;
-  /* 2026-10-08：改成 flex —— 抖音标识必须**永远可见**。原先靠单元格的 text-overflow 截断，
-     长标题会把标识一起截掉（实测 420px 列宽下标题一长就整个看不到标识），而短标题时它又紧贴
-     省略号，位置随机。现在：标题自己截断（可伸缩），标识固定宽度、永不被裁。 */
+  /* 列宽由表格算法决定，这里只兜住上限（截断交给内层的标题 span） */
+  overflow: hidden;
+}
+/* 2026-10-08：flex **只加在内层包裹上，不能加在 <td> 上**。
+   加在 td 上会把 table-cell 变成 flex 容器：① 单元格不再撑满行高（实测某行里的平台芯片折成
+   两行 → 行高 69px，而标题单元格只有 41px 且贴顶，标题与它下面的分隔线被顶到行的上半部，
+   看起来就是"这一行错位了"）；② 表格列宽/垂直居中也不再按单元格算。
+   现在：td 保持 table-cell（照旧撑满行高、与其他列同步垂直居中），内层 flex 负责
+   "标题可截断 + 抖音标识永不被裁"。 */
+.cell-title-inner {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
-.cell-title > .has-file,
-.cell-title > .no-file {
+.cell-title-inner > .has-file,
+.cell-title-inner > .no-file {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1753,7 +1761,7 @@ html[data-theme='dark'] .batch-count {
 .dy-badge {
   display: inline-flex;
   align-items: center;
-  flex: 0 0 auto; /* 标题截断时不许把它挤掉（父级 .cell-title 是 flex） */
+  flex: 0 0 auto; /* 标题截断时不许把它挤掉（父级 .cell-title-inner 是 flex） */
   gap: 3px;
   margin-left: 6px;
   padding: 1px 8px 1px 6px;

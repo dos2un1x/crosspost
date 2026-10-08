@@ -208,7 +208,7 @@ function renderTable(list) {
       <td class="sel-col"><input type="checkbox" class="row-sel" data-id="${escapeHtml(a.id)}" ${store.selected.has(a.id) ? 'checked' : ''}></td>
       <td class="cell-date">${escapeHtml(a.date || '—')}</td>
       <td><span class="cell-slot">${escapeHtml(slotName(a.slot) || '—')}</span></td>
-      <td class="cell-title"><span class="${a.hasFile === false ? 'no-file' : 'has-file'}">${escapeHtml(a.title || a.id)}</span>${a.douyinCurrent ? '<span class="dy-badge" title="抖音草稿箱当前就是这篇：再推一次会覆盖它"><span class="dy-ico" aria-hidden="true">📱</span>当前草稿</span>' : ''}</td>
+      <td class="cell-title"><span class="cell-title-inner"><span class="${a.hasFile === false ? 'no-file' : 'has-file'}">${escapeHtml(a.title || a.id)}</span>${a.douyinCurrent ? '<span class="dy-badge" title="抖音草稿箱当前就是这篇：再推一次会覆盖它"><span class="dy-ico" aria-hidden="true">📱</span>当前草稿</span>' : ''}</span></td>
       <td class="cell-risk">${riskBadge(a.risk) || '<span style="color:var(--ink-faint)">—</span>'}</td>
       <td class="cell-score">${renderScoreCell(a.score)}</td>
       <td class="cell-style">${escapeHtml(a.style || '—')}</td>

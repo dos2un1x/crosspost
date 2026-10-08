@@ -109,6 +109,28 @@ try {
     dyBadge.badge === 0 || (dyBadge.inside === true && /当前草稿/.test(dyBadge.text || '')),
     JSON.stringify(dyBadge),
   ])
+  // 1.2) 行内单元格上下边必须一致（2026-10-08）：`.cell-title` 一度被写成 `display: flex`，
+  //      这会把 table-cell 变成 flex 容器 —— 单元格不再撑满行高。实测某行平台芯片折成两行时
+  //      行高 69px 而标题单元格只有 41px 且贴顶，标题与它下面的分隔线被顶到行的上半部，
+  //      看起来就是"这一行错位了"（只有标题那一列错，其它列照旧居中）。
+  //      判据：每一行的所有单元格顶边相同、底边相同。
+  const rowAlign = await page.evaluate(() => {
+    const bad = []
+    for (const tr of document.querySelectorAll('#article-tbody tr')) {
+      const cells = [...tr.children].map((td) => td.getBoundingClientRect())
+      if (!cells.length) continue
+      const tops = [...new Set(cells.map((r) => Math.round(r.top)))]
+      const bots = [...new Set(cells.map((r) => Math.round(r.bottom)))]
+      if (tops.length > 1 || bots.length > 1)
+        bad.push({ id: tr.getAttribute('data-id'), tops, bots })
+    }
+    return { rows: document.querySelectorAll('#article-tbody tr').length, bad: bad.slice(0, 3) }
+  })
+  results.push([
+    '文章列表·行内单元格上下边一致（标题单元格须撑满行高）',
+    rowAlign.bad.length === 0,
+    JSON.stringify(rowAlign),
+  ])
   // 2026-09-22（v2.103）：统计条改为**后台补齐**（表格只等 /proxy/articles，不再等留存/归档两库）。
   // 所以读统计条之前要有界等待它补齐 —— 否则读到的可能是还没渲染的空条（假红）。
   await page
