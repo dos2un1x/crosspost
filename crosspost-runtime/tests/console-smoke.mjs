@@ -87,9 +87,10 @@ try {
     pidFirst ? rowCount > 0 : true,
     pidFirst ? `rows=${rowCount} @ ${pidFirst}` : '未接入项目（跳过）',
   ])
-  // 1.1) 抖音标识：有 `douyinCurrent` 的行必须显示标识，且标识**完整落在标题单元格内**。
-  //      2026-10-08：标识原本靠单元格的 `text-overflow: ellipsis` 截断，标题一长就把标识一起裁掉
-  //      （420px 列宽下直接看不见），短标题时它又紧贴省略号、位置随机。改成 flex 后由这条锁住。
+  // 1.1) 抖音标识（原样式：深色药丸 + 📱 + 当前草稿）：有 `douyinCurrent` 的行必须显示标识，
+  //      且标识**完整落在标题单元格内**。2026-10-08：标识原本靠单元格的 `text-overflow: ellipsis`
+  //      截断，标题一长就把标识一起裁掉（实测标题撑满时标识右缘 1113px、单元格右缘 819px，
+  //      整个看不见）。`.cell-title` 改成 flex（标题自己截断、标识 flex:0 0 auto）后由这条锁住。
   const dyBadge = await page.evaluate(() => {
     const badge = document.querySelector('#article-tbody .dy-badge')
     if (!badge) return { badge: 0 }
@@ -105,7 +106,7 @@ try {
   })
   results.push([
     '文章列表·抖音标识在行内且未被标题截断',
-    dyBadge.badge === 0 || (dyBadge.inside === true && /抖音/.test(dyBadge.text || '')),
+    dyBadge.badge === 0 || (dyBadge.inside === true && /当前草稿/.test(dyBadge.text || '')),
     JSON.stringify(dyBadge),
   ])
   // 2026-09-22（v2.103）：统计条改为**后台补齐**（表格只等 /proxy/articles，不再等留存/归档两库）。

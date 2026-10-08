@@ -71,9 +71,6 @@
      hover 只做同一方向的轻微位移（浅色略提亮、深色略压暗），保持按钮身份不变成第二种颜色。 */
   --dy-bg: var(--ink);
   --dy-ink: var(--paper);
-  /* 品牌音符的青/红（抖音 logo 的错位双色）：只用在极小的标记上，不参与正文配色 */
-  --dy-c: #25f4ee;
-  --dy-r: #fe2c55;
   --dy-hover-bg: #322c24;
   --dy-shadow: 0 2px 8px rgba(29, 26, 21, 0.18);
 
@@ -1748,32 +1745,36 @@ html[data-theme='dark'] .batch-count {
   border-color: var(--dy-hover-bg);
   color: var(--dy-ink);
 }
-/* 抖音标识（2026-10-08 重做）：原先用「📱 当前草稿」——手机 emoji 在 10.5px 下渲染成
-   一个灰白方块，看着像开关控件（列表面板截图里就是这个），而且文本偏长。
-   现在统一成"品牌音符 + 两字标签"：`♪` 用文字画（青底 + 红色向右错位，就是抖音 logo 的
-   错位感，小尺寸下比 emoji 锐利、也不依赖平台 emoji 字体），标签只留「抖音」，
-   完整含义（单槽覆盖、再推会覆盖）交给 title 与上方状态条。 */
-.dy-mark {
-  font-style: normal;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--dy-c);
-  text-shadow: 1px 0 0 var(--dy-r);
-}
+/* 抖音标识（保持原有样式：深色药丸 + 📱 + 当前草稿）。只修两处观感问题：
+   ① `📱` 是**深色机身 + 亮色屏幕**，压在近黑药丸上时机身融进底色，只剩那块亮屏幕——
+      远看就是一个白色小方块（截图里像开关控件）。办法是给 emoji 一块浅底衬出来，
+      机身与屏幕都能读出来；深色主题下药丸本身就是象牙白底，不需要衬底。
+   ② 原来的 `padding: 1px 7px` 在 emoji 与文字贴边时显得挤，改成 flex + 间距，行高统一。 */
 .dy-badge {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto; /* 标题截断时不许把它挤掉（父级 .cell-title 是 flex） */
   gap: 3px;
-  padding: 1px 7px 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 1.6;
-  letter-spacing: 0.2px;
+  margin-left: 6px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
   white-space: nowrap;
   vertical-align: 1px;
   background: var(--dy-bg);
   color: var(--dy-ink);
+}
+.dy-badge .dy-ico {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 11px;
+  line-height: 1;
+}
+/* 只在浅色主题下衬底（浅色主题：近黑药丸 + 米白字） */
+html[data-theme='light'] .dy-badge .dy-ico {
+  background: var(--paper);
+  border-radius: 999px;
+  padding: 0 2px;
 }
 
 /* 报表视图页头（`.wf-head` / `.wf-title`）已随"切视图即自动刷新"删除（2026-10-06），
