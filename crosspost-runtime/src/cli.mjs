@@ -25,6 +25,7 @@ import {
   upsertRecord,
   removeRecord,
   ensureDraftRecord,
+  recordHealth,
   DRAFT_SLOT_SEGMENT_RE,
 } from './articles.mjs'
 import { bjDate } from './tz.mjs'
@@ -90,11 +91,16 @@ import {
   styles,
 } from './commands/cover-styles.mjs'
 
-/** 统一错误包装器：prefix 为错误文案前缀（如 'publishArticle failed: '），fn 抛错时返回 { error } */
+/** 统一错误包装器：prefix 为错误文案前缀（如 'publishArticle failed: '），fn 抛错时返回 { error }
+ *
+ *  2026-10-08：抛出的错误可带 `fields`（机器可读上下文，如留存失败时的
+ *  `{ok:false, fileMoved:true, file, dir, recordError}`），随错误信封一起下发。
+ *  为什么需要：失败时**状态是"文件已就位、记录没写"**，只给一句错误文案的话，
+ *  调用方（写作侧/Console）分不清"什么都没发生"与"做了一半"，也就给不出下一步动作。 */
 const wrap = (prefix, fn) =>
   Promise.resolve(fn()).then(
     (out) => out,
-    (e) => ({ error: `${prefix}${(e && e.message) || e}` }),
+    (e) => ({ error: `${prefix}${(e && e.message) || e}`, ...((e && e.fields) || {}) }),
   )
 
 /**
@@ -239,7 +245,13 @@ const HANDLERS = {
   notifyTest: () => wrap('notifyTest failed: ', async () => await notifyTest()),
 
   // getArticle <id>：文章库单条记录
-  getArticle: (args) => ({ article: getRecord(args[0]) || null }),
+  // 2026-10-08：附派生字段 `recordHealth`（'ok'|'empty'，见 articles.mjs 的 recordHealth()）。
+  // 详情抽屉与列表必须用**同一个**判据判断"这条记录是空骨架"，否则会出现"列表有警告、详情没有"。
+  getArticle: (args) => {
+    const rec = getRecord(args[0])
+    if (!rec) return { article: null }
+    return { article: { ...rec, recordHealth: recordHealth(rec).health } }
+  },
 
   // articleCost <id>：单篇文章生成 token 消耗与费用（2026-08-28 精确计费：过程窗口）
   articleCost: (args) => {
@@ -823,6 +835,7 @@ async function handleIpcLine(line) {
       JSON.stringify({
         seq: req.seq,
         error: String((e && e.message) || e),
+        ...((e && e.fields) || {}),
         stack: ((e && e.stack) || '').split('\n').slice(0, 6),
       }) + '\n',
     )
@@ -909,6 +922,8 @@ function installCliLogger() {
         process.stdout.write(
           JSON.stringify({
             error: String((e && e.message) || e),
+            // 错误对象可带 `fields`（见 wrap 的说明）：机器可读上下文别在信封里丢掉
+            ...((e && e.fields) || {}),
             stack: ((e && e.stack) || '').split('\n').slice(0, 6),
           }) + '\n',
         )

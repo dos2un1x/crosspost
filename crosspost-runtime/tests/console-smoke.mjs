@@ -1330,6 +1330,16 @@ try {
       recGrid === 0 || recKeys.includes('平台推送'),
       recKeys.join('|').slice(0, 80),
     ])
+    // 「无生成/发布记录」警告与「暂无发布历史」必须**同进同出**（2026-10-08）：两者都由
+    // `rec.history` 是否为空决定，任何一侧写错（永远显示／永远不显示／只看列表不看详情）
+    // 都会在这里被抓到。空态用 `data-empty-history` 标注，因为 `#d-history li` 空态也渲染 1 条占位。
+    const warn = await page.locator('#d-record-grid [data-record-warning]').count()
+    const emptyHist = await page.locator('#d-history [data-empty-history]').count()
+    results.push([
+      '记录概览·空骨架警告与空历史一致',
+      warn > 0 === emptyHist > 0,
+      `warning=${warn} emptyHistory=${emptyHist}`,
+    ])
     await page.click('#d-close')
     await page.waitForTimeout(300)
 

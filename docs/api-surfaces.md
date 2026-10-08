@@ -63,7 +63,9 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 
 ## 2. CLI（`node crosspost-runtime/src/cli.mjs <method> [args…]`）
 
-输出恒为 **stdout 单行 JSON**；出错走统一包装（`{"error":…}`）。
+输出恒为 **stdout 单行 JSON**；出错走统一包装（`{"error":…}`，抛出的错误可带 `fields`
+把机器可读上下文一并下发，例如留存失败时的 `{ok:false, fileMoved:true, file, dir, recordError}` ——
+`fileMoved=true` 表示**文件已经就位、只有记录没写**，重跑同一条命令即可补录）。
 **54 个方法**，按域分组：
 
 | 域          | 方法                                                                                                                                                                                        |

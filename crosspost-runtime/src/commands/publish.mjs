@@ -233,7 +233,23 @@ export async function runArchiveArticle(req) {
   cur.file = dest
   cur.history = cur.history || []
   cur.history.push({ action: req.restore ? 'restore' : 'archive', at: new Date().toISOString() })
-  upsertRecord(cur)
+  try {
+    upsertRecord(cur)
+  } catch (e) {
+    // 与留存同一条纪律（见 runRetainArticle）：文件已移动，不回滚；把"记录没写成功"如实报出来，
+    // 让调用方看到的是可执行的下一步（重跑本命令补录），而不是一句孤零零的 EPERM。
+    const msg = String((e && e.message) || e)
+    const err = new Error(`记录写入失败（文件已移动到 ${dest}，需重跑本命令补录）: ${msg}`)
+    err.fields = {
+      ok: false,
+      id: req.id,
+      status: cur.status,
+      file: dest,
+      fileMoved: true,
+      recordError: msg,
+    }
+    throw err
+  }
   return { ok: true, id: req.id, status: cur.status, file: dest }
 }
 
@@ -249,20 +265,34 @@ export async function runRetainArticle(req) {
   // 一条 title/slot/date 全空的记录，Console 留存库里那一行是空白。
   const parsed = parseDraftFile(found.file)
   if (!parsed) return { error: `草稿解析失败: ${req.id}` }
-  const cur = ensureDraftRecord(parsed)
-  cur.status = 'retained'
-  cur.dir = dir // 2026-08-30 脏数据修复：留存记录须带 dir（rejected/risk），供 scanAndList 顶层排除
-  cur.retainedDir = dir
-  cur.retainedReason = req.reason || null
-  cur.file = dest
-  cur.history = cur.history || []
-  cur.history.push({
-    action: 'retain',
-    dir,
-    reason: req.reason || null,
-    at: new Date().toISOString(),
-  })
-  upsertRecord(cur)
+  // 整段记录写入都在 try 里：失败点不止最后那次 upsert —— 无记录时 `ensureDraftRecord` 会先建记录，
+  // 那一步同样会写盘（实测：把 state 目录做成不可写时，异常就是在 `ensureDraftRecord` 抛的）。
+  try {
+    const cur = ensureDraftRecord(parsed)
+    cur.status = 'retained'
+    cur.dir = dir // 2026-08-30 脏数据修复：留存记录须带 dir（rejected/risk），供 scanAndList 顶层排除
+    cur.retainedDir = dir
+    cur.retainedReason = req.reason || null
+    cur.file = dest
+    cur.history = cur.history || []
+    cur.history.push({
+      action: 'retain',
+      dir,
+      reason: req.reason || null,
+      at: new Date().toISOString(),
+    })
+    upsertRecord(cur)
+  } catch (e) {
+    // 记录写不进去时**不回滚文件移动**：留存的目的是让它离开自动发布路径，回滚等于把它送回
+    // `drafts/` 顶层（下一次生成可能又把它当成待发布稿）。但也不能像以前那样只把异常抛出去——
+    // 调用方看到的是一句 EPERM，而**状态是"文件已留存、记录没写"**，面板上则表现为"这篇没发过"。
+    // 这里把两件事一起说清：文件已在 `<dir>/`，重跑同一条命令即可补写记录（`findDraftFile`
+    // 会到子目录里找到它，第二次只有"补记录"这一件事要做）。
+    const msg = String((e && e.message) || e)
+    const err = new Error(`记录写入失败（文件已移入 ${dir}/，需重跑本命令补录）: ${msg}`)
+    err.fields = { ok: false, id: req.id, dir, file: dest, fileMoved: true, recordError: msg }
+    throw err
+  }
   return { ok: true, id: req.id, status: 'retained', dir, file: dest, reason: req.reason || null }
 }
 

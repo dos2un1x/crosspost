@@ -214,7 +214,14 @@ function renderTable(list) {
       <td class="cell-style">${escapeHtml(a.style || '—')}</td>
       <td>${wechatCell}</td>
       <td class="matrix-col">${renderMatrix(a.platforms || {}, a.status)}</td>
-      <td><span class="badge ${a.status}">${statusText(a.status)}</span></td>
+      <td><span class="badge ${a.status}">${statusText(a.status)}</span>${
+        // 记录空骨架（2026-10-08）：管线的记录写盘可能失败（引擎 state 目录不可写之类），
+        // 文件还在、记录没了 → 详情里"记录概览"只剩裸打分，看着像"这篇没发过"。
+        // 判据由引擎派生下发（recordHealth='empty' = 记录里一条 history 都没有），见 articles.mjs。
+        a.recordHealth === 'empty'
+          ? '<span class="no-record-badge" data-no-record="1" title="这条记录里没有任何生成/发布历史：可能是管线落库失败后由扫描登记的骨架（决策/审稿/AI 检测/发布历史都会缺）">⚠ 无记录</span>'
+          : ''
+      }</td>
       <td class="cell-date">${fmtTime(a.updatedAt)}</td>
     </tr>`
     })

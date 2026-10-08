@@ -340,3 +340,27 @@ docker compose ps                    # 容器在不在
 DSH 预设里的 CrossPost 插件启动前会先探测本机是否已有桥（探测到就不自拉起），
 避免自己变成那个"另一个实例"；判定与起桥逻辑见
 [`../preset/crosspost/README.md`](../preset/crosspost/README.md)。
+
+## 14. 文章详情里「记录概览」是空的（只剩打分与风险）
+
+**症状**：打开某篇的抽屉 →「发布记录」→「记录概览」只有「风险分类 / 质量评分 / 平台推送
+0 成功 · 0 失败 · 0 共推 / 通知 none」，发布历史写着「暂无发布历史」；文章列表里那一行的状态徽标
+旁会多一个 **⚠ 无记录**。
+
+**含义**：这条**记录是空骨架**——引擎的记录写盘失败了（常见：`project-state/<项目>/articles/`
+不可写，例如桥跑在没有该目录写权限的沙箱里），而文件本身已经就位。于是下一次扫描只按草稿
+frontmatter 登记一条骨架，决策、审稿、AI 检测、产物归档、平台结果全都缺。**注意这与"这篇没发过"
+是两回事**：稿子可能确实生成过、甚至已经发布过。
+
+**补录**（文件不需要再动，重跑对应的处置命令即可；重跑是幂等的）：
+
+```bash
+node crosspost-runtime/src/cli.mjs retainArticle --id=<草稿id> --dir=rejected --reason="<原原因>"
+```
+
+失败时命令会把状态说清楚：`{"error":"…记录写入失败（文件已移入 rejected/，需重跑本命令补录）…",
+"fileMoved":true,"recordError":"…"}` —— `fileMoved=true` 表示**文件已经移好了**，只有账没记，
+照上面重跑一次即可（`findDraftFile` 会到 `rejected/` 里找到它）。
+
+判据由引擎派生下发：`listArticles` / `getArticle` 的每条记录带 `recordHealth`（`ok` | `empty`，
+`empty` = 该记录一条 `history` 都没有）。Console 用它显示列表角标与抽屉里的警告行。

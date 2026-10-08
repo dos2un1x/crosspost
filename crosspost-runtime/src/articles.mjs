@@ -571,12 +571,38 @@ export function backfillRecordScore(rec, parsed) {
 }
 
 /**
+ * 记录健康度（**派生值，不落盘**）—— 回答"这条记录里到底有没有留下过程"。
+ *
+ * 为什么需要它：管线的记录写盘是会失败的（实测踩到：`retainArticle` 已经把文件移进
+ * `drafts/rejected/`，但写 `project-state/<项目>/articles/<id>.json.tmp` 报 `EPERM`——
+ * state 目录在调用方沙箱之外，且当时没有审批通道）。文件移走了、记录没写，于是下一次
+ * `scanAndList()` 只按 frontmatter 登记一条骨架（`history: []`、`notify: none`、
+ * `platforms: {}`、无 `aiDetect`/`decision`/`review`）。面板上那条"记录概览"只剩
+ * 「风险分类 / 质量评分 / 平台推送 0·0·0 / 通知 none」——**看着像"这篇没发过"，实际是
+ * "过程没记下来"**，两者在复盘时是完全不同的结论。
+ *
+ * 判据故意取得很窄：**没有 history 就是 empty**。有 history 的记录，无论成败都留下了过程；
+ * 没有的，就只能说"不知道"——所以 `empty` 的含义是"无生成/发布记录"，不是"这篇有问题"。
+ * 真正的管线稿第一次落盘就会带 `draft-only` 这类条目，所以正常产出不会命中它。
+ */
+export function recordHealth(rec) {
+  const history = Array.isArray(rec && rec.history) ? rec.history : []
+  return {
+    health: history.length ? 'ok' : 'empty',
+    entries: history.length,
+  }
+}
+
+/**
  * 扫描草稿目录 + 合并记录 → 列表（倒序）。
  * 无记录的草稿自动登记为 draft；无文件的记录标 hasFile:false（已删除/归档）。
  * 2026-08-22：记录缺评分时从 frontmatter 回填（一键生成草稿评分入库）。
  *
  * 2026-09-25：原先的 `{dir:'calendar'}` 子目录扫描（日历流水线草稿）随日历模块一并删除。
  * 留存/归档仍各有专属库与专属扫描函数（listRetained / listArchive），不经这里。
+ *
+ * 2026-10-08：每行带上派生字段 `recordHealth`（见 `recordHealth()`）。列表与详情都必须能被
+ * 一眼看出"这条记录是空骨架"，否则落库失败只会在面板上表现为"这篇没发过"。
  */
 export function scanAndList() {
   const records = new Map(listRecords().map((r) => [r.id, r]))
@@ -599,7 +625,7 @@ export function scanAndList() {
         records.set(rec.id, rec)
       }
       seen.add(rec.id)
-      out.push({ ...rec, hasFile: true })
+      out.push({ ...rec, hasFile: true, recordHealth: recordHealth(rec).health })
     }
   }
   for (const rec of records.values()) {
@@ -609,7 +635,7 @@ export function scanAndList() {
     // 仅靠 status 区分；若不加此判断，113 条 archived/retained 记录会以 hasFile:false
     // 泄漏进文章列表，污染 stats/平台统计/栏目下拉。归档/留存各有专属库，文章模块不展示。
     if (rec.status === 'archived' || rec.status === 'retained') continue
-    out.push({ ...rec, hasFile: false })
+    out.push({ ...rec, hasFile: false, recordHealth: recordHealth(rec).health })
   }
   // 2026-09-01 排序修正：按生成时间（createdAt，缺省 updatedAt/date）倒序——最后生成的在最前。
   // 原 date 倒序 + id 倒序在同日多篇时按 id 乱排（tips→noon→morning…看似随机）。

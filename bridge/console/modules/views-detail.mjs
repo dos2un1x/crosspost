@@ -292,6 +292,24 @@ function renderRecordGrid(rec) {
   if (!rec)
     return '<div class="rg-item"><span class="k">尚未发布</span><div class="v">这篇文章还没有推送记录。</div></div>'
   const items = []
+  // 记录空骨架警告（2026-10-08）：`recordHealth` 由引擎派生下发（'empty' = 记录里一条 history 都没有）。
+  // 为什么必须在最前面：这种记录只有"打分 + 风险"是填的，其余（决策/审稿/AI 检测/产物/微信/平台/通知）
+  // 全为空，肉眼看上去像"这篇没发过"；实际上常见成因是**落库失败**（实测：retainArticle 已把文件移进
+  // drafts/rejected/，但写 project-state/<项目>/articles/<id>.json.tmp 报 EPERM），
+  // 下一次 scanAndList 只按 frontmatter 登记了一条骨架。缺 history 时兜底用本地判据（同一个含义）。
+  const noHistory = rec.recordHealth
+    ? rec.recordHealth === 'empty'
+    : !(Array.isArray(rec.history) && rec.history.length)
+  if (noHistory) {
+    items.push(
+      '<div class="rg-item rg-warn" data-record-warning="1"><span class="k">⚠ 无生成/发布记录</span>' +
+        '<div class="v" style="font-size:11.5px;line-height:1.6">' +
+        '这条记录里没有任何生成或发布历史：决策、审稿、AI 检测、产物归档、平台结果都会缺。' +
+        '<br>常见成因是<strong>管线那一步的记录没写成功</strong>（例如引擎 state 目录不可写），文件已就位、账没记；' +
+        '重跑一次对应的处置命令（如 <code>retainArticle</code>）即可补录，文件不需要再动。' +
+        '</div></div>',
+    )
+  }
   // 风险分类（2026-08-20）：显示 + 人工修改（保存 /proxy/set-risk）
   const curRisk = rec.risk || 'unclassified'
   items.push(
@@ -383,8 +401,10 @@ function renderRecordGrid(rec) {
 }
 
 function renderTimeline(rec) {
+  // `data-empty-history` 是给冒烟用的稳定判据（2026-10-08）：`#d-history li` 空态也渲染 1 条占位，
+  // 靠"条数"分不出"有历史"和"没历史"，于是"记录概览的警告"与"发布历史空"无法互相校验。
   if (!rec || !rec.history || !rec.history.length)
-    return '<li class="partial" style="color:var(--ink-faint)">暂无发布历史</li>'
+    return '<li class="partial" data-empty-history="1" style="color:var(--ink-faint)">暂无发布历史</li>'
   return rec.history
     .map((h) => {
       const cls = h.action === 'dryRun' ? 'partial' : h.failed && h.failed.length ? 'partial' : 'ok'

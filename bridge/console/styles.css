@@ -881,6 +881,25 @@ tbody tr:last-child td {
 .rg-item .v a {
   color: var(--accent);
 }
+/* 记录空骨架警告（2026-10-08）：跨列占满 + 琥珀色描边，避免与普通信息卡混在一起看漏 */
+.rg-item.rg-warn {
+  grid-column: 1 / -1;
+  border-color: var(--partial);
+  background: var(--partial-bg);
+}
+.rg-item.rg-warn .k {
+  color: var(--partial);
+}
+/* 文章列表里的"无记录"角标：与状态徽标同行，只在记录是空骨架时出现 */
+.no-record-badge {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--partial);
+  color: var(--partial);
+  white-space: nowrap;
+}
 
 .sec-title {
   font-size: 13px;
