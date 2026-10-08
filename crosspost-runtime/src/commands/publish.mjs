@@ -957,6 +957,20 @@ export async function runPublishArticle(req) {
   const wechatStatus = summary.wechat.status
   const platformOk = okList.length
   const platformTotal = platformOk + failList.length
+  /**
+   * 主字段补丁：**显式传了就用新的，没传就沿用原记录**（2026-10-08）。
+   *
+   * 为什么需要：发布路径是**重建**一个 record 对象再落盘（不是 patch），而下面几处原本写成
+   * `...(req.decision !== undefined ? {decision: req.decision} : {})` —— 看着像"未传保持原值"，
+   * 实际是"未传就把这个键整个丢掉"。于是 Console 里点一次「重推到所选平台」（它只传
+   * id/style/platforms/wechat/concurrency/manual），记录里的 `decision`/`review`/`aiDetect`
+   * 会被静默抹掉：抽屉「记录概览」里那三行（编辑决策 / 独立审稿 / AI 检测）随发布一起消失。
+   * 实测就是这条把刚补录的快照吃掉的。
+   *
+   * `undefined` 在 `JSON.stringify` 落盘时会被略去，所以"两个都没有"仍是"没有这个键"。
+   */
+  const keepPrev = (passed, stored) => (passed !== undefined ? passed : stored)
+
   if (dryRun) {
     // dryRun（渲染测试）：不覆盖已有发布主字段,仅追加 history
     // C-2（2026-08-26）：dryRun 渲染 HTML 归档到文章库目录 <id>.dry.html，便于人工复盘/发布前检查
@@ -981,9 +995,9 @@ export async function runPublishArticle(req) {
       wechat: (prev && prev.wechat) || summary.wechat,
       platforms: (prev && prev.platforms) || summary.platforms,
       // C-3（2026-08-26）：编辑决策/独立审稿快照（AI 经 publish_article 传入，未传保持原记录）
-      ...(req.decision !== undefined ? { decision: req.decision } : {}),
-      ...(req.review !== undefined ? { review: req.review } : {}),
-      ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
+      decision: keepPrev(req.decision, prev && prev.decision),
+      review: keepPrev(req.review, prev && prev.review),
+      aiDetect: keepPrev(req.aiDetect, prev && prev.aiDetect),
       risk: parsed.risk || (prev && prev.risk) || 'unclassified',
       score:
         score === null
@@ -1069,9 +1083,9 @@ export async function runPublishArticle(req) {
     date: parsed.date,
     style,
     // C-3（2026-08-26）：编辑决策/独立审稿快照（AI 经 publish_article 传入，未传保持原记录）
-    ...(req.decision !== undefined ? { decision: req.decision } : {}),
-    ...(req.review !== undefined ? { review: req.review } : {}),
-    ...(req.aiDetect !== undefined ? { aiDetect: req.aiDetect } : {}),
+    decision: keepPrev(req.decision, prev && prev.decision),
+    review: keepPrev(req.review, prev && prev.review),
+    aiDetect: keepPrev(req.aiDetect, prev && prev.aiDetect),
     risk: parsed.risk || (prev && prev.risk) || 'unclassified',
     score:
       score === null
