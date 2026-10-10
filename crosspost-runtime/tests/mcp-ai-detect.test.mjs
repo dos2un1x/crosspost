@@ -275,12 +275,13 @@ test('MCP：ai_detect record=true 把判定写进文章记录（未发布稿也�
 
     // 不带 record 时一个字节都不写（避免"顺手改簿记"）
     const before = JSON.stringify(rec)
-    const r2 = toolResult(
-      await s.send('tools/call', { name: 'ai_detect', arguments: { id } }),
-    )
+    const r2 = toolResult(await s.send('tools/call', { name: 'ai_detect', arguments: { id } }))
     assert.equal(r2.isError, false, r2.text)
     assert.equal(r2.json.recorded, undefined, '没要记账就不该回 recorded')
-    assert.equal(JSON.stringify(JSON.parse(fs.readFileSync(path.join(ARTICLES, `${id}.json`), 'utf8'))), before)
+    assert.equal(
+      JSON.stringify(JSON.parse(fs.readFileSync(path.join(ARTICLES, `${id}.json`), 'utf8'))),
+      before,
+    )
 
     // 裸文本没有文章记录 → 明确报错，别静默不记
     const bad = toolResult(
