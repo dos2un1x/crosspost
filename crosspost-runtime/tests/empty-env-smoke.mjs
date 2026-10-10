@@ -58,10 +58,16 @@ const HTTP_PORT = WS_PORT + 1
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-empty-env-'))
 const localRoot = path.join(sandbox, '.local')
 const cfgFile = path.join(sandbox, 'config.json')
+/* 沙箱 paths.json + 自己的 token 文件：**必须**，否则桥的 `ensureApiToken()` 会往
+ * 主检出的 `bridge/token.local` 写（`defaultPaths()` 不管 token，那是桥的私产）——
+ * 本冒烟的第 6 步正是断言"主工作区文件没被动过"，缺这条就会把自己写出来的文件判成违规。 */
+const pathsFile = path.join(sandbox, 'paths.json')
+const tokenFile = path.join(sandbox, 'token.local')
 
 const env = {
   CROSSPOST_LOCAL_ROOT: localRoot,
   CROSSPOST_CONFIG: cfgFile,
+  CROSSPOST_PATHS: pathsFile,
   CROSSPOST_DRAFTS_DIR: path.join(localRoot, 'drafts'),
   CROSSPOST_LOGS_DIR: path.join(localRoot, 'logs'),
   CROSSPOST_HISTORY_DIR: path.join(localRoot, 'history'),
@@ -99,6 +105,17 @@ try {
     setupOut ? `steps=${setupOut.steps.length}` : setup.err.slice(0, 200),
   )
   check('setup 生成数据目录', fs.existsSync(path.join(localRoot, 'drafts')))
+  // 补 tokenFile：`setup` 生成的 paths.json 不含它（token 是桥的私产），不补桥会去读写主检出
+  let pathsJson = {}
+  try {
+    pathsJson = JSON.parse(fs.readFileSync(pathsFile, 'utf8'))
+  } catch {
+    /* 文件不存在时下面断言会报出来 */
+  }
+  pathsJson.tokenFile = tokenFile
+  fs.mkdirSync(path.dirname(pathsFile), { recursive: true })
+  fs.writeFileSync(pathsFile, JSON.stringify(pathsJson, null, 2))
+  check('沙箱 paths.json 自备 token 文件', pathsJson.tokenFile === tokenFile, pathsJson.tokenFile)
   check(
     'setup 解析出沙箱数据根（未指向任何接入方目录）',
     !!(setupOut && setupOut.localRoot === localRoot),
@@ -277,6 +294,7 @@ try {
     afterToken === beforeToken,
     `mtime ${beforeToken} → ${afterToken}`,
   )
+  check('桥用的是沙箱自备的 token 文件', fs.existsSync(tokenFile), tokenFile)
 } finally {
   if (bridge) {
     bridge.kill('SIGTERM')
