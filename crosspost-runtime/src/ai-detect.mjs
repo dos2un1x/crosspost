@@ -527,7 +527,10 @@ function ledgerBuckets(raw, period) {
  * 抢不到就**降级为无锁写入**并留一行 stderr：宁可计数可能少一笔，也不能因为锁文件残留
  * 让检测永远跑不动（陈旧锁最多多等 `LEDGER_LOCK_TIMEOUT_MS`）。
  */
-const LEDGER_LOCK_TIMEOUT_MS = 3000
+/* 等待上限可由 env 覆盖（默认 3s）：生产里台账写入是毫秒级、3s 足够；但**并发压力测试**
+ * （4 个进程各写 25 笔）在满载机器上会超过 3s 抢不到锁 → 触发"降级无锁" → 少记一笔。
+ * 那是调度抖动，不是锁失效 —— 所以给它一条可调的窗口，而不是把默认值放大。 */
+const LEDGER_LOCK_TIMEOUT_MS = Number(process.env.CROSSPOST_LEDGER_LOCK_TIMEOUT_MS) || 3000
 const LEDGER_LOCK_STALE_MS = 10000
 
 function ledgerLockPath() {

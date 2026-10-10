@@ -69,6 +69,7 @@ npm -C crosspost-runtime run test:lowcpu   # 并发降到 2（默认吃满所有
 | `npm run test:smoke:fresh`      | **干净 clone**：照 README 两步装起来，再真起一次桥                                                                | 网络（2–6 分钟）         |
 | `npm run test:docker`           | 容器形态（`--full` 更全）                                                                                         | Docker                   |
 | `npm run test:extension`        | 扩展选项页的界面契约（三态读数 / 分组 / 三色 / 不横向溢出）                                                       | 真浏览器（playwright）   |
+| `npm run test:report`           | 跑一遍全量测试并出**耗时报表**（哪个文件/哪条用例在吃时间、与上次对比 → `.local/reports/test-timing/`）           | —                        |
 | `npm run docs:screenshots`      | 重新生成 README「界面」一节引用的截图（Console 八模块 + 扩展选项页；隔离沙箱 + 占位符替换 → `docs/images/*.png`） | 真浏览器（playwright）   |
 | `npm run verify:oob`            | **开箱即用**：空环境 / 文档自足 / 发布物洁净 / 本机自检（`--full` 加干净 clone 与容器）                           | `--full` 需网络与 Docker |
 | `npm run verify:acceptance`     | 本机生产状态的端到端核对（草稿、项目、桥、调度…）                                                                 | 本机生产环境             |

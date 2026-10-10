@@ -44,7 +44,8 @@
     "test:smoke:production": "node crosspost-runtime/tests/production-path-smoke.mjs",
     "test:extension": "node crosspost-runtime/tests/extension-options-smoke.mjs",
     "verify:scheduled": "node crosspost-runtime/tests/verify-scheduled-run.mjs",
-    "test:scoped": "node crosspost-runtime/src/scripts/scoped-tests.mjs"
+    "test:scoped": "node crosspost-runtime/src/scripts/scoped-tests.mjs",
+    "test:report": "node crosspost-runtime/src/scripts/test-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

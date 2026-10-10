@@ -19,7 +19,14 @@ const LOCAL = path.join(TMP, 'local')
 fs.mkdirSync(LOCAL, { recursive: true })
 const AI_DETECT = fileURLToPath(new URL('../src/ai-detect.mjs', import.meta.url))
 
-const env = { ...process.env, CROSSPOST_LOCAL_ROOT: LOCAL, CROSSPOST_PROJECT: '' }
+const env = {
+  ...process.env,
+  CROSSPOST_LOCAL_ROOT: LOCAL,
+  CROSSPOST_PROJECT: '',
+  /* 4 个进程同时抢一把锁：满载机器（套件 8 路并行）上 3s 的等待上限会被调度抖动顶穿，
+   * 触发"抢不到就降级无锁"→ 少记一笔 → 用例报红。这里给足窗口，被测的仍是**真锁**。 */
+  CROSSPOST_LEDGER_LOCK_TIMEOUT_MS: '20000',
+}
 const ledgerPath = path.join(LOCAL, 'ai-detect-usage.json')
 const readCalls = () => {
   if (!fs.existsSync(ledgerPath)) return 0
