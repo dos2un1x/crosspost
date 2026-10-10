@@ -39,6 +39,8 @@
  *   node … --list                                                       # 只列选择结果，不执行
  *   node … --json                                                       # 机器可读
  *   node … --no-lint                                                    # 跳过 eslint/prettier（只跑测试）
+ *   node … --quick                                                      # 编辑期内循环：只跑选中的测试
+ *                                                                       # （不跑 typecheck / core / eslint / prettier）
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -62,6 +64,8 @@ const WITH_SMOKE = flag('--with-smoke')
 const LIST_ONLY = flag('--list')
 const AS_JSON = flag('--json')
 const NO_LINT = flag('--no-lint')
+/** 只跑选中的测试（不跑 typecheck / core / eslint / prettier）—— 编辑期的内循环 */
+const QUICK = flag('--quick')
 const SINCE = opt('--since')
 const EXPLICIT = opt('--files')
 
@@ -296,6 +300,7 @@ export function selectScoped(
   const coreSelected = new Set()
   const relevantSmoke = new Set()
   const unattributed = []
+  const viaDeps = [] // 反向闭包命中的（改动文件 → 它依赖的、被测试引用的模块）
   const explain = new Map() // 改动文件 → 命中的测试（含路径）
   const tooWide = [] // 想放大但枢纽太大（> amplifyMax）→ 只提示，不自动跑
   let full = false
@@ -351,7 +356,22 @@ export function selectScoped(
         tooWide.push({ hub: rel(hubFile), count: deps.length })
       }
     }
-    if (!hit && isSource(c)) unattributed.push(rel(c))
+    if (!hit && isSource(c)) {
+      /* 反向闭包（2026-10-10）：这个文件**没有任何测试引用它** —— Console/UI 与部分 bridge
+       * 模块都是这样（它们的"测试"是 console-smoke 那种要浏览器+真桥的冒烟，默认不跑）。
+       * 与其直接回退全量，先把它**依赖的模块**对应的测试拉回来：改了渲染，渲染依赖的
+       * 分组/排序/文案这些纯函数的测试最可能接住回归。仍拉不到才回退全量。 */
+      const deps = [...directRefs(c)]
+      const hitDeps = []
+      for (const [test, refs] of map) {
+        const via = deps.find((d) => refs.has(d))
+        if (!via) continue
+        addHit(test, `经依赖 ${rel(via)}`)
+        hitDeps.push(rel(via))
+      }
+      if (hitDeps.length) viaDeps.push(`${rel(c)} → ${[...new Set(hitDeps)].join('、')}`)
+      else unattributed.push(rel(c))
+    }
   }
 
   if (unattributed.length) {
@@ -368,6 +388,7 @@ export function selectScoped(
     full,
     reasons,
     unattributed,
+    viaDeps,
     explain,
     hubs: [...hubs].map(rel).sort(),
     tooWide,
@@ -434,6 +455,7 @@ export function main() {
     console.log(`\n按改动范围跑测试  （改了 ${changed.length} 个文件）`)
     for (const c of changed) console.log(`  · ${rel(c)}`)
     if (plan.reasons.length) for (const r of plan.reasons) console.log(`  ! ${r}`)
+    for (const v of plan.viaDeps || []) console.log(`  ~ 没被测试直接引用，按其依赖选取：${v}`)
     if (plan.full) {
       console.log('→ 结论：**跑全量**（上方原因）')
     } else {
@@ -468,7 +490,23 @@ export function main() {
     return r.status === 0
   }
 
-  if (!NO_LINT && codeChanged.length) {
+  if (QUICK) {
+    // 编辑期内循环：只跑选中的测试。整条链（typecheck/core/eslint/prettier）留给提交前那一档。
+    const runtimeTargets = WITH_SMOKE ? [...plan.selected, ...plan.relevantSmoke] : plan.selected
+    const targets = plan.full ? unit : runtimeTargets
+    if (targets.length) {
+      run(
+        process.execPath,
+        ['--test', ...targets],
+        RUNTIME,
+        plan.full
+          ? `quick · runtime 全量（${targets.length} 个文件）`
+          : `quick · runtime 选中（${targets.length} 个文件）`,
+      )
+    } else {
+      console.log('\n✔ quick：没有需要跑的测试')
+    }
+  } else if (!NO_LINT && codeChanged.length) {
     run('npx', ['eslint', ...codeChanged.map(rel)], REPO, 'eslint（只查改动的文件）')
     run('npx', ['prettier', '--check', ...codeChanged.map(rel)], REPO, 'prettier（只查改动的文件）')
   }
@@ -476,7 +514,9 @@ export function main() {
     console.log('\n（只有文档改动：跳过测试，必要时跑 prettier --check）')
   }
 
-  if (plan.full) {
+  if (QUICK) {
+    // 上面已经跑完，这里什么都不做
+  } else if (plan.full) {
     run('npm', ['run', '--silent', 'typecheck'], REPO, 'typecheck')
     run('npm', ['run', '--silent', 'test:core'], REPO, 'core 全量（vitest）')
     run(process.execPath, ['--test', ...unit], RUNTIME, `runtime 全量（${unit.length} 个文件）`)
@@ -513,9 +553,16 @@ export function main() {
     console.log(`\n✖ 失败：${failures.join('、')}（共 ${total}s）`)
     process.exit(1)
   }
-  console.log(
-    `\n✔ 按范围跑完（共 ${total}s）—— 打 tag / 发布前记得跑全量：npm run check && npm run verify:acceptance`,
-  )
+  if (QUICK) {
+    console.log(
+      `\n✔ quick 跑完（共 ${total}s）—— **没跑** typecheck / core / eslint / prettier；` +
+        '提交前跑同一命令但不带 --quick',
+    )
+  } else {
+    console.log(
+      `\n✔ 按范围跑完（共 ${total}s）—— 打 tag / 发布前记得跑全量：npm run check && npm run verify:acceptance`,
+    )
+  }
 }
 
 if (isEntry) main()

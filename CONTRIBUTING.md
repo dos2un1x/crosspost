@@ -35,10 +35,29 @@ npm run check          # typecheck → lint → format:check → core 测试 →
 | `test:core`    | vitest + 覆盖率门槛                               |
 | `test:runtime` | `node --test` + 覆盖率门槛                        |
 
-改完之后**按改动范围**先跑相关的那些（比全量快得多），提交前再跑一次全量：
+改完之后**按改动范围**先跑相关的那些（比全量快得多），提交前再跑一次全量。三档分工：
 
 ```bash
-npm run test:scoped -- <改过的文件…>    # 依据测试文件自身的 import 图推导"该跑哪些"
+# 编辑期：只跑选中的测试（秒级）
+npm run test:scoped -- --quick
+
+# 提交前：选中的测试 + typecheck / core / eslint / prettier
+npm run test:scoped
+
+# 打 tag / 发布前：全量
+npm run check && npm run verify:acceptance
+```
+
+`test:scoped` 的选择依据是**测试文件自身的 import 图**（含传递闭包、spawn 型测试里的路径字符串），
+不维护映射表。改的文件**没有任何测试直接引用**时（Console/UI 模块、部分 bridge 模块都这样），
+它会按**反向闭包**拉回"该文件依赖的模块所对应的测试"（例：改 `views-reports.mjs` → 选中
+`report-series` / `console-utils` 等测试）；拉不到才回退全量，选中的测试 ≥70% 时也直接全量。
+
+`--quick` 明确**不跑** typecheck / core / eslint / prettier —— 它只回答"这一改有没有把单测跑红"，
+收尾会再提示一次。跑全量时如果想让机器还能干别的活：
+
+```bash
+npm -C crosspost-runtime run test:lowcpu   # 并发降到 2（默认吃满所有核）
 ```
 
 ## 3. 其它验证入口

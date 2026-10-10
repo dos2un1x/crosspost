@@ -539,17 +539,22 @@ async function pollGenerate(provider, taskId, { onProgress } = {}) {
  *
  * @param {object} provider resolveGenerateProvider() 的返回值
  * @param {{slot?:string,keyword?:string,projectId?:string|null,onProgress?:(p:object)=>void,
- *          allowBusyRetry?:boolean}} [opts]
+ *          allowBusyRetry?:boolean,busyRetryBaseMs?:number}} [opts]
+ *   `busyRetryBaseMs` 只给测试用：退避基数默认 `BUSY_RETRY_BASE_MS`（2s，指数退避 + 抖动）。
+ *   真实退避在测试里要 2+4+8 ≈ 14s，纯属把测试按在时钟上；传 50ms 后断言完全不变
+ *   （仍然数 POST 次数、仍然要求最终如实上报 busy）。
  */
 export async function callGenerateProvider(
   provider,
-  { slot, keyword, projectId, onProgress, allowBusyRetry = false } = {},
+  { slot, keyword, projectId, onProgress, allowBusyRetry = false, busyRetryBaseMs } = {},
 ) {
+  const baseMs =
+    Number.isFinite(busyRetryBaseMs) && busyRetryBaseMs >= 0 ? busyRetryBaseMs : BUSY_RETRY_BASE_MS
   let post = await postGenerate(provider, { slot, keyword, projectId })
   for (let attempt = 0; post.error === 'generate_provider_busy'; attempt++) {
     if (!allowBusyRetry || attempt >= BUSY_RETRY_MAX) break
     // 退避带抖动：避免多条任务在同一刻齐步重试、把刚空出的并发位再次挤满
-    const wait = BUSY_RETRY_BASE_MS * 2 ** attempt + Math.floor(Math.random() * 500)
+    const wait = baseMs * 2 ** attempt + Math.floor(Math.random() * 500)
     if (typeof onProgress === 'function') {
       try {
         onProgress({

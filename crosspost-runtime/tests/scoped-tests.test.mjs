@@ -201,3 +201,35 @@ test('⑥ 工具自身的入口守卫 + core 测试能被发现（两个都踩�
     'core 测试应只含 *.test.ts(x)',
   )
 })
+
+test('⑦ selectScoped：没被测试引用的文件 → 按其**依赖**拉回测试，而不是直接全量', () => {
+  // 场景就是 Console/UI 类的真实形态：`views-reports.mjs` 没有任何 `*.test.mjs` 直接引用它
+  // （它的"测试"是 console-smoke 那种要浏览器+真桥的冒烟），但它依赖的纯函数模块有测试。
+  const dir = tmpbox('revdeps')
+  const mk = (n, body = '// x\n') => {
+    const p = path.join(dir, n)
+    fs.writeFileSync(p, body)
+    return p
+  }
+  const dep = mk('report-series.mjs')
+  const ui = mk('views-reports.mjs', `import './report-series.mjs'\n`)
+  const depTest = mk('report-series.test.mjs', `import './report-series.mjs'\n`)
+  const other = mk('other.test.mjs')
+  const unit = [depTest, other]
+  const map = new Map([
+    [depTest, new Set([depTest, dep])],
+    [other, new Set([other])],
+  ])
+
+  const r = tool.selectScoped([ui], map, { unit, smoke: [], coreUnit: [] })
+  assert.equal(r.full, false, '有依赖可依时不该回退全量')
+  assert.deepEqual(r.selected, [depTest], '应选中"依赖模块"的测试')
+  assert.match(r.viaDeps.join(' '), /views-reports\.mjs →/, '要说明是按依赖选的（否则看不出理由）')
+  assert.match(r.explain.get(ui).via, /经依赖/)
+
+  // 依赖**也没人测**时，仍然回退全量（保守规则不能被这条放宽）
+  const lonely = mk('lonely-ui.mjs', `import './no-test-dep.mjs'\n`)
+  mk('no-test-dep.mjs')
+  const r2 = tool.selectScoped([lonely], map, { unit, smoke: [], coreUnit: [] })
+  assert.equal(r2.full, true, '依赖也没测试 → 还是全量')
+})

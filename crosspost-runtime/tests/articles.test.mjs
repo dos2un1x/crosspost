@@ -34,9 +34,63 @@ const cls = await import(new URL('../src/commands/classify.mjs', import.meta.url
 const {
   investmentRegex,
   investmentSignalConfig,
+  classifyArticles,
   DEFAULT_INVESTMENT_STRONG,
   DEFAULT_INVESTMENT_WEAK,
 } = cls
+const { runPublishArticle, listRetained } = await import(
+  new URL('../src/commands/publish.mjs', import.meta.url).href
+)
+
+/**
+ * 进程内跑一次 `runPublishArticle`，并临时把指定环境变量切到沙箱值。
+ *
+ * 为什么不再 spawn CLI：单次启动引擎 ≈ 1.1~1.9s，**几乎全是依赖加载**。下面两个用例原先
+ * 一共 spawn 了 8 次（13.6s），占了本文件 22.6s 的大头。进程内调用断言逐字不变。
+ *
+ * 语义为何与 spawn 等价：
+ *   · 草稿/簿记目录与配置都是**每次调用时解析**的（`getDraftsDir`/`getArticlesDir` 读 env；
+ *     `readConfig` 按 **路径 + mtime** 缓存，所以进程内切 `CROSSPOST_CONFIG` 不串味）；
+ *   · 这些用例本来就不依赖 argv 解析与派发域纠正，断言的是 `runPublishArticle` 的行为。
+ * CLI 那条路径仍由下面的「risk 命中拒绝发布」（spawn，断言文件被移进 risk/ + 报错）
+ * 与 `surface-contract.test.mjs`（方法 ↔ 工具映射）守着。
+ */
+function withEnvPatch(envPatch, fn) {
+  const saved = new Map()
+  for (const [k, v] of Object.entries(envPatch)) {
+    saved.set(k, process.env[k])
+    process.env[k] = v
+  }
+  const restore = () => {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+  let result
+  try {
+    result = fn()
+  } catch (e) {
+    restore()
+    throw e
+  }
+  // 异步的调用方要等 promise 落定再还原：`finally` 会在返回前就执行，
+  // 那样 `runPublishArticle` 内部读到的会是**还原后**的环境（实测就是这么挂的）。
+  if (result && typeof result.then === 'function') return result.finally(restore)
+  restore()
+  return result
+}
+
+async function publishInProcessRaw(req, envPatch) {
+  return withEnvPatch(envPatch, () => runPublishArticle(req))
+}
+
+/** 同上，但**要求成功**（带 error 即断言失败）——绝大多数用例的语义 */
+async function publishInProcess(req, envPatch) {
+  const out = await publishInProcessRaw(req, envPatch)
+  assert.equal(out.error, undefined, `publishArticle 报错: ${JSON.stringify(out)}`)
+  return out
+}
 
 function writeDraft(name, title) {
   const dir = getDraftsDir()
@@ -155,30 +209,21 @@ test('scanAndList 跳过 rejected/ 子目录（低分放弃草稿不显示）', 
   assert.ok(!list.some((r) => r.id === '2026-08-20-noon-low'))
 })
 
-test('publishArticle 记录 frontmatter score；req.score 显式优先；无 score 不写字段', () => {
+test('publishArticle 记录 frontmatter score；req.score 显式优先；无 score 不写字段', async () => {
   const dir = path.join(TMP, 'cli-articles')
   fs.mkdirSync(dir, { recursive: true })
-  const env = { ...process.env, CROSSPOST_ARTICLES_DIR: dir, CROSSPOST_DRAFTS_DIR: getDraftsDir() }
-  const run = (req) => {
-    const reqFile = path.join(TMP, 'req-' + Math.random() + '.json')
-    fs.writeFileSync(reqFile, JSON.stringify(req))
-    const r = spawnSync(process.execPath, [CLI, 'publishArticle', reqFile], {
-      env,
-      encoding: 'utf8',
-    })
-    assert.equal(r.status, 0, r.stderr)
-    return JSON.parse(r.stdout)
-  }
+  const env = { CROSSPOST_ARTICLES_DIR: dir, CROSSPOST_DRAFTS_DIR: getDraftsDir() }
+  const run = (req) => publishInProcess(req, env)
   // 1) frontmatter score 自动提取
   const f1 = path.join(getDraftsDir(), '2026-08-20-tips-score.md') // 已有 score:82
-  const out1 = run({ file: f1, dryRun: true, wechat: false, platforms: [], notify: false })
+  const out1 = await run({ file: f1, dryRun: true, wechat: false, platforms: [], notify: false })
   assert.equal(out1.score, 82)
   let rec = JSON.parse(fs.readFileSync(path.join(dir, '2026-08-20-tips-score.json'), 'utf8'))
   assert.equal(rec.score.total, 82)
   assert.deepEqual(rec.score.dims, { 标题钩子: 13, 开头: 12 })
   assert.ok(rec.score.at)
   // 2) req.score 显式优先（覆盖 frontmatter）
-  const out2 = run({
+  const out2 = await run({
     file: f1,
     dryRun: true,
     wechat: false,
@@ -193,7 +238,7 @@ test('publishArticle 记录 frontmatter score；req.score 显式优先；无 sco
   assert.equal(rec.score.rewrites, 1)
   // 3) 无 score 的草稿不写 score 字段（兼容手动/历史）
   const f2 = path.join(getDraftsDir(), '2026-08-19-tips-old.md')
-  const out3 = run({ file: f2, dryRun: true, wechat: false, platforms: [], notify: false })
+  const out3 = await run({ file: f2, dryRun: true, wechat: false, platforms: [], notify: false })
   assert.equal(out3.score, null)
   rec = JSON.parse(fs.readFileSync(path.join(dir, '2026-08-19-tips-old.json'), 'utf8'))
   assert.equal(rec.score, undefined)
@@ -201,7 +246,7 @@ test('publishArticle 记录 frontmatter score；req.score 显式优先；无 sco
 
 // ── 默认推送平台解析（2026-08-20） ────────────────────
 
-test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组不推；douyin 剔除', () => {
+test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组不推；douyin 剔除', async () => {
   const dir = path.join(TMP, 'cli-articles2')
   fs.mkdirSync(dir, { recursive: true })
   // 平台清单来自**沙箱 config**（2026-09-20）：此前读真实 config.json，使用者一改默认平台
@@ -213,27 +258,17 @@ test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组�
     JSON.stringify({ platforms: { default: ['zhihu', 'csdn', 'douyin', 'weixin'] } }),
   )
   const env = {
-    ...process.env,
     CROSSPOST_CONFIG: cfg,
     CROSSPOST_ARTICLES_DIR: dir,
     CROSSPOST_DRAFTS_DIR: getDraftsDir(),
   }
-  const run = (req) => {
-    const reqFile = path.join(TMP, 'req-pf-' + Math.random() + '.json')
-    fs.writeFileSync(reqFile, JSON.stringify(req))
-    const r = spawnSync(process.execPath, [CLI, 'publishArticle', reqFile], {
-      env,
-      encoding: 'utf8',
-    })
-    assert.equal(r.status, 0, r.stderr)
-    return JSON.parse(r.stdout)
-  }
+  const run = (req) => publishInProcess(req, env)
   const f = path.join(getDraftsDir(), '2026-08-19-tips-old.md') // 无 score 草稿
 
   // 1) 不传 platforms → config.json platforms.default（= 上面那份沙箱配置）
-  run({ file: f, dryRun: true, wechat: false, platforms: [], notify: false })
+  await run({ file: f, dryRun: true, wechat: false, platforms: [], notify: false })
   // 显式传空数组 = 不推平台；不传字段 → 取配置
-  const outDefault = run({ file: f, dryRun: true, wechat: false, notify: false })
+  const outDefault = await run({ file: f, dryRun: true, wechat: false, notify: false })
   assert.deepEqual(
     outDefault.targetPlatforms,
     ['zhihu', 'csdn'],
@@ -241,7 +276,7 @@ test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组�
   )
 
   // 2) 显式 platforms 覆盖配置
-  const out2 = run({
+  const out2 = await run({
     file: f,
     dryRun: true,
     wechat: false,
@@ -251,11 +286,11 @@ test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组�
   assert.deepEqual(out2.targetPlatforms, ['zhihu', 'csdn'])
 
   // 3) 显式空数组 = 不推平台（仅微信）
-  const out3 = run({ file: f, dryRun: true, wechat: false, notify: false, platforms: [] })
+  const out3 = await run({ file: f, dryRun: true, wechat: false, notify: false, platforms: [] })
   assert.deepEqual(out3.targetPlatforms, [])
 
   // 4) douyin 显式传入也被剔除（铁律：自动链路永不推 douyin）
-  const out4 = run({
+  const out4 = await run({
     file: f,
     dryRun: true,
     wechat: false,
@@ -265,7 +300,7 @@ test('publishArticle 平台解析：显式 > config 默认 > 兜底；空数组�
   assert.deepEqual(out4.targetPlatforms, ['zhihu'])
 
   // 5) 去重
-  const out5 = run({
+  const out5 = await run({
     file: f,
     dryRun: true,
     wechat: false,
@@ -305,10 +340,12 @@ test('parseDraftFile 提取 frontmatter risk', () => {
   assert.equal(parseDraftFile(path.join(dir, '2026-08-20-noon-risklack.md')).risk, null)
 })
 
-test('publishArticle：risk 命中拒绝发布并自动留存 risk/；force 放行；record.risk 合并', () => {
+test('publishArticle：risk 命中拒绝发布并自动留存 risk/；force 放行；record.risk 合并', async () => {
   const dir = getDraftsDir()
   const env = { CROSSPOST_ARTICLES_DIR: path.join(TMP, 'cli-risk'), CROSSPOST_DRAFTS_DIR: dir }
-  const run = (req) => {
+  // 第 1 条**故意仍走 CLI（spawn）**：本文件其余 publishArticle 用例都改进程内了，
+  // 这条留下来守"argv + req 文件 + 派发"那条链（单次启动 ≈ 1.1s，只留一份）。
+  const runCli = (req) => {
     const reqFile = path.join(TMP, 'req-rk-' + Math.random() + '.json')
     fs.writeFileSync(reqFile, JSON.stringify(req))
     const r = spawnSync(process.execPath, [CLI, 'publishArticle', reqFile], {
@@ -318,15 +355,16 @@ test('publishArticle：risk 命中拒绝发布并自动留存 risk/；force 放�
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(r.stdout)
   }
+  const run = (req) => publishInProcessRaw(req, env)
   // 1) risk=ad 无 force → 拒绝 + 文件自动移入 risk/
   const f1 = path.join(dir, '2026-08-20-noon-riskad.md')
-  const out1 = run({ file: f1, wechat: false, platforms: [], notify: false })
+  const out1 = runCli({ file: f1, wechat: false, platforms: [], notify: false })
   assert.ok(out1.error && out1.error.includes('高风险类型'))
   assert.ok(!fs.existsSync(f1), '原文件已移走')
   assert.ok(fs.existsSync(path.join(dir, 'risk', '2026-08-20-noon-riskad.md')), '已留存至 risk/')
   // 2) force 放行（dryRun 不真推）→ 正常，record.risk 保留原值
   const f2 = path.join(dir, '2026-08-20-noon-riskboth.md')
-  const out2 = run({
+  const out2 = await run({
     file: f2,
     force: true,
     dryRun: true,
@@ -342,14 +380,14 @@ test('publishArticle：risk 命中拒绝发布并自动留存 risk/；force 放�
   assert.equal(rec.risk, 'ad,investment')
   // 3) 无 risk 草稿 → 正常，record.risk = unclassified（无 prev）
   const f3 = path.join(dir, '2026-08-20-noon-risklack.md')
-  const out3 = run({ file: f3, dryRun: true, wechat: false, platforms: [], notify: false })
+  const out3 = await run({ file: f3, dryRun: true, wechat: false, platforms: [], notify: false })
   assert.equal(out3.ok, true)
   rec = JSON.parse(
     fs.readFileSync(path.join(env.CROSSPOST_ARTICLES_DIR, '2026-08-20-noon-risklack.json'), 'utf8'),
   )
   assert.equal(rec.risk, 'unclassified')
   // 4) 合并：已有 prev.risk 的草稿再发布（无 risk）→ 保留 prev.risk
-  run({ file: f3, dryRun: true, wechat: false, platforms: [], notify: false })
+  await run({ file: f3, dryRun: true, wechat: false, platforms: [], notify: false })
   rec = JSON.parse(
     fs.readFileSync(path.join(env.CROSSPOST_ARTICLES_DIR, '2026-08-20-noon-risklack.json'), 'utf8'),
   )
@@ -395,7 +433,11 @@ test('listRetained 列出留存目录文章并解析 frontmatter', () => {
     path.join(dir, 'risk', '2026-08-20-noon-riskad.md'),
     '---\ntitle: 广告留存\nrisk: ad\n---\n内容',
   )
-  const out = runCliCmd(['listRetained'])
+  // 进程内调用导出的 listRetained()（原先 spawn 一次 = 1.1s 纯启动开销）
+  const out = withEnvPatch(
+    { CROSSPOST_ARTICLES_DIR: path.join(TMP, 'cli-risk'), CROSSPOST_DRAFTS_DIR: getDraftsDir() },
+    () => listRetained(),
+  )
   const items = out.retained || []
   const low = items.find((r) => r.id === '2026-08-20-noon-low')
   const risk = items.find((r) => r.id === '2026-08-20-noon-riskad')
@@ -474,7 +516,7 @@ test('retainedAction：restore 移回 drafts/、delete 删除、未知操作报�
   assert.ok(fs.existsSync(path.join(dir, 'risk', '2026-08-20-noon-riskpub.md')), '文件未被移动')
 })
 
-test('classifyArticles 规则初筛历史文章风险分类（零 token）', () => {
+test('classifyArticles 规则初筛历史文章风险分类（零 token）', async () => {
   const dir = getDraftsDir()
   fs.mkdirSync(dir, { recursive: true })
   // 历史草稿（标题命中关键词）
@@ -495,11 +537,8 @@ test('classifyArticles 规则初筛历史文章风险分类（零 token）', () 
     '---\ntitle: 技术解析文章\n---\n内容',
   )
   const env = { CROSSPOST_ARTICLES_DIR: path.join(TMP, 'cli-risk'), CROSSPOST_DRAFTS_DIR: dir }
-  const out = (() => {
-    const r = spawnSync(process.execPath, [CLI, 'classifyArticles'], { env, encoding: 'utf8' })
-    assert.equal(r.status, 0, r.stderr)
-    return JSON.parse(r.stdout)
-  })()
+  // 进程内调用导出的 classifyArticles()（原先 spawn 一次 = 1.1s 纯启动开销）
+  const out = await withEnvPatch(env, () => classifyArticles())
   assert.equal(out.ok, true)
   const recInv = JSON.parse(
     fs.readFileSync(path.join(env.CROSSPOST_ARTICLES_DIR, '2026-08-18-noon-inv.json'), 'utf8'),

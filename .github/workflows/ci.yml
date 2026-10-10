@@ -16,15 +16,62 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 测试设计假设「测试机时区=北京」（isPeak/calcSessionCost 等用本地时区判定峰谷）；
+# GitHub Actions runner 默认 UTC，需强制北京时区否则纯函数断言失败。放在这里而不是每个作业里，
+# 少一处漏配（2026-10-10 拆作业时改的）。
+env:
+  TZ: Asia/Shanghai
+
+# ── 为什么拆成多个作业（2026-10-10）──────────────────────────────────────────
+# 拆之前是**单个 test 作业串行 12 步**：实测 223s，其中「Runtime test + coverage」一步独占
+# **151s**（68%）——静态检查、core、冒烟全排在它后面干等。现在按"互不依赖"拆开并行：
+#
+#   static（lint/format） · core（typecheck/vitest） · runtime×2（分片） ·
+#   coverage（覆盖率门槛） · smoke（空环境 + systemd） · fresh-clone
+#
+# 两条纪律：
+#   · **门禁一项不减**：lint / format / typecheck / core 覆盖率门槛 / runtime 覆盖率门槛 /
+#     空环境冒烟 / systemd 单元 / 干净 clone，全都还在（只是换了作业）；
+#   · **分片不写死名单**：files 按序号轮转切两半（见 runtime 作业里的守卫步骤，它会断言
+#     "两片并集 == 全部测试文件"）——新增测试文件自动进片，改切法漏跑会当场报红。
+#
+# 覆盖率为什么不跟着分片：`node --test --experimental-test-coverage` 的阈值是**按整轮**判的，
+# 只跑一半必然低于门槛（那是假红）。所以覆盖率单独一个作业跑**全量**，与分片并行。
+#
+# 想省分钟（墙钟不变）：给 coverage 作业加 `if: github.event_name == 'schedule'`，即只在每日跑。
+
 jobs:
-  # ① 代码健康度：类型 / 测试 / lint / 格式 / 空环境冒烟
-  test:
+  # ① 静态：lint + 格式（不需要 core/dist，也不需要 tag）
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # 根依赖（eslint/prettier/typescript-eslint）。`cache: npm` 缓存 ~/.npm：
+      # 拆作业后每个作业都要装一遍依赖，不缓存等于把省下的时间还回去。
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crosspost-runtime/package-lock.json
+            bridge/package-lock.json
+
+      - name: Root install
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Format check (prettier --check)
+        run: npm run format:check
+
+  # ② core：构建 + 类型门槛 + vitest（含覆盖率门槛，15s 上下，不拆）
+  core:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # 测试设计假设「测试机时区=北京」（isPeak/calcSessionCost 等用本地时区判定峰谷）；
-    # GitHub Actions runner 默认 UTC，需强制北京时区否则纯函数断言失败。
-    env:
-      TZ: Asia/Shanghai
     steps:
       # `fetch-depth: 0` + `fetch-tags: true`：版本真值是 tag（`versionInfo().engine` = `git describe`），
       # 而 checkout 默认只拉一个裸提交、**不带 tag** —— 那会让版本退化成读到一个短 SHA，
@@ -34,24 +81,62 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # zstd：token-cost.mjs 测试用 zstd 压缩会话文件（Linux 需安装）
-      - name: Install zstd
-        run: sudo apt-get update && sudo apt-get install -y zstd
-
-      # Node 24 LTS / Active（Node 20 已 EOL；Node 22 已入维护期，24 为当前 Active LTS；
-      # 本机即 Node 24，CI 与本地一致。action 运行时同样已迁移 Node24——
-      # 见 https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/）
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-
-      # 根依赖（eslint/prettier/typescript-eslint，供 lint/format/check 使用）
-      - name: Root install
-        run: npm ci
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crosspost-runtime/package-lock.json
+            bridge/package-lock.json
 
       # 运行时依赖：runtime-node.mjs 等用 jsdom/ws/@mozilla/readability。
       # **core 的整棵依赖图也在这里**（v2.3.1：npm 把 `file:./core` 当工作区 hoist，
       # core 不再有自己的 node_modules 与 lock —— 见 docs/dependencies.md §1.1）。
+      - name: Runtime install
+        working-directory: crosspost-runtime
+        run: npm ci
+
+      - name: Core build
+        working-directory: crosspost-runtime/core
+        run: npm run build
+
+      - name: Core typecheck (tsc --noEmit --strict)
+        working-directory: crosspost-runtime/core
+        run: npm run typecheck
+
+      - name: Core test (vitest + coverage)
+        working-directory: crosspost-runtime/core
+        run: npm run test:coverage
+
+  # ③ runtime：分两片并行（本作业占原 151s 里的绝大部分，分片是墙钟最大的杠杆）
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crosspost-runtime/package-lock.json
+            bridge/package-lock.json
+
+      # zstd：token-cost.mjs 测试用 zstd 压缩会话文件（Linux 需安装）。
+      # runner 镜像**自带** zstd 时这条是空操作 —— 先探测再装，省掉 apt-get update 那十几秒。
+      - name: Install zstd（缺失才装）
+        run: command -v zstd || (sudo apt-get update && sudo apt-get install -y zstd)
+
       - name: Runtime install
         working-directory: crosspost-runtime
         run: npm ci
@@ -61,32 +146,106 @@ jobs:
         working-directory: bridge
         run: npm ci
 
-      # 核心包：构建 dist（tsup 来自上一步的 runtime 树 —— npm 会把祖先 .bin 注入 PATH）
       - name: Core build
         working-directory: crosspost-runtime/core
         run: npm run build
 
-      # 类型门槛：tsc --noEmit --strict（严格模式）
-      - name: Core typecheck (tsc --noEmit --strict)
+      # 分片清单 + **并集守卫**：两片必须恰好覆盖全部 `tests/*.test.mjs`。
+      # 守卫在这里而不在别处：它跟"本次真正要跑什么"是同一份计算，改了切法就是同一处改。
+      - name: 分片清单 + 并集守卫
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          node -e '
+            const fs = require("node:fs")
+            const shard = Number(process.env.SHARD)
+            const all = fs.readdirSync("crosspost-runtime/tests")
+              .filter((f) => f.endsWith(".test.mjs")).sort()
+            const a = all.filter((_, i) => i % 2 === 0)
+            const b = all.filter((_, i) => i % 2 === 1)
+            const union = new Set([...a, ...b])
+            if (union.size !== all.length || all.some((f) => !union.has(f))) {
+              console.error("分片并集 != 全部测试文件 —— 有测试文件两片都不跑")
+              process.exit(1)
+            }
+            const mine = shard === 0 ? a : b
+            console.log(`分片 ${shard}：${mine.length}/${all.length} 个文件（两片并集已核对）`)
+            fs.writeFileSync("/tmp/shard.txt", mine.map((f) => `tests/${f}`).join("\n") + "\n")
+          '
+
+      - name: Runtime test（本片）
+        working-directory: crosspost-runtime
+        run: node --test $(tr '\n' ' ' < /tmp/shard.txt)
+
+  # ④ 覆盖率门槛：跑**全量**（阈值按整轮判，不能分片），与分片并行互不占墙钟
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crosspost-runtime/package-lock.json
+            bridge/package-lock.json
+
+      - name: Install zstd（缺失才装）
+        run: command -v zstd || (sudo apt-get update && sudo apt-get install -y zstd)
+
+      - name: Runtime install
+        working-directory: crosspost-runtime
+        run: npm ci
+
+      - name: Bridge install
+        working-directory: bridge
+        run: npm ci
+
+      - name: Core build
         working-directory: crosspost-runtime/core
-        run: npm run typecheck
+        run: npm run build
 
-      # 核心测试 + 覆盖率门槛
-      - name: Core test (vitest + coverage)
-        working-directory: crosspost-runtime/core
-        run: npm run test:coverage
-
-      # Lint + Format（统一入口在根）
-      - name: Lint (eslint)
-        run: npm run lint
-
-      - name: Format check (prettier --check)
-        run: npm run format:check
-
-      # 运行时测试 + 覆盖率门槛（依赖上面构建出的 core/dist）
+      # 运行时测试 + 覆盖率门槛（行 76 / 分支 68 / 函数 68）
       - name: Runtime test (node --test + coverage)
         working-directory: crosspost-runtime
         run: npm run test:coverage
+
+  # ⑤ Linux 独有证据 + 空环境冒烟（原先排在 test 作业最后，前面一红就轮不到它们）
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crosspost-runtime/package-lock.json
+            bridge/package-lock.json
+
+      - name: Runtime install
+        working-directory: crosspost-runtime
+        run: npm ci
+
+      - name: Bridge install
+        working-directory: bridge
+        run: npm ci
+
+      - name: Core build
+        working-directory: crosspost-runtime/core
+        run: npm run build
 
       # systemd 用户单元的形状（Linux 独有证据，v2.1）：把 `print` 出来的单元交给**真解析器**。
       # 契约测试只在任何平台做等效 INI 校验（macOS 开发机没有 systemd-analyze），
@@ -99,14 +258,14 @@ jobs:
 
       # 空环境冒烟：零项目接入也能装/跑/自检/渲染（P0「引擎自治」的核心验收）。
       # 它此前**只在本机验收里跑**，CI 完全没有覆盖 —— 一条只在"有人记得手动跑"时才生效的
-      # 检查等于没有（v2.60 的教训）。这里放最后：前面全绿时它才最有意义。
+      # 检查等于没有（v2.60 的教训）。
       - name: Empty-env smoke (setup → doctor → bridge → render)
         run: npm run test:smoke
 
-  # ② 开箱即用：干净 clone 能不能装起来
+  # ⑥ 开箱即用：干净 clone 能不能装起来
   #
   # 为什么单独一个 job：这一条**只在"没有任何 node_modules 的机器"上才会红**，
-  # 而上面那个 job 已经把四处依赖装好了 —— 结构上不可能发现这类断点
+  # 而上面几个 job 都把依赖装好了 —— 结构上不可能发现这类断点
   # （v2.104 修的正是它：根 package.json 没有 workspaces，`npm install` 只装根 devDeps，
   #  core 的 tsup 与 bridge 的 ws 都不入库）。
   # 冒烟自己造沙箱、自己按 README 走两步、再真起一次桥，因此**不需要**前置安装步骤。
@@ -117,8 +276,6 @@ jobs:
   fresh-clone:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      TZ: Asia/Shanghai
     steps:
       # 同上：`fresh-clone-smoke` 要拿仓库 tag 核对回退版本的主次版本
       - uses: actions/checkout@v5

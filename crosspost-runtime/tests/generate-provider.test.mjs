@@ -895,6 +895,9 @@ test('参考实现②b：409 的退避重试按开关走（关：一次就回；
         slot: 'noon',
         keyword: 'y',
         allowBusyRetry: true,
+        // 退避基数缩到 50ms：**断言不变**（仍是"确实重发了"+"最终如实上报 busy"），
+        // 但不再让这条用例按真实退避时钟等 2+4+8 ≈ 14s（本文件 20.3s 里它独占 14.6s）
+        busyRetryBaseMs: 50,
       })
       assert.equal(retried.error, 'generate_provider_busy', '一直忙就要如实上报，不能装作失败/成功')
       assert.ok(posts > 1, `打开退避后应重发，实际只发了 ${posts} 次`)

@@ -27,6 +27,7 @@
   "scripts": {
     "cli": "node src/cli.mjs",
     "test": "node --test \"tests/*.test.mjs\"",
+    "test:lowcpu": "node --test --test-concurrency=2 \"tests/*.test.mjs\"",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-lines=76 --test-coverage-branches=68 --test-coverage-functions=68 \"tests/*.test.mjs\"",
     "test:console": "node tests/console-smoke.mjs",
     "test:extension": "node tests/extension-options-smoke.mjs",
