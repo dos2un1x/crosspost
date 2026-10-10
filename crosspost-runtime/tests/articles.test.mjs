@@ -367,6 +367,22 @@ test('scanAndList 跳过 risk/ 子目录（自动链路隔离）', () => {
   assert.ok(!list.some((r) => r.id === '2026-08-20-noon-riskad'))
 })
 
+test('懒登记旧稿：createdAt 取草稿文件 mtime，不取"登记这一刻"（2026-10-09）', () => {
+  // 为什么是 mtime：`articleCost` 拿 createdAt 当锚点在会话里找"生成过程窗口"。
+  // 补录/留存/归档这些**懒登记**路径若把"现在"记成生成时刻，之后任何一个碰过这篇的
+  // 会话（例如人工改写）都会被算成它的"生成消耗"——实测把一篇 ¥0.78 的稿算成了 ¥7.95。
+  const dir = getDraftsDir()
+  fs.mkdirSync(dir, { recursive: true })
+  const id = '2099-01-01-noon-anchor-old'
+  const file = path.join(dir, `${id}.md`)
+  fs.writeFileSync(file, '---\ntitle: 旧稿\nscore: 80\n---\n正文')
+  const written = new Date('2099-01-01T04:00:00.000Z')
+  fs.utimesSync(file, written, written)
+  const rec = ensureDraftRecord(parseDraftFile(file))
+  assert.equal(rec.createdAt, written.toISOString(), 'createdAt 应等于文件 mtime')
+  assert.notEqual(rec.updatedAt, rec.createdAt, 'updatedAt 仍是登记时刻')
+})
+
 test('listRetained 列出留存目录文章并解析 frontmatter', () => {
   const dir = getDraftsDir()
   fs.mkdirSync(path.join(dir, 'rejected'), { recursive: true })
@@ -385,6 +401,10 @@ test('listRetained 列出留存目录文章并解析 frontmatter', () => {
   const risk = items.find((r) => r.id === '2026-08-20-noon-riskad')
   assert.ok(low && low.dir === 'rejected' && low.score === 55)
   assert.ok(risk && risk.dir === 'risk' && risk.risk === 'ad')
+  // 2026-10-09：留存行要如实报「记录在不在」——只有 frontmatter、没有记录时
+  // `retainedReason` 与 `retainedAt` 都是空的，Console 必须能把它与"有记录但没填原因"分开
+  assert.equal(low.hasRecord, false, '这两篇只有文件、没有记录')
+  assert.equal(low.recordHealth, 'missing')
 })
 
 test('retainedAction：restore 移回 drafts/、delete 删除、未知操作报错（2026-08-21 起移除 publish）', () => {

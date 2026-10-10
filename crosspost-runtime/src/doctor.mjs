@@ -54,6 +54,7 @@ import { defaultDomainOrphanIds } from './domain-orphans.mjs'
 import { collectSpecs } from './scheduler/index.mjs'
 import { legacyDaemons, legacyTasks } from './scheduler/legacy.mjs'
 import { budgetState, readAiDetectConfig, resolveDetectCredentials } from './ai-detect.mjs'
+import { planRecordRepair } from './record-repair.mjs'
 
 // CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -755,6 +756,64 @@ export async function runDoctor(opts = {}) {
                 '额度口径以 EdgeOne 控制台「模型用量」为准；台账只统计经引擎发起的调用。',
             }
           : {}),
+      })
+    }
+  }
+
+  // ── 6e. 留存/风险库的记录对账（2026-10-09）──
+  //
+  // 为什么单列：留存的记录写盘会**静默失败**——写作 agent 在 workspace-write 沙箱里执行
+  // `retainArticle`，文件能移进 `drafts/rejected/`，但引擎簿记在沙箱之外，写盘报 EPERM。
+  // 结果是 Console 那一行没有原因/时间、抽屉显示「⚠ 无记录」，而 `verify:immutable` 会把
+  // 这次"移动"判成删除（它要"内容 + 记录双证"）。只读检查 + 一条可执行的修法，别让它烂在盘里。
+  {
+    try {
+      const plan = planRecordRepair()
+      const items = plan.items || []
+      const conflicts = plan.conflicts || []
+      const ids = items.map((i) => i.id)
+      const conflictLine = conflicts.length
+        ? `另有 ${conflicts.length} 篇属历史遗留的同名多份产物（记录描述的是另一份，**不自动改写**，需人工确认）：` +
+          conflicts
+            .slice(0, 5)
+            .map((c) => `${c.id}（记录=${c.recordStatus}/${c.recordDir || '—'}）`)
+            .join('、')
+        : ''
+      // 严重度只给**可执行**的那类：缺记录能一条命令补上（WARN）；
+      // 历史遗留的同名多份产物只能人工决定留哪一份，常驻告警会训练人忽略体检 → 报 OK 但如实列出。
+      checks.push(
+        items.length
+          ? {
+              id: 'records',
+              severity: SEVERITY.WARN,
+              title: `留存库有 ${items.length} 篇没有记录（Console 显示「⚠ 无记录」）`,
+              detail:
+                `缺记录待补 ${items.length} 篇：${ids.slice(0, 5).join('、')}` +
+                `${ids.length > 5 ? ` 等 ${ids.length} 篇` : ''}${conflictLine ? `；${conflictLine}` : ''}`,
+              hint:
+                `修法：\`node crosspost-runtime/src/cli.mjs repairRecords --apply --project=${currentProject() || '<项目>'}\`` +
+                '（默认 dry-run 只打印计划；写前把记录原件备份到 <localRoot>/repairs/）。',
+            }
+          : {
+              id: 'records',
+              severity: SEVERITY.OK,
+              title: `留存/风险库记录齐全（${plan.okCount} 篇已核对）`,
+              detail:
+                conflictLine ||
+                '每个留存文件都有 status=retained + dir + history 的记录；对账无待补项',
+              ...(conflictLine
+                ? {
+                    hint: '这些残本不影响留存库可用性（记录描述的是归档/风险那一份），要清理就人工确认后删除；对账不会自动动它们。',
+                  }
+                : {}),
+            },
+      )
+    } catch (e) {
+      checks.push({
+        id: 'records',
+        severity: SEVERITY.WARN,
+        title: '留存记录对账未跑成',
+        detail: String((e && e.message) || e),
       })
     }
   }

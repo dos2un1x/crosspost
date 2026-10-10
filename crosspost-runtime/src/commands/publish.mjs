@@ -20,6 +20,7 @@ import {
   ensureDraftRecord,
   assertSafeId,
   lastHistoryAt,
+  recordHealth,
 } from '../articles.mjs'
 import { readConfig } from '../config-cache.mjs'
 import { collectRunLogRows, parseRunLogLine } from '../adapters/backfill-run-logs.mjs'
@@ -391,6 +392,11 @@ export function listRetained() {
         recordRisk: rec && rec.risk,
         retainedReason: rec && rec.retainedReason,
         retainedAt: lastHistoryAt(rec, 'retain'),
+        // 记录到底在不在（2026-10-09）：Console 留存库要能区分两件事——
+        // 「有记录但没填原因」（旧记录很常见，只是没写原因）与「根本没有记录」
+        // （写入方在沙箱里写不进去，需要补录）。只看 `retainedReason` 会把前者误报成后者。
+        hasRecord: !!rec,
+        recordHealth: rec ? recordHealth(rec).health : 'missing',
       })
     }
   }
@@ -568,6 +574,20 @@ function makeWechatUploader(adapter) {
 }
 
 /**
+ * 通知里的 AI 检测行（2026-10-08）。
+ *
+ * 为什么要有这个函数：引擎 `formatSnapshot` 写出的快照**本身就以 `AI检测=` 开头**，
+ * 这里此前又无条件拼了一层前缀 —— 飞书里收到的是 `AI检测=AI检测=pass(口径=labels_ai …)`，
+ * 既重复又难读。调用方（AI/人工）也可能只传来 `达标 · AI特征 10.4% < 30.0%` 这样的裸内容，
+ * 所以按"有没有前缀"补，而不是无条件拼或无条件不拼。
+ */
+function aiDetectLine(text) {
+  const s = String(text == null ? '' : text).trim()
+  if (!s) return ''
+  return s.startsWith('AI检测') ? s : `AI检测=${s}`
+}
+
+/**
  * 通知文案构造（2026-09-12 提取为纯函数）。
  * 目的：让「未开启自动推送」等分支可被单测覆盖，而不必在测试里真发一条飞书通知。
  *
@@ -616,6 +636,9 @@ export function buildPublishNotifyCopy({
   // 没派发时把**真实原因**写进文案：默认措辞是"未开启自动推送"，但快照门禁等原因也走同一条分支，
   // 不区分就会把"缺检测快照所以没推"说成"自动推送没开"，收通知的人照着排查会走错方向。
   const skipReasonText = skipReason || '未开启自动推送'
+  // AI 检测行（2026-10-08）：快照自带 `AI检测=` 前缀时不再重复拼一层（见 aiDetectLine）。
+  // `aiLine` 为空 = 本次没带快照（写"未执行"），此时不进汇总行——它不是一条检测结论。
+  const aiLine = aiDetectLine(aiDetect)
   const vars = {
     title,
     slot: slot || 'manual',
@@ -630,10 +653,10 @@ export function buildPublishNotifyCopy({
     file,
     // AI 检测快照（2026-10-05）：跳过检测时也要如实入文案——"没检测"必须一眼可见，
     // 否则一条本该被 AI 率门禁挡下的稿子会看起来跟"检测通过"一样。
-    aiDetect: aiDetect || '未执行',
+    aiDetect: aiLine || '未执行',
   }
   const notifyTitle = renderTemplate(template.title, vars) || `${slot || 'manual'} · ${title}`
-  const aiClause = aiDetect ? `\nAI检测=${aiDetect}` : ''
+  const aiClause = aiLine ? `\n${aiLine}` : ''
   const summaryLine =
     renderTemplate(template.summary, vars) ||
     (dispatchEnabled

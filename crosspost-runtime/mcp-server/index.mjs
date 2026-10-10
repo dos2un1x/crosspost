@@ -748,8 +748,9 @@ server.registerTool(
         .string()
         .optional()
         .describe(
-          'AI 检测快照（可选，§5.55 门禁行原文，如「AI检测=pass(口径=bands 人工=40.0% AI特征=40.0% 疑似=20.0% 失败项=无)」；' +
-            '随记录/历史入库，并出现在发布通知里。**检测被跳过时也要传**（reason 会写进去），否则事后无法区分"通过"与"没检测"。' +
+          'AI 检测快照（可选，§5.55 门禁行原文，直接传 `ai_detect` 返回里的 `snapshot` 字段，形如' +
+            '「AI检测=达标 · AI特征 10.4% < 30.0% · 片段 8人工/1疑似/1AI · 2620字 · 风格 正常」；' +
+            '随记录/历史入库，并出现在发布通知里。**检测被跳过时也要传**（原因会写进去），否则事后无法区分"通过"与"没检测"。' +
             '注意：config.json → aiDetect.requireSnapshotOnPublish=true 时，不传这项会**不派发**（仍落草稿，回执里给原因））',
         ),
     },
@@ -793,6 +794,112 @@ server.registerTool(
       try {
         fs.unlinkSync(tmp)
       } catch {}
+      return text(r)
+    } catch (e) {
+      return errText(String((e && e.message) || e))
+    }
+  },
+)
+
+// 20b. retain_article —— 留存草稿（低分库 rejected / 风险库 risk）+ 落记录
+//
+// 为什么必须在 MCP 面上有它（2026-10-09 真实事故）：
+//   写作 agent 此前按规范用 `node cli.mjs retainArticle …` 走 **shell**，但它跑在
+//   workspace-write 沙箱里（工作区 = 写作项目根），引擎簿记在沙箱之外 → 文件移进了
+//   `drafts/rejected/`、写记录报 EPERM：Console 那一行没有原因、抽屉显示「⚠ 无记录」，
+//   `verify:immutable` 还会把这次移动判成删除（它要"内容 + 记录双证"）。
+//   走 MCP 则记录由**引擎进程**写，不受调用方文件沙箱限制 —— 与 publish_article 同一条路。
+// 与人工入口的分工：这里只有"移进留存库"（附原因）；**恢复/删除仍只在 Console**（retainedAction）。
+// 恒不发布：留存是"放弃这版、离开自动发布路径"，不是发布动作。
+server.registerTool(
+  'retain_article',
+  {
+    title: '留存草稿（低分/风险）',
+    description:
+      '把草稿移入 drafts/rejected（低分）或 drafts/risk（高风险）并写文章库记录（**恒不发布**）。' +
+      '写作侧在这些时刻调用：自评/审稿未过、命中风险、AI 检测轮数用尽仍不达标（§5.55）。' +
+      '`reason` 请带上可复盘的原文（如 AI 门禁行「AI检测=超标 · AI特征 47.2% ≥ 30.0% …」，' +
+      '直接传 `ai_detect` 返回的 `snapshot`），它会显示在 Console 留存库的「留存原因」列。' +
+      '记录由引擎写，不受调用方文件沙箱限制（这是它与 shell 调 CLI 的关键区别）。',
+    inputSchema: {
+      id: z.string().describe('草稿文件名去 .md'),
+      dir: z
+        .enum(['rejected', 'risk'])
+        .optional()
+        .describe('留存目录：rejected=低分库（默认）/ risk=风险库'),
+      reason: z
+        .string()
+        .optional()
+        .describe('留存原因（显示在 Console 留存库；建议带 AI 门禁行原文）'),
+      project: z
+        .string()
+        .optional()
+        .describe('目标项目 id（可选；缺省取连接配置 CROSSPOST_PROJECT）'),
+    },
+  },
+  async ({ id, dir, reason, project }) => {
+    try {
+      if (!id) return errText('缺少 id')
+      const args = ['retainArticle', `--id=${id}`, `--dir=${dir || 'rejected'}`]
+      if (reason) args.push(`--reason=${reason}`)
+      const r = await callCli(args, 30000, project)
+      if (r && r.error) return errText(r.error)
+      return text(r)
+    } catch (e) {
+      return errText(String((e && e.message) || e))
+    }
+  },
+)
+
+// 20c. record_writing —— 把编辑决策 / 独立审稿写进文章记录（§2.5 / §5.6 的落点）
+//
+// 为什么要在 MCP 面上有它（2026-10-10）：这两个字段的写入者本来只有发布器
+// （`publish_article` 的 `decision` / `review` 入参），而 **draft-only 链路从不发布** ——
+// §2.5 的决策行、§5.6 的审稿行都产出了却没落点：Console 抽屉那两张卡永远是空的，
+// 事后只能翻日志。一键生成的稿子尤其明显：它们本来就不发布，等于这两样从来没有记录。
+server.registerTool(
+  'record_writing',
+  {
+    title: '记录编辑决策 / 独立审稿',
+    description:
+      '把写作侧的 §2.5 决策行与 §5.6 审稿行写进**这篇文章的文章库记录**（Console 抽屉的' +
+      '「编辑决策」「独立审稿」两张卡与发布历史都读它）。**不发布也能记**——这是它与' +
+      'publish_article 入参的关键区别。原文照抄即可（面板会把它拆成字段排版：主线/理由/' +
+      '重复风险/写作指令，审稿的行动/分数/issues 逐条）。只给一个字段也行，另一个保持原值；' +
+      '三个都不给会被拒（别写空历史）。',
+    inputSchema: {
+      id: z.string().optional().describe('草稿文件名去 .md（与 file 二选一）'),
+      file: z.string().optional().describe('草稿文件绝对路径（与 id 二选一）'),
+      decision: z
+        .string()
+        .optional()
+        .describe(
+          '§2.5 决策行原文，形如「决策=主线…|理由=…|重复风险=medium(避开角度:…)|写作指令=…」',
+        ),
+      review: z
+        .string()
+        .optional()
+        .describe(
+          '§5.6 审稿行原文，形如「审稿=90 自评=92 行动=publish issues=2(minor:事实-…;minor:表达-…)」',
+        ),
+      note: z.string().optional().describe('随记录写进历史的一条短注（如「修订后复评」）'),
+      project: z
+        .string()
+        .optional()
+        .describe('目标项目 id（可选；缺省取连接配置 CROSSPOST_PROJECT）'),
+    },
+  },
+  async ({ id, file, decision, review, note, project }) => {
+    try {
+      if (!id && !file) return errText('缺少输入：id / file 至少给一个')
+      const args = ['recordWriting']
+      if (id) args.push(`--id=${id}`)
+      if (file) args.push(`--file=${file}`)
+      if (decision) args.push(`--decision=${decision}`)
+      if (review) args.push(`--review=${review}`)
+      if (note) args.push(`--note=${note}`)
+      const r = await callCli(args, 30000, project)
+      if (r && r.error) return errText(r.error)
       return text(r)
     } catch (e) {
       return errText(String((e && e.message) || e))
@@ -965,6 +1072,21 @@ server.registerTool(
         ),
       threshold: z.number().optional().describe('旧口径的判定阈值 0-1（仅 mode=metric 时生效）'),
       budget: z.boolean().optional().describe('只看当月用量与预算，不调用接口'),
+      record: z
+        .boolean()
+        .optional()
+        .describe(
+          '把这一轮判定写进**这篇文章的文章库记录**（2026-10-09）。' +
+            '写的是与发布器**同一个字段** `aiDetect`（§5.55 门禁行原文），并追加一条 `ai-detect` 历史 —— ' +
+            '于是 Console 抽屉的「AI 检测」卡片与发布历史都能看到它，事后不必翻日志。' +
+            '**未发布的稿子（一键生成 / 定时生成）只有靠它才能留下判定**：那些链路从不调发布器。' +
+            '只对 file / id 有效（text 是裸文本，没有文章记录）；写盘失败只回 recordError，不影响判定结果。' +
+            '判定为 skip（未检测）时同样写入——"没检测"必须与"通过"一眼可分。',
+        ),
+      note: z
+        .string()
+        .optional()
+        .describe('随记录写进历史的一条短注（如「重写第 2 轮复检」）；仅 record=true 时有意义'),
     },
   },
   async ({
@@ -983,6 +1105,8 @@ server.registerTool(
     metric,
     threshold,
     budget,
+    record,
+    note,
     project,
   }) => {
     const args = ['aiDetect']
@@ -1002,6 +1126,8 @@ server.registerTool(
     if (enforce) args.push(`--enforce=${enforce}`)
     if (metric) args.push(`--metric=${metric}`)
     if (threshold !== undefined) args.push(`--threshold=${threshold}`)
+    if (record) args.push('--record')
+    if (record && note) args.push(`--note=${note}`)
     try {
       // 检测本身 ≤60s（fetch 超时），CLI 留给它的余量按 180s 走
       const r = await callCli(args, 180000, project)

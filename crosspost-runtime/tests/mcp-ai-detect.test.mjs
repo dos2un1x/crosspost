@@ -233,7 +233,64 @@ test('MCP / 定时链路：额度用尽 ⇒ skip/budget-exhausted，且零请求
     assert.equal(r.json.verdict, 'skip', r.text)
     assert.equal(r.json.reason, 'budget-exhausted', r.text)
     assert.equal(gw.calls.length, 0, '超预算不得发起请求')
-    assert.match(r.json.snapshot || '', /AI检测=跳过\(budget-exhausted\)/, r.text)
+    assert.match(r.json.snapshot || '', /AI检测=未检测 · 额度已用尽（budget-exhausted）/, r.text)
+  } finally {
+    s.close()
+    gw.close()
+  }
+})
+
+test('MCP：ai_detect record=true 把判定写进文章记录（未发布稿也有 AI 检测）', async () => {
+  // 背景：`aiDetect` 的唯一写入者本来是发布器，而 draft-only 链路从不调它 ——
+  // 于是"这篇的朱雀判定是多少"在文章库里没有落点（Console 那张卡永远空白）。
+  const gw = await startFakeGateway()
+  writeSandboxConfig(gw.base)
+  const id = '2099-01-01-noon-mcp-record'
+  fs.writeFileSync(
+    path.join(DRAFTS, `${id}.md`),
+    `---\ntitle: 记账用例\nscore: 90\nrisk: none\n---\n\n${LONG_TEXT}`,
+  )
+  const s = await initServer(
+    baseEnv({ ZHUQUE_API_KEY: 'test-key', EDGEONE_AI_GATEWAY_BASE: gw.base }),
+  )
+  try {
+    const r = toolResult(
+      await s.send('tools/call', {
+        name: 'ai_detect',
+        arguments: { id, record: true, note: '第2轮复检' },
+      }),
+    )
+    assert.equal(r.isError, false, r.text)
+    assert.equal(r.json.verdict, 'pass', r.text)
+    assert.equal(r.json.recorded && r.json.recorded.id, id, r.text)
+    assert.equal(r.json.recorded.action, 'ai-detect')
+    // 记录里写的必须与返回的 snapshot 逐字一致（判据同源，面板与日志对得上）
+    const rec = JSON.parse(fs.readFileSync(path.join(ARTICLES, `${id}.json`), 'utf8'))
+    assert.equal(rec.aiDetect, r.json.snapshot)
+    const hist = (rec.history || []).filter((h) => h.action === 'ai-detect')
+    assert.equal(hist.length, 1, JSON.stringify(rec.history))
+    assert.equal(hist[0].aiDetect, r.json.snapshot)
+    assert.equal(hist[0].verdict, 'pass')
+    assert.equal(hist[0].note, '第2轮复检')
+
+    // 不带 record 时一个字节都不写（避免"顺手改簿记"）
+    const before = JSON.stringify(rec)
+    const r2 = toolResult(
+      await s.send('tools/call', { name: 'ai_detect', arguments: { id } }),
+    )
+    assert.equal(r2.isError, false, r2.text)
+    assert.equal(r2.json.recorded, undefined, '没要记账就不该回 recorded')
+    assert.equal(JSON.stringify(JSON.parse(fs.readFileSync(path.join(ARTICLES, `${id}.json`), 'utf8'))), before)
+
+    // 裸文本没有文章记录 → 明确报错，别静默不记
+    const bad = toolResult(
+      await s.send('tools/call', {
+        name: 'ai_detect',
+        arguments: { text: LONG_TEXT, record: true },
+      }),
+    )
+    assert.equal(bad.isError, true, bad.text)
+    assert.match(bad.text, /--record 只能用于 --file \/ --id/)
   } finally {
     s.close()
     gw.close()

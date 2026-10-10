@@ -90,12 +90,20 @@ export const INTERNAL_ONLY = {
   markPublished: 'Console 单篇标记已发布',
   markAllPublished: 'Console 批量标记已发布',
   listArchive: 'Console 归档库',
-  retainArticle: 'Console 留存（移动文件，须人工触发）',
+  // 2026-10-09：`retainArticle` **移出**内部面 → 已暴露为 MCP 工具 `retain_article`。
+  // 为什么改：写作规范一直要求无人值守的 agent 在"低分/风险/AI 检测不达标"时留存，
+  // 而它此前只能走 shell（`node cli.mjs retainArticle`）——那条路在 workspace-write 沙箱里
+  // 写不了引擎簿记（EPERM），于是"文件进了留存库、记录没写"。走 MCP 由引擎进程写记录。
+  // 安全边界不变：恢复/删除仍是 Console 专属（见下面的 `retainedAction`）。
   listRetained: 'Console 留存库',
-  retainedAction: 'Console 留存项操作',
+  retainedAction: 'Console 留存项操作（恢复/删除，须人工触发）',
   classifyArticles: 'Console 批量分类/留存',
   setArticleRisk: 'Console 风险标记',
   publishDouyin: 'Console 抖音手动推送（单槽覆盖式，仅人工）',
+  // 2026-10-09：留存记录对账（补齐"文件已在留存库、记录却没写"的缺口）。
+  // 是运维/自检动作（doctor 与 Console「补录缺失记录」按钮会用到），不是写作链路能力，
+  // 因此留在内部面；默认 dry-run，`--apply` 才写盘。
+  repairRecords: '记录对账（doctor/Console 运维入口；补齐缺失的留存记录，默认 dry-run）',
 
   // ── 运营数据：Console 报表/费用视图 ──
   articleCost: 'Console 单篇费用',

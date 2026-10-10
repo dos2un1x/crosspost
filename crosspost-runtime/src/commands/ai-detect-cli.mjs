@@ -27,6 +27,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseFlags } from '../argv.mjs'
 import { getDraftsDir, parseDraftFile } from '../articles.mjs'
+import { findDraftInProjects } from '../project-context.mjs'
+import { writeDraftRecord } from '../draft-record.mjs'
 import {
   budgetState,
   cachePath,
@@ -42,14 +44,54 @@ import {
   usagePath,
 } from '../ai-detect.mjs'
 
-/** 把 `--id` 解析成草稿文件的绝对路径（在当前项目上下文的草稿目录里找） */
+/**
+ * 把 `--id` 解析成草稿文件的绝对路径。
+ *
+ * 先在**当前项目**的草稿目录里找（顶层与 id 原样两种写法）；
+ * 找不到再退到 `findDraftInProjects()` —— 它会把 `archive/rejected/risk/retained` 子目录
+ * 与**其它已登记项目**一起搜掉。为什么要这一步：留存稿与归档稿也在草稿树里，
+ * 而 `ai_detect --id=<留存稿> --record` 正是"给未发布的稿子补一条检测记录"的用法。
+ */
 function resolveDraftFileById(id) {
   const dir = getDraftsDir()
   const candidates = [path.join(dir, `${id}.md`), path.join(dir, id)]
   for (const c of candidates) {
     if (fs.existsSync(c) && fs.statSync(c).isFile()) return c
   }
+  const elsewhere = findDraftInProjects(id)
+  if (elsewhere) return elsewhere.file
   throw new Error(`找不到草稿：${id}（草稿目录 ${dir}）`)
+}
+
+/**
+ * 把这一轮判定写进**文章记录**（`--record`，2026-10-09）。
+ *
+ * 为什么需要它：`aiDetect` 的唯一写入者是发布器（`publish_article` 的入参），而
+ * **draft-only 链路（一键生成 / 定时生成）从不调发布器** —— 于是"这篇的朱雀判定是多少"
+ * 在文章库里根本没有落点：Console 抽屉的「AI 检测」卡片永远空白，时间线也看不到，
+ * 事后只能翻日志。这条路径把 §5.55 门禁行原样写进记录（`aiDetect` + 一条 `ai-detect` history），
+ * 与发布器写的是**同一个字段**，所以卡片与时间线的渲染逻辑一个字都不用改。
+ *
+ * 三条纪律：
+ *   · **不因记账失败而丢掉判定**：写盘失败（例如调用方在沙箱里）只回 `recordError` + 修法提示，
+ *     判定结果照常返回——与 `retainArticle` 的 `fileMoved:true + recordError` 同一取舍；
+ *   · **按草稿归属纠正域**：文件属于哪个项目就往哪个项目的簿记写（`projectOwningDraftFile`），
+ *     与派发口 `dispatch()` 的 v2.106 修法一致，避免"记录写进别的项目"；
+ *   · 只认 `--file` / `--id`：`--text` / `--stdin` 没有对应的文章，要求记账就直接报错。
+ */
+function recordDetection({ file, report, note }) {
+  return writeDraftRecord({
+    file,
+    patch: { aiDetect: report.snapshot },
+    entry: {
+      action: 'ai-detect',
+      aiDetect: report.snapshot,
+      verdict: report.verdict,
+      ...(typeof report.value === 'number' ? { value: report.value } : {}),
+      ...(typeof report.threshold === 'number' ? { threshold: report.threshold } : {}),
+      ...(note ? { note } : {}),
+    },
+  })
 }
 
 /** 只允许覆盖少数几个键——避免调用方从命令行把阈值改得面目全非后无人察觉 */
@@ -238,7 +280,15 @@ function compactReport(result, cfg) {
 /** aiDetect：检测一段文本/一篇草稿 */
 export async function runAiDetect(args) {
   const flags = parseFlags(args, {
-    booleans: ['segments', 'json', 'stdin', 'budget', 'no-budget-check', 'clear-exhausted'],
+    booleans: [
+      'segments',
+      'json',
+      'stdin',
+      'budget',
+      'no-budget-check',
+      'clear-exhausted',
+      'record',
+    ],
   })
   const cfg = readAiDetectConfig(configOverrideFrom(flags))
   const cred = resolveDetectCredentials()
@@ -313,20 +363,36 @@ export async function runAiDetect(args) {
     )
   }
 
+  // `--record`：把这一轮判定写进文章记录。裸文本没有对应的文章 → 直接报错，别静默不记。
+  if (flags.record === true && (!source || source.kind !== 'file')) {
+    return {
+      error: '--record 只能用于 --file / --id：--text / --stdin 是裸文本，没有对应的文章记录可写',
+    }
+  }
+
   // 栏目白名单：额度不够时用 aiDetect.slots 收口（空 = 全部栏目）。
   // 无栏目的输入（--text / --stdin，通常是基线回测与人工排查）不受限制——那些是有意为之的单次调用。
   const wanted = Array.isArray(cfg.slots) ? cfg.slots : []
   const slot = source && source.file ? parseDraftFile(source.file).slot : null
   if (wanted.length && slot && !wanted.includes(slot)) {
-    return {
-      ok: false,
+    // 这两行也走同一个格式化器：白名单挡下的"未检测"必须与别的 skip 长得一样
+    // （此前是手写的 `AI检测=跳过(slot-not-enabled:tips)`，与引擎格式各写各的）
+    const skipped = { verdict: 'skip', reason: 'slot-not-enabled', slot }
+    const report = {
       verdict: 'skip',
       reason: 'slot-not-enabled',
+      line: formatVerdictLine(skipped),
+      snapshot: formatSnapshot(skipped),
+    }
+    return {
+      ok: false,
+      ...report,
       slot,
       slots: wanted,
-      line: `AI检测=跳过(slot-not-enabled:${slot})`,
-      snapshot: `AI检测=跳过(slot-not-enabled:${slot})`,
       source,
+      ...(flags.record === true
+        ? recordDetection({ file: source.file, report, note: flags.note })
+        : {}),
     }
   }
 
@@ -336,7 +402,13 @@ export async function runAiDetect(args) {
   })
   const result = judgeResult(raw, cfg)
   const report = compactReport(result, cfg)
-  return { ...report, source }
+  return {
+    ...report,
+    source,
+    ...(flags.record === true
+      ? recordDetection({ file: source.file, report, note: flags.note })
+      : {}),
+  }
 }
 
 // author: dos2un1x · repo: https://github.com/dos2un1x/crosspost

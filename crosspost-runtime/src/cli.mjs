@@ -78,7 +78,9 @@ import {
   stripFrontmatterRisk,
 } from './commands/publish.mjs'
 import { classifyArticles } from './commands/classify.mjs'
-import { allCostRecords } from './commands/costs.mjs'
+import { runRecordWriting } from './commands/record-writing.mjs'
+import { reconcileRecords } from './record-repair.mjs'
+import { aiGateStats, allCostRecords } from './commands/costs.mjs'
 import {
   listStyles,
   listCoverTemplates,
@@ -285,6 +287,9 @@ const HANDLERS = {
       costs: listCosts(list),
       meta: {
         ...sessionFormatDiagnostics(),
+        // AI 门禁汇总（2026-10-10）：报表按记录里的快照统计"这周达标几篇、平均特征占比多少"。
+        // 记录本就为费用全量加载过（allCostRecords → listRecords），这里零额外读盘。
+        aiGate: { all: aiGateStats(), recent: aiGateStats({ sinceDays: 7 }) },
         pricing: {
           model: PRICING.model,
           version: PRICING.version,
@@ -432,8 +437,34 @@ const HANDLERS = {
   retainArticle: (args) =>
     wrap('retainArticle failed: ', async () => await runRetainArticle(dispositionRequest(args))),
 
+  // recordWriting --id=<草稿id> [--decision=…] [--review=…] [--note=…]：把编辑决策/独立审稿写进记录
+  //
+  // 为什么要有（2026-10-10）：这两个字段的写入者本来只有发布器，而 draft-only 链路从不发布 ——
+  // §2.5 的决策行、§5.6 的审稿行产出了却没落点，Console 那两张卡永远是空的。
+  recordWriting: (args) => wrap('recordWriting failed: ', async () => await runRecordWriting(args)),
+
   // listArchive：列出归档库（drafts/archive/），供面板归档库视图
   listArchive: (_args) => ({ archived: listArchive() }),
+
+  // repairRecords [--apply] [--id=<a,b>]：对账补齐"文件已留在留存库、记录却没写"的缺口
+  //
+  // 为什么要有（2026-10-09）：写作 agent 在 workspace-write 沙箱里执行 retainArticle 时，
+  // 文件能移进 drafts/rejected/，但写引擎簿记报 EPERM —— 文件走了、记录没写，于是 Console
+  // 显示「⚠ 无记录」、verify:immutable 把这次移动判成删除。对账以**文件系统事实**为准，
+  // 任何写入方（含裸 mv、claude 回退链路、中断）丢的记录都能补回来。
+  // **默认 dry-run**：只打印计划，加 `--apply` 才写（写前把记录原件备份到 <localRoot>/repairs/）。
+  repairRecords: (args) => {
+    const list = Array.isArray(args) ? args : []
+    const apply = list.includes('--apply')
+    const idFlag = list.find((a) => String(a).startsWith('--id='))
+    const draftIds = idFlag
+      ? String(idFlag.slice('--id='.length))
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null
+    return wrap('repairRecords failed: ', async () => reconcileRecords({ apply, draftIds }))
+  },
 
   // setArticleStatus <req.json>：更新记录状态 req: { id, status }
   setArticleStatus: (args) =>

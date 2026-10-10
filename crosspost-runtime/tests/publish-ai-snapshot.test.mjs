@@ -103,3 +103,48 @@ test('通知文案：没派发时要写真实原因，不能一律说"未开启�
   assert.match(c.footer, /缺少 AI 检测快照/)
   assert.equal(c.vars.failReason, '缺少 AI 检测快照（aiDetect.requireSnapshotOnPublish=true）')
 })
+
+/* ────────── 通知里的 AI 检测行（2026-10-08）──────────
+ * 实测过的缺陷：引擎 `formatSnapshot` 写出的快照**自带 `AI检测=` 前缀**，而通知文案又无条件拼了一层，
+ * 于是飞书里收到的是 `AI检测=AI检测=pass(口径=labels_ai …)`。这里钉住三件事：
+ * ① 自带前缀只出现一次；② 裸内容（AI 手写/只截了一段）自动补前缀；③ 未检测的原因照样进通知。
+ */
+function notifyWith(aiDetect) {
+  return buildPublishNotifyCopy({
+    title: 'T',
+    slot: 'hotspot',
+    style: 'swiss',
+    score: 90,
+    aiDetect,
+    wechatStatus: 'ok',
+    okCount: 2,
+    total: 2,
+    dispatchEnabled: true,
+    origin: 'manual',
+    wechatSkippedByReq: false,
+    file: '/tmp/x.md',
+    template: {},
+  })
+}
+
+test('通知文案：快照自带前缀时不再重复拼 `AI检测=`', () => {
+  const snap = 'AI检测=达标 · AI特征 10.4% < 30.0% · 片段 8人工/1疑似/1AI · 2620字 · 风格 正常'
+  const c = notifyWith(snap)
+  assert.equal((c.summaryLine.match(/AI检测=/g) || []).length, 1, c.summaryLine)
+  assert.match(c.summaryLine, /AI特征 10\.4% < 30\.0%/)
+  assert.match(c.summaryLine, /风格 正常/)
+  assert.equal(c.vars.aiDetect, snap)
+})
+
+test('通知文案：裸内容自动补前缀（前缀只有一个入口）', () => {
+  const c = notifyWith('达标 · AI特征 5.0% < 30.0%')
+  assert.equal((c.summaryLine.match(/AI检测=/g) || []).length, 1, c.summaryLine)
+  assert.match(c.summaryLine, /AI检测=达标 · AI特征 5\.0% < 30\.0%/)
+})
+
+test('通知文案：未检测时原因进通知，且不写成"通过"', () => {
+  const c = notifyWith('AI检测=未检测 · 抽查未命中（sampled-out）')
+  assert.match(c.summaryLine, /AI检测=未检测 · 抽查未命中（sampled-out）/)
+  assert.doesNotMatch(c.summaryLine, /达标/)
+  assert.equal(c.vars.aiDetect, 'AI检测=未检测 · 抽查未命中（sampled-out）')
+})

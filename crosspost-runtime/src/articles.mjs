@@ -236,6 +236,15 @@ export function inferDraftDir(file) {
 /** 解析草稿文件：文件名 YYYY-MM-DD-<slot>-<topic>.md + frontmatter title/score */
 export function parseDraftFile(file) {
   const base = path.basename(file, '.md')
+  // 草稿文件的最后写入时刻（2026-10-09）：构造记录时拿它当 `createdAt`，
+  // 而不是"登记这一刻"——懒登记的旧稿（留存/归档/对账补录）否则会把**现在**记成生成时刻，
+  // 而费用视图正是拿 `createdAt` 当锚点去找会话的（见 token-cost.mjs 的 matchAnchorSessions）。
+  let mtime = null
+  try {
+    mtime = fs.statSync(file).mtime.toISOString()
+  } catch {
+    /* 文件刚被移走等竞态：没有 mtime 就退回"现在" */
+  }
   const m = /^(\d{4}-\d{2}-\d{2})-([a-zA-Z0-9]+?)-(.*)$/.exec(base)
   const date = m ? m[1] : null
   const slot = m && DRAFT_SLOT_SEGMENT_RE.test(m[2]) ? m[2] : 'manual'
@@ -285,6 +294,7 @@ export function parseDraftFile(file) {
   }
   return {
     id: base,
+    mtime,
     file,
     dir: inferDraftDir(file),
     title,
@@ -542,7 +552,10 @@ function makeDraftRecord(parsed) {
     platforms: {},
     notify: { status: 'none' },
     history: [],
-    createdAt: new Date().toISOString(),
+    // 生成时刻 = 草稿文件最后写入时刻（拿不到才退回"现在"）。
+    // 为什么重要：`articleCost` 以 `createdAt` 为锚点在会话里找"生成过程窗口"，
+    // 记成登记时刻会把之后任何一个碰过这篇的会话算成它的生成消耗。
+    createdAt: parsed.mtime || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
 }
