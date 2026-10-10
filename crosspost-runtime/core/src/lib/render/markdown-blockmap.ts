@@ -12,7 +12,7 @@
  *
  * 本模块只在「预览」路径（renderPreview）调用，不污染发布/微信产物。
  */
-import { JSDOM } from 'jsdom'
+import { getJSDOM } from '../lazy-deps'
 import { createRenderer } from './engine'
 import type { StyleDefinition } from './styles'
 
@@ -81,6 +81,7 @@ export interface AnnotateBlocksResult {
  */
 export function annotateBlocks(html: string): AnnotateBlocksResult {
   if (!html) return { html, count: 0 }
+  const JSDOM = getJSDOM()
   const dom = new JSDOM(html)
   const doc = dom.window.document
   const roots = Array.from(doc.body.children) as Element[]

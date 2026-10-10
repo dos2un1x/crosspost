@@ -14,7 +14,7 @@
  * 采样失败**不抛异常**：返回空参数 + `error` 说明，由调用方决定如何提示。
  */
 
-import { JSDOM } from 'jsdom'
+import { getJSDOM } from '../lazy-deps'
 import { parseHexColor, type BlockquoteStyle, type HeadingStyle } from './styles'
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -344,6 +344,7 @@ function pickMostFrequent(candidates: string[]): string | undefined {
 export function analyzeStyleFromHtmlFallback(html: string): SampledStyle {
   let doc: Document
   try {
+    const JSDOM = getJSDOM()
     doc = new JSDOM(String(html ?? '')).window.document
   } catch {
     return {}

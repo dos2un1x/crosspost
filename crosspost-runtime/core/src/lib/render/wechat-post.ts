@@ -17,7 +17,7 @@
  * 本模块只消费**样式参数**，不认识样式名：任何视觉都从参数推导，缺省值由核心四色与
  * 排版参数派生（见规格 §3.2/§3.3）。样式名参数仅为调用方签名兼容而存在。
  */
-import { JSDOM } from 'jsdom'
+import { getJSDOM } from '../lazy-deps'
 import { renderCalloutIfMatch } from './callouts'
 
 /** blockquote 三态 */
@@ -422,6 +422,7 @@ export function postProcessHtml(html: string, style?: unknown, styleName = 'swis
 
   try {
     const params = deriveParams(style)
+    const JSDOM = getJSDOM()
     const dom = new JSDOM(html)
     const document = dom.window.document
 

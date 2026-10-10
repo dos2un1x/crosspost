@@ -9,10 +9,11 @@
  *
  * 解决知乎等平台把深层 `<section>` 嵌套解析为大量空 block（无用空行）的问题。
  */
-import { JSDOM } from 'jsdom'
+import { getJSDOM } from './lazy-deps'
 
 // 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export function preprocessHtml(html: string): string {
+  const JSDOM = getJSDOM()
   const dom = new JSDOM(html)
   const doc = dom.window.document
   const body = doc.body

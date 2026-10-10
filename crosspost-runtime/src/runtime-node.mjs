@@ -11,7 +11,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
-import { JSDOM } from 'jsdom'
 import { loadPaths } from './paths.mjs'
 import { versionInfo } from './version.mjs'
 import { readConfig } from './config-cache.mjs'
@@ -147,6 +146,19 @@ class ProxyResponse {
       bodyBase64: this._buf.toString('base64'),
     })
   }
+}
+
+/**
+ * jsdom **按需加载**（2026-10-10）
+ *
+ * jsdom 冷启动 ~420ms，而它只被 `dom.parseHTML()` 用到；顶层 import 会让每个 import 本模块的
+ * 进程（CLI 的 `commands/platforms.mjs` → 这里）都先付这 420ms。用点在 async 方法里，
+ * 一次 `await import()` 缓存即可。
+ */
+let _jsdomMod = null
+async function getJSDOM() {
+  if (!_jsdomMod) _jsdomMod = (await import('jsdom')).JSDOM
+  return _jsdomMod
 }
 
 /**
@@ -379,7 +391,7 @@ export function createNodeRuntime(opts = {}) {
 
     dom: {
       async parseHTML(html) {
-        const dom = new JSDOM(html)
+        const dom = new (await getJSDOM())(html)
         return dom.window.document
       },
       querySelector(doc, selector) {

@@ -16,7 +16,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { JSDOM } from 'jsdom'
+import { getJSDOM } from '../lazy-deps'
 
 /** 图片来源类别：磁盘上的本地文件，或需要下载的远程地址 */
 export type ImageSourceKind = 'local' | 'remote'
@@ -92,6 +92,7 @@ export async function processImages(
   const uploader = options.uploader
   if (typeof uploader !== 'function' || !html) return idleFragment(html)
 
+  const JSDOM = getJSDOM()
   const dom = new JSDOM(html)
   const document = dom.window.document
   const baseDir = options.mdPath ? path.dirname(path.resolve(options.mdPath)) : process.cwd()
