@@ -13,6 +13,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { scanAndList, listRecords, parseDraftFile, getDraftsDir } from '../articles.mjs'
+import { parseGateSnapshot } from '../ai-detect.mjs'
 import { listArchive } from './publish.mjs'
 
 // CrossPost · maintained by dos2un1x · https://github.com/dos2un1x/crosspost
@@ -44,4 +45,64 @@ export function allCostRecords() {
     list.push({ ...a, createdAt: (rec && rec.createdAt) || a.createdAt })
   }
   return list
+}
+
+/**
+ * AI 门禁汇总（报表用，2026-10-10）：按记录里的 `aiDetect` 快照统计达标/超标/未检测。
+ *
+ * 数据来自 `listRecords()`（调用方本就为费用全量加载过一次），所以这里**不额外读盘**。
+ * `unknown` 单独计数：认不出来的快照既不算达标也不算超标——达标率的分母只放
+ * "真的检测过"的篇数，否则格式一变报表就会悄悄变好看。
+ *
+ * @param {{sinceDays?:number}} [opts] `sinceDays` 只统计最近 N 天（按文章 date）
+ */
+export function aiGateStats(opts = {}) {
+  const days = Number(opts.sinceDays)
+  const cutoff =
+    Number.isFinite(days) && days > 0
+      ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+      : ''
+  const acc = {
+    total: 0,
+    pass: 0,
+    fail: 0,
+    skip: 0,
+    unknown: 0,
+    avgValue: null,
+    chars: 0,
+    slots: {},
+  }
+  let valueSum = 0
+  let valueN = 0
+  for (const rec of listRecords()) {
+    if (cutoff && rec.date && rec.date < cutoff) continue
+    if (!rec.aiDetect) continue
+    const p = parseGateSnapshot(rec.aiDetect)
+    acc.total++
+    acc[p.verdict] = (acc[p.verdict] || 0) + 1
+    if (p.chars) acc.chars += p.chars
+    const slot = rec.slot || 'manual'
+    const s = (acc.slots[slot] = acc.slots[slot] || {
+      pass: 0,
+      fail: 0,
+      skip: 0,
+      unknown: 0,
+      valueSum: 0,
+      valueN: 0,
+      avgValue: null,
+    })
+    s[p.verdict] = (s[p.verdict] || 0) + 1
+    if (p.verdict !== 'skip' && typeof p.value === 'number') {
+      valueSum += p.value
+      valueN++
+      // 按栏目也给均值：报表要回答"哪个栏目最难达标"（达标率之外还要看特征占比离阈值多远）
+      s.valueSum = Math.round((s.valueSum + p.value) * 10000) / 10000
+      s.valueN++
+      s.avgValue = Math.round((s.valueSum / s.valueN) * 10000) / 10000
+    }
+  }
+  acc.avgValue = valueN ? valueSum / valueN : null
+  acc.detected = acc.pass + acc.fail
+  acc.passRate = acc.detected ? acc.pass / acc.detected : null
+  return acc
 }

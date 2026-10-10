@@ -966,8 +966,10 @@ test('容受口径：缺省边界在日志里打 n/a，不许印成 NaN%', () =>
   const cfg = { ...AI_DETECT_DEFAULTS, gate: { mode: 'distribution', aiMax: 0.3 } }
   const r = judgeResult(distResult(0.1, 0.2, 0.7), cfg)
   const line = formatVerdictLine(r)
-  assert.match(line, /人工=10\.0%/)
-  assert.match(line, /目标≥n\/a/)
+  // 2026-10-08 起人读行只印"设了的边界"：缺省的那两条干脆不出现（不印 `目标≥n/a` 这种噪声）
+  assert.match(line, /人工 10\.0%/)
+  assert.match(line, /AI特征 20\.0%（≤30\.0%）/)
+  assert.doesNotMatch(line, /n\/a/)
   assert.ok(!/NaN/.test(line), line)
   const snap = formatSnapshot(r)
   assert.ok(!/NaN/.test(snap), snap)
@@ -983,7 +985,7 @@ test('默认口径是 metric + labels_ai<30%：只压上界，没有下界陷阱
   assert.equal(pass.verdict, 'pass', JSON.stringify(pass))
   const fail = judgeResult(distResult(0.0, 0.3, 0.7), cfg)
   assert.equal(fail.verdict, 'fail')
-  assert.match(formatVerdictLine(fail), /口径=labels_ai 值=30\.0% 阈值=30\.0%/)
+  assert.match(formatVerdictLine(fail), /AI特征 30\.0% ≥ 30\.0%/)
 })
 
 /* ────────────── ⑥ 风格护栏（碎了句子的文章不该比正常文章更容易过门禁） ────────────── */
@@ -1042,12 +1044,12 @@ test('风格护栏：默认关（判定只看网侧口径），开了才把碎�
     on.fails.some((f) => f.startsWith('style:short-sent')),
     JSON.stringify(on.fails),
   )
-  assert.match(formatSnapshot(on), /风格=碎句/)
+  assert.match(formatSnapshot(on), /风格 碎句/)
 
-  // 正常散文：开了也不误伤，且快照写"风格=ok"
+  // 正常散文：开了也不误伤，且快照写"风格 正常"
   const ok = judgeResult(normalizeResult(netJson(), stripMarkdown(PROSE_TEXT), cfg), cfg)
   assert.equal(ok.verdict, 'pass')
-  assert.match(formatSnapshot(ok), /风格=ok/)
+  assert.match(formatSnapshot(ok), /风格 正常/)
 })
 
 test('风格护栏：配置深合并（只给 enabled 也不会把阈值清成 undefined）', () => {
@@ -1111,14 +1113,14 @@ test('分布口径：任一项缺失 → skip（不当成通过）', () => {
 test('分布口径：日志与快照都带三占比与失败项', () => {
   const r = judgeResult(distResult(0, 0.2594, 0.7406), DIST_CFG)
   const line = formatVerdictLine(r)
-  assert.match(line, /人工=0\.0%/)
-  assert.match(line, /AI特征=25\.9%/)
-  assert.match(line, /疑似=74\.1%/)
-  assert.match(line, /失败项=human\|uncertain/)
+  assert.match(line, /人工 0\.0%（≥50\.0%）/)
+  assert.match(line, /AI特征 25\.9%（≤30\.0%）/)
+  assert.match(line, /疑似 74\.1%（≤20\.0%）/)
+  assert.match(line, /越界 人工不足、疑似超限/)
 
   const snap = formatSnapshot(r)
-  assert.match(snap, /口径=distribution/)
-  assert.match(snap, /失败项=human\|uncertain/)
+  assert.match(snap, /人工 0\.0%（≥50\.0%）/)
+  assert.match(snap, /越界 人工不足、疑似超限/)
 })
 
 test('旧口径（metric 模式）行为不变，避免老配置静默改语义', () => {
@@ -1510,9 +1512,11 @@ test('区间口径：三者和为 1，故"每段都 ≥30%"实际把每段锁进
 test('区间口径：日志与快照带上界下界', () => {
   const r = judgeResult(bandResult(0.34, 0.33, 0.33), BANDS_CFG)
   const line = formatVerdictLine(r)
-  assert.match(line, /口径=bands/)
-  assert.match(line, /人工=34\.0%\[30\.0%~50\.0%\]/)
-  assert.match(formatSnapshot(r), /口径=bands/)
+  // 只印"三项各自的实测值与区间"：口径本身（`bands`）不再出现在人读行里
+  assert.match(line, /人工 34\.0%（30\.0%~50\.0%）/)
+  assert.match(line, /AI特征 33\.0%（30\.0%~50\.0%）/)
+  assert.match(line, /疑似 33\.0%（30\.0%~50\.0%）/)
+  assert.match(formatSnapshot(r), /人工 34\.0%/)
 })
 
 /* ────────────────── ⑨ 省配额：确定性抽样 + 内容缓存 ────────────────── */
@@ -1651,9 +1655,8 @@ test('精确区间：验证稿 36.3/0/63.7 的两项失败方向正确', () => {
 
 test('精确区间：日志标出开区间，便于事后复核判定依据', () => {
   const line = formatVerdictLine(judgeResult(bandResult(0.36, 0.35, 0.29), EXACT_CFG))
-  assert.match(line, /口径=bands/)
-  assert.match(line, /人工=36\.0%\[30\.0%~50\.0%\]/)
-  assert.match(line, /AI特征=35\.0%\[30\.0%~50\.0%\]/)
-  assert.match(line, /疑似=29\.0%\[20\.0%~40\.0%\]/)
-  assert.match(line, /开区间=ai:max/)
+  assert.match(line, /人工 36\.0%（30\.0%~50\.0%）/)
+  // 开区间用 `~<` 表示：AI 特征 35% 达标、恰好 50% 不达标 —— 这个差别必须留在人读行上
+  assert.match(line, /AI特征 35\.0%（30\.0%~<50\.0%）/)
+  assert.match(line, /疑似 29\.0%（20\.0%~40\.0%）/)
 })

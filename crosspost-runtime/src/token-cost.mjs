@@ -826,17 +826,37 @@ export function matchSessions(ts, windowMs = 5 * 60 * 1000) {
 export function matchAnchorSessions(anchor, windowMs = MATCH_WINDOW_MS) {
   if (!anchor) return []
   const sessions = listSessions()
-  return sessions
-    .filter((s) => s.startTs && anchor >= s.startTs - windowMs && anchor <= s.endTs + windowMs)
-    .map((s) => {
-      const data = loadSessionEvents(s.path)
-      if (!data || !data.events.length) return null
-      const win = findProcessWindow(data.events, anchor)
-      if (!win) return null
-      const c = calcSessionCost(s.path, win)
-      return c ? { ...c, session: s.session, window: win } : null
-    })
-    .filter(Boolean)
+  const out = []
+  // 去重键 → 已采纳结果的下标（见下方 fork 复制的说明）
+  const adopted = new Map()
+  for (const s of sessions) {
+    if (!(s.startTs && anchor >= s.startTs - windowMs && anchor <= s.endTs + windowMs)) continue
+    const data = loadSessionEvents(s.path)
+    if (!data || !data.events.length) continue
+    const win = findProcessWindow(data.events, anchor)
+    if (!win) continue
+    const c = calcSessionCost(s.path, win)
+    if (!c) continue
+    const rec = { ...c, session: s.session, window: win, _events: data.events.length }
+    /**
+     * fork / 子会话会把父会话的历史事件**逐字复制**进自己的日志（`subagent_fork` 就是这种），
+     * 于是同一段生成过程会在父、子两个会话里各出现一次：窗口边界（毫秒级）与 token 三元组
+     * 完全相同。不去重就会**成倍虚高**（实测一次抢救：196 步 ×2、¥3.9733 ×2 = ¥7.9466）。
+     *
+     * 判据取"窗口与 token 逐字相同"——两个**不同**的会话不可能同时撞上毫秒级相同的起止
+     * 和相同的 token 数；撞上就说明它们是同一段事件的副本。保留**事件更多**的那条
+     * （原会话在 fork 之后还在继续写，副本停在 fork 那一刻）。
+     */
+    const key = `${win.from}|${win.to}|${c.tokens.input}|${c.tokens.cache}|${c.tokens.output}|${c.tokens.reasoning}`
+    const hit = adopted.get(key)
+    if (hit === undefined) {
+      adopted.set(key, out.length)
+      out.push(rec)
+    } else if (rec._events > out[hit]._events) {
+      out[hit] = rec
+    }
+  }
+  return out.map(({ _events, ...r }) => r)
 }
 
 /** 汇总匹配会话的 token/费用（matchAnchorSessions 结果 → articleCost 同构返回体）

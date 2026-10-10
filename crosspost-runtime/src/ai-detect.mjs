@@ -515,6 +515,80 @@ function ledgerBuckets(raw, period) {
 }
 
 /** 原子写台账（tmp + rename）；写失败不影响检测结果，所以吞掉异常 */
+/**
+ * 台账文件的跨进程互斥（2026-10-10）。
+ *
+ * 为什么需要：`addUsage` 是"读台账 → 加一笔 → 原子写回"，**这段整体必须互斥** ——
+ * 单看 `writeLedger` 的 tmp+rename 是原子的（不会写出半个文件），但两个进程同时
+ * "读到旧值 → 各加一笔 → 各自写回"时，后写的会覆盖先写的，**计数凭空少一笔**。
+ * 台账是预算的唯一依据，少计数意味着可能超支；批量补检（并发 4）会天天踩到。
+ *
+ * 实现：`openSync(..., 'wx')` 抢锁文件 + 同步小睡重试（`Atomics.wait`，不阻塞事件循环之外的东西）。
+ * 抢不到就**降级为无锁写入**并留一行 stderr：宁可计数可能少一笔，也不能因为锁文件残留
+ * 让检测永远跑不动（陈旧锁最多多等 `LEDGER_LOCK_TIMEOUT_MS`）。
+ */
+const LEDGER_LOCK_TIMEOUT_MS = 3000
+const LEDGER_LOCK_STALE_MS = 10000
+
+function ledgerLockPath() {
+  return `${usagePath()}.lock`
+}
+
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  } catch {
+    /* 退化为忙等一次 */
+  }
+}
+
+/** 拿锁执行 fn；拿不到就无锁执行（并如实提示） */
+function withLedgerLock(fn) {
+  const lock = ledgerLockPath()
+  const started = Date.now()
+  let fd = null
+  try {
+    fs.mkdirSync(path.dirname(lock), { recursive: true })
+  } catch {
+    /* ignore */
+  }
+  while (Date.now() - started < LEDGER_LOCK_TIMEOUT_MS) {
+    try {
+      fd = fs.openSync(lock, 'wx')
+      break
+    } catch (e) {
+      if (e && e.code !== 'EEXIST') break
+      // 陈旧锁（进程被杀）：超过阈值直接接管，别让一次崩溃永久堵住记账
+      try {
+        const st = fs.statSync(lock)
+        if (Date.now() - st.mtimeMs > LEDGER_LOCK_STALE_MS) {
+          fs.rmSync(lock, { force: true })
+          continue
+        }
+      } catch {
+        /* 锁刚好被释放 */
+      }
+      sleepSync(5)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.rmSync(lock, { force: true })
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 function writeLedger(period, buckets, now = new Date()) {
   let tokens = 0
   let calls = 0
@@ -572,16 +646,19 @@ export function readUsage(now = new Date(), anchorDay = 1, apiKey) {
 
 /** 记账（按 key 分桶；不给 apiKey 时记到 unassigned 桶，语义与旧版一致） */
 export function addUsage(tokens, now = new Date(), anchorDay = 1, apiKey) {
-  const period = quotaPeriod(now, anchorDay)
-  const buckets = ledgerBuckets(readUsageFile(), period)
-  const id = apiKey ? keyId(apiKey) : UNASSIGNED_KEY
-  const cur = buckets[id] || { tokens: 0, calls: 0, exhaustedAt: null }
-  buckets[id] = {
-    tokens: cur.tokens + (Number(tokens) || 0),
-    calls: cur.calls + 1,
-    ...(cur.exhaustedAt ? { exhaustedAt: cur.exhaustedAt } : {}),
-  }
-  return writeLedger(period, buckets, now)
+  // 读-改-写必须整体互斥：并发补检时两次"读到旧值再各自写回"会丢计数（见 withLedgerLock 说明）
+  return withLedgerLock(() => {
+    const period = quotaPeriod(now, anchorDay)
+    const buckets = ledgerBuckets(readUsageFile(), period)
+    const id = apiKey ? keyId(apiKey) : UNASSIGNED_KEY
+    const cur = buckets[id] || { tokens: 0, calls: 0, exhaustedAt: null }
+    buckets[id] = {
+      tokens: cur.tokens + (Number(tokens) || 0),
+      calls: cur.calls + 1,
+      ...(cur.exhaustedAt ? { exhaustedAt: cur.exhaustedAt } : {}),
+    }
+    return writeLedger(period, buckets, now)
+  })
 }
 
 /**
@@ -1558,52 +1635,116 @@ export function pickRewriteTargets(result, cfg) {
   return picked.slice(0, plan.perRoundTargets)
 }
 
-/** 一行式人读摘要（日志/通知用） */
-export function formatVerdictLine(result) {
-  if (!result) return 'AI检测=未执行'
-  if (result.verdict === 'skip') return `AI检测=跳过(${result.reason})`
-  // 非有限值一律打 `n/a`：容受口径下"没设这个边界"是合法状态（边界为 NaN/undefined），
-  // 直接 toFixed 会印出 `NaN%`，读日志的人会以为检测坏了
-  const pct = (v) =>
-    typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'n/a'
+/* ───────────────────── 人读行（快照 / 日志 / 通知 / 面板同源，2026-10-08 重写） ─────────────────────
+ * 旧行长这样：
+ *   AI检测=pass(口径=labels_ai 值=10.4% 阈值=30.0% AI特征占比=10.4% 段=1人工/1AI/8疑似 字符=2620 风格=ok)
+ * 四个问题：同一个数印两遍（`值` 与 `AI特征占比` 恒等）、口径写成配置里的标识符（`labels_ai`）、
+ * 判定写英文（`pass`）、字段名比内容还长；而且发布通知还会在它前面再套一层 `AI检测=`，
+ * 于是飞书里收到的是 `AI检测=AI检测=pass(...)`。人读的一行不该留这些机器字段的残渣。
+ *
+ * 现在的形状（` · ` 分段，信息缺哪块就少哪段）：
+ *   AI检测=达标 · AI特征 10.4% < 30.0% · 片段 8人工/1疑似/1AI · 2620字 · 风格 正常
+ *   AI检测=超标 · 人工 45.0%（≥50.0%）· AI特征 35.0%（≤30.0%）· 疑似 20.0%（≤20.0%）· 越界 人工不足、AI特征超限
+ *   AI检测=未检测 · 抽查未命中（sampled-out）
+ *
+ * 机器字段（`metric` / `value` / `threshold` / `fails` / `reason`）仍在 `ai_detect` 的 JSON 返回里，
+ * 面板与通知只渲染这一行。**改这里要同步** `bridge/console/modules/ai-detect-line.mjs`：
+ * 面板要把它拆回字段再排版（徽标 + 主判据 + 明细），不能只把整行贴出来。
+ */
+
+/** 判定词：`pass/fail/skip` 是机器值，人读的一律用中文 */
+const VERDICT_WORDS = { pass: '达标', fail: '超标', skip: '未检测' }
+
+/** 口径标识 → 人话（`labels_ai` 只该出现在 JSON 字段里） */
+const METRIC_WORDS = { labels_ai: 'AI特征', confidence: 'AI浓度', both: 'AI浓度+特征' }
+
+/** 三段的短名（分布/区间口径共用） */
+const RATIO_WORDS = { human: '人工', ai: 'AI特征', uncertain: '疑似' }
+
+/**
+ * skip 原因 → 人话。括号里仍保留原始代码：面板上"为什么没检测"要能一眼看懂，
+ * 而按代码排查（文档 §6 有全表）时又不能丢掉代码本身。
+ */
+const SKIP_REASON_WORDS = {
+  disabled: '检测未启用',
+  'slot-not-enabled': '栏目不在白名单',
+  'text-too-short': '正文过短',
+  'sampled-out': '抽查未命中',
+  'no-api-key': '未配置凭证',
+  'budget-exhausted': '额度已用尽',
+  timeout: '接口超时',
+  'network-error': '网络异常',
+  'api-error': '接口报错',
+  'bad-json': '响应无法解析',
+  'bad-response': '响应异常',
+  'metric-unavailable': '指标缺失',
+}
+
+/** 失败项 `fails[]` → 人话（`ai:above` 这类带方向的代码直接印出来没人看得懂） */
+const FAIL_WORDS = {
+  human: '人工不足',
+  ai: 'AI特征超限',
+  uncertain: '疑似超限',
+  'human:below': '人工偏低',
+  'human:above': '人工偏高',
+  'ai:below': 'AI特征偏低',
+  'ai:above': 'AI特征超限',
+  'uncertain:below': '疑似偏低',
+  'uncertain:above': '疑似超限',
+}
+
+/** 百分比：非有限值打 `n/a`（容受口径下"没设这个边界"是合法状态，直接 toFixed 会印 `NaN%`） */
+const pctText = (v) =>
+  typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'n/a'
+/** 同上，但"没有"返回 null —— 用于决定整段是否出现（不印 `n/a` 的边界） */
+const pctOrNull = (v) =>
+  typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : null
+
+/** 分布口径的一项：值 + 括号里的目标（没设的边界不印） */
+function ratioText(key, value, kind, target) {
+  const label = `${RATIO_WORDS[key] || key} ${pctText(value)}`
+  const t = pctOrNull(target)
+  if (!t) return label
+  return `${label}（${kind === 'min' ? '≥' : '≤'}${t}）`
+}
+
+/**
+ * 区间口径的一项：值 + 括号里的区间（只设一边就只印那一边）。
+ * 上界在 `exclusive` 名单里时印成 `lo~<hi`（开区间：恰好取到端点**不**达标）——
+ * 这个差别正是"AI 特征刚好 50% 为什么判失败"的唯一解释，不能省。
+ */
+function bandText(key, value, range, exclusive) {
+  const label = `${RATIO_WORDS[key] || key} ${pctText(value)}`
+  const lo = pctOrNull((range || [])[0])
+  const hi = pctOrNull((range || [])[1])
+  const open = Array.isArray(exclusive) && exclusive.includes(`${key}:max`)
+  const rng = lo && hi ? `${lo}~${open ? '<' : ''}${hi}` : lo ? `≥${lo}` : hi ? `≤${hi}` : ''
+  return rng ? `${label}（${rng}）` : label
+}
+
+/** 判定依据那段：三种口径各一句（单指标 = 一个数 vs 阈值；另两种 = 三项各自的目标） */
+function metricPart(result) {
   if (result.metric === 'bands' && result.ratios) {
-    const r = result.ratios
     const b = result.bands || {}
-    return (
-      `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
-      ` 口径=bands 人工=${pct(r.human)}[${pct((b.human || [])[0])}~${pct((b.human || [])[1])}]` +
-      ` AI特征=${pct(r.ai)}[${pct((b.ai || [])[0])}~${pct((b.ai || [])[1])}]` +
-      ` 疑似=${pct(r.uncertain)}[${pct((b.uncertain || [])[0])}~${pct((b.uncertain || [])[1])}]` +
-      `${result.exclusive && result.exclusive.length ? ` 开区间=${result.exclusive.join('|')}` : ''}` +
-      ` 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}`
-    )
-  }
-  if (result.metric === 'bands' && result.ratios) {
-    const r = result.ratios
-    return (
-      `AI检测=${result.verdict}(口径=bands 人工=${pct1(r.human)} AI特征=${pct1(r.ai)}` +
-      ` 疑似=${pct1(r.uncertain)} 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}` +
-      `${segPart} 字符=${result.chars || 0}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
-      `${extra.rolledBack ? ' 回退=1' : ''})`
-    )
+    return ['human', 'ai', 'uncertain']
+      .map((k) => bandText(k, result.ratios[k], b[k], result.exclusive))
+      .join(' · ')
   }
   if (result.metric === 'distribution' && result.ratios) {
-    const r = result.ratios
     const t = result.targets || {}
-    return (
-      `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
-      ` 口径=distribution` +
-      ` 人工=${pct(r.human)}(目标≥${pct(t.human)} 缺口=${pct(r.human - t.human)})` +
-      ` AI特征=${pct(r.ai)}(目标≤${pct(t.ai)} 超出=${pct(r.ai - t.ai)})` +
-      ` 疑似=${pct(r.uncertain)}(目标≤${pct(t.uncertain)} 超出=${pct(r.uncertain - t.uncertain)})` +
-      ` 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}`
-    )
+    return [
+      ratioText('human', result.ratios.human, 'min', t.human),
+      ratioText('ai', result.ratios.ai, 'max', t.ai),
+      ratioText('uncertain', result.ratios.uncertain, 'max', t.uncertain),
+    ].join(' · ')
   }
-  return (
-    `AI检测=${result.verdict === 'pass' ? '达标' : '超标'}` +
-    ` 口径=${result.metric} 值=${pct(result.value)} 阈值=${pct(result.threshold)}` +
-    ` AI特征占比=${pct(result.labelsRatio && result.labelsRatio.ai)}`
-  )
+  // 单指标口径：阈值是"严格小于才达标"，所以对比符用 `<` / `≥` 直接把判定理由写出来
+  const name = METRIC_WORDS[result.metric] || 'AI特征'
+  const t = Number(result.threshold)
+  if (!Number.isFinite(t)) return `${name} ${pctText(result.value)}`
+  const v = Number(result.value)
+  const op = Number.isFinite(v) ? (v < t ? '<' : '≥') : result.verdict === 'pass' ? '<' : '≥'
+  return `${name} ${pctText(result.value)} ${op} ${pctText(t)}`
 }
 
 /** 片段数统计：判 AI / 疑似 / 人工 各几段（分布口径下日志与面板都要看段落结构） */
@@ -1617,41 +1758,102 @@ function segmentCounts(result) {
   }
 }
 
-/** 检测报告快照（写进文章库记录/历史，供事后复盘；纯文本，不含密钥） */
-export function formatSnapshot(result, extra = {}) {
-  if (!result) return ''
-  if (result.verdict === 'skip')
-    return `AI检测=跳过(${result.reason})${extra.rounds ? ` 重写=${extra.rounds}` : ''}`
-  const pct1 = (v) =>
-    typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'n/a'
+/** 片段结构：总段数拿不到就整段不印（比印 `片段 0人工/0疑似/0AI` 诚实） */
+function segmentPart(result) {
   const c = segmentCounts(result)
-  const segPart = ` 段=${c.human}人工/${c.ai}AI/${c.uncertain}疑似`
-  // 风格护栏：开了才写进快照（没开时不加噪音，但 `style` 仍随返回值给调用方）
-  const stylePart = styleSnapshotPart(result)
-  if (result.metric === 'distribution' && result.ratios) {
-    const r = result.ratios
-    return (
-      `AI检测=${result.verdict}(口径=distribution 人工=${pct1(r.human)} AI特征=${pct1(r.ai)}` +
-      ` 疑似=${pct1(r.uncertain)} 失败项=${result.fails && result.fails.length ? result.fails.join('|') : '无'}` +
-      `${segPart} 字符=${result.chars || 0}${stylePart}${extra.rounds ? ` 重写=${extra.rounds}` : ''}` +
-      `${extra.rolledBack ? ' 回退=1' : ''})`
-    )
-  }
-  return (
-    `AI检测=${result.verdict}(口径=${result.metric} 值=${pct1(result.value)}` +
-    ` 阈值=${pct1(result.threshold)} AI特征占比=${pct1(result.labelsRatio && result.labelsRatio.ai)}` +
-    `${segPart} 字符=${result.chars || 0}${stylePart}${extra.rounds ? ` 重写=${extra.rounds}` : ''})`
-  )
+  if (!c.total) return ''
+  return `片段 ${c.human}人工/${c.uncertain}疑似/${c.ai}AI`
 }
 
 /**
- * 快照里的风格片段：只在"有 `style` 且确实越界过"时出现。
- * 形如 ` 风格=碎句(短句比=100% 连短=7)`；正常散文写 ` 风格=ok`。
+ * 风格护栏：只有真跑过结构指标（`style.spec` 存在）才有话说。
+ * 越界细节仍保留（这是"这篇被判碎句"的唯一现场证据），但用中文与括号收拢成一小段。
  */
-function styleSnapshotPart(result) {
+function stylePart(result) {
   const s = result && result.style
   if (!s || !s.spec) return ''
   const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`
-  if (!s.fails || !s.fails.length) return ' 风格=ok'
-  return ` 风格=碎句(短句比=${pct(s.shortRatio)} 连短=${s.maxConsecShort} 越界=${s.fails.length}处)`
+  if (!s.fails || !s.fails.length) return '风格 正常'
+  return `风格 碎句（越界${s.fails.length}处 短句比${pct(s.shortRatio)} 连短${s.maxConsecShort}）`
+}
+
+/**
+ * 失败项。单指标口径**不写** `fails[]`（只有分布/区间口径写），它由 `值 ≥ 阈值` 自证，
+ * 所以这里为空不是"没失败"，而是"失败已经写在对比符里"。风格类失败由 `stylePart` 表达。
+ */
+function failsPart(result) {
+  const fails = (result.fails || []).filter((f) => !String(f).startsWith('style:'))
+  if (!fails.length) return ''
+  return `越界 ${fails.map((f) => FAIL_WORDS[f] || String(f)).join('、')}`
+}
+
+/** 未检测的原因：人话 + 原始代码（栏目白名单还要带上被挡下的栏目） */
+function skipPart(result) {
+  const code = String(result.reason || '').trim() || 'unknown'
+  const why = SKIP_REASON_WORDS[code]
+  const detail = code === 'slot-not-enabled' && result.slot ? `${code}: ${result.slot}` : code
+  return why ? `${why}（${detail}）` : detail
+}
+
+/** 一行式人读摘要（日志/通知/面板共用；格式与理由见本段顶部注释） */
+function gateLine(result, extra = {}) {
+  if (!result) return 'AI检测=未执行'
+  const verdict = VERDICT_WORDS[result.verdict] || result.verdict
+  if (result.verdict === 'skip') {
+    const rounds = extra.rounds ? ` · 重写 ${extra.rounds}` : ''
+    return `AI检测=${verdict} · ${skipPart(result)}${rounds}`
+  }
+  const parts = [metricPart(result), failsPart(result)]
+  const seg = segmentPart(result)
+  if (seg) parts.push(seg)
+  const chars = Number(result.chars)
+  if (Number.isFinite(chars) && chars > 0) parts.push(`${chars}字`)
+  const style = stylePart(result)
+  if (style) parts.push(style)
+  if (extra.rounds) parts.push(`重写 ${extra.rounds}`)
+  if (extra.rolledBack) parts.push('已回退')
+  return `AI检测=${verdict} · ${parts.filter(Boolean).join(' · ')}`
+}
+
+/** 一行式人读摘要（日志/通知用） */
+export function formatVerdictLine(result, extra = {}) {
+  return gateLine(result, extra)
+}
+
+/**
+ * 反解一行门禁快照（`formatSnapshot` 的输出）→ `{verdict, value, chars}`。
+ *
+ * 为什么要有反向解析：快照是**事后**复盘唯一的载体（记录里存的是这一行文本），
+ * 而报表要按它汇总"这周达标几篇、平均特征占比多少"。会话/记录里没有原始 JSON，
+ * 所以格式的读写必须由同一个模块负责——这里把两种历史写法都认下来：
+ *   · 现行：`AI检测=达标 · AI特征 27.4% < 30.0% · 片段 … · 1496字 · 风格 正常`
+ *   · 旧版：`AI检测=pass(口径=labels_ai 值=10.4% 阈值=30.0% … 字符=2620 风格=ok)`
+ *   · 未检测：`AI检测=未检测 · 额度已用尽（budget-exhausted）`
+ * 认不出来返回 `verdict: 'unknown'`（**不猜**）——报表把 unknown 单独计数，别混进达标率。
+ */
+export function parseGateSnapshot(text) {
+  const raw = String(text == null ? '' : text)
+  const out = { verdict: 'unknown', value: null, chars: null }
+  if (!raw.trim()) return out
+  const head = /AI检测\s*=\s*([^\s(·]+)/.exec(raw)
+  const word = head ? head[1] : ''
+  // `跳过` 是早期快照的第三种写法（`AI检测=跳过(sampled-out)` / `(slot-not-enabled:tips)`），
+  // 语义与 `未检测` 相同：**没检测**，不是通过。
+  const byWord = { 达标: 'pass', 超标: 'fail', 未检测: 'skip', 跳过: 'skip' }
+  const byCode = { pass: 'pass', fail: 'fail', skip: 'skip', blocked: 'fail', rolledback: 'pass' }
+  out.verdict = byWord[word] || byCode[word.toLowerCase()] || 'unknown'
+  // 特征占比：现行写 `AI特征 27.4%`，旧版写 `值=10.4%`
+  // 注意 `值=` 前面不能用 `\b`：JS 的 \w 只含 ASCII，空格与中文「值」之间不存在词边界
+  const v = /AI特征\s*([\d.]+)\s*%/.exec(raw) || /(?:^|[\s(（])值\s*=\s*([\d.]+)\s*%/.exec(raw)
+  // 保留四位小数：0.274 直接算会得到 0.27399999999999997，累加进均值后报表会出现 23.999999999%
+  if (v) out.value = Math.round(Number(v[1]) * 100) / 10000
+  const c = /(\d+)\s*字/.exec(raw) || /字符\s*=\s*(\d+)/.exec(raw)
+  if (c) out.chars = Number(c[1])
+  return out
+}
+
+/** 检测报告快照（写进文章库记录/历史，供事后复盘；纯文本，不含密钥） */
+export function formatSnapshot(result, extra = {}) {
+  if (!result) return ''
+  return gateLine(result, extra)
 }

@@ -207,8 +207,8 @@ test('calcSessionCost 无 usage 事件返回 null', () => {
 // ── 会话匹配（2026-08-28）：matchAnchorSessions ──
 
 /** 构造临时会话目录（CROSSPOST_SESSIONS_DIRS 注入用，子进程 import 前生效），返回目录路径 */
-function makeSessionDir(usageEvents, name) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `tokencost-sess-${name}-`))
+function makeSessionDir(usageEvents, name, reuseRoot) {
+  const dir = reuseRoot || fs.mkdtempSync(path.join(os.tmpdir(), `tokencost-sess-${name}-`))
   const sessionId = `session-${name}`
   const sessionDir = path.join(dir, sessionId)
   fs.mkdirSync(sessionDir, { recursive: true })
@@ -288,6 +288,40 @@ test('matchAnchorSessions 锚点落在会话区间内且贴近 burst → 匹配�
   })
   const res3 = JSON.parse(out3.stdout)
   assert.equal(res3.n, 0, '锚点早于会话区间 → 不匹配')
+})
+
+test('matchAnchorSessions 去重：fork 复制的子会话不把同一段过程算两次（2026-10-09）', () => {
+  // 子会话（subagent_fork / 会话 fork）的日志**逐字复制**了父会话的历史事件，
+  // 于是同一段生成过程会在两个会话里各匹配一次：窗口（毫秒级）与 token 数完全相同。
+  // 实测一次人工抢救：196 步 ×2、¥3.9733 ×2 = ¥7.9466，token 也随之翻倍。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tokencost-fork-'))
+  // 父会话：一个 burst（10:00、10:02）+ 一个远处的 burst（10:30，间隔 > gapMs 5min）
+  makeSessionDir(
+    [ts('2026-08-24T10:00:00'), ts('2026-08-24T10:02:00'), ts('2026-08-24T10:30:00')],
+    'fork-parent',
+    root,
+  )
+  // 子会话：父会话在 fork 点之前那一段的副本（事件逐字相同）
+  makeSessionDir([ts('2026-08-24T10:00:00'), ts('2026-08-24T10:02:00')], 'fork-child', root)
+  const env = { ...process.env, CROSSPOST_SESSIONS_DIRS: root }
+  const out = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import('./src/token-cost.mjs').then((m) => {
+        const anchor = new Date('2026-08-24T10:03:00').getTime()
+        const r = m.matchAnchorSessions(anchor)
+        console.log(JSON.stringify({ n: r.length, ids: r.map((x) => x.session), cost: r.reduce((a, x) => a + x.cost, 0) }))
+      })`,
+    ],
+    { env, encoding: 'utf8', cwd: testRoot },
+  )
+  assert.equal(out.status, 0, out.stderr)
+  const res = JSON.parse(out.stdout)
+  assert.equal(res.n, 1, `同一段事件只该算一次，实际 ${JSON.stringify(res)}`)
+  // 保留事件更多的那条：原会话在 fork 之后继续写，副本停在 fork 那一刻
+  assert.deepEqual(res.ids, ['session-fork-parent'], JSON.stringify(res))
 })
 
 // ── 会话索引/成本磁盘缓存（2026-08-28 性能优化） ──
