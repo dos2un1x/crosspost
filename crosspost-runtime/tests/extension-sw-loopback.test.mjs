@@ -557,11 +557,25 @@ test('③ tabsQuery 过滤无 id 项；tabsCreate 的 active 缺省为后台打�
 test('③b tabsWaitForLoad：缺省 30s、完成后再静置 1s、监听器与定时器都清掉；超时必 reject', async () => {
   const timers = []
   const cleared = []
+  const parked = []
   const realTimeout = globalThis.setTimeout
   const realClear = globalThis.clearTimeout
+  /* 长定时（30s 死线 / 1s 静置）**不真等**：记下来由用例在正确的时刻手动触发。
+   * 断言一个字没变（间隔是 3000/1000/30000、"到点后确实发生"，只是把墙钟让出来）。
+   * 短定时（如 timeoutMs=40）仍走真实定时器。 */
   globalThis.setTimeout = (cb, ms, ...a) => {
     timers.push(ms)
+    if (ms >= 1000) {
+      parked.push({ ms, cb, a })
+      return parked.length
+    }
     return realTimeout(cb, ms, ...a)
+  }
+  const fireParked = (ms) => {
+    const i = parked.findIndex((t) => t.ms === ms)
+    assert.ok(i >= 0, `没有记录到 ${ms}ms 定时器（已记录 ${timers.join(',')}）`)
+    const [t] = parked.splice(i, 1)
+    t.cb(...t.a)
   }
   globalThis.clearTimeout = (t) => {
     cleared.push(t)
@@ -579,6 +593,7 @@ test('③b tabsWaitForLoad：缺省 30s、完成后再静置 1s、监听器与�
       await sleep(20)
       assert.equal(h.tabUpdates.size, 0, '完成分支必须 removeListener')
       assert.ok(timers.includes(1000), '完成后必须静置 1000ms')
+      fireParked(1000) // 立即静置完，不真等 1s
       await await pending
       assert.equal(h.replies().find((f) => f.id === 41).id, 41)
 
@@ -597,12 +612,30 @@ test('③b tabsWaitForLoad：缺省 30s、完成后再静置 1s、监听器与�
 })
 
 test('③c tabsWaitForLoad 对调用前就已经加载完的 tab 也能成功（先查一次当前状态）', async () => {
-  await withHarness({ tabStatus: 'complete' }, async (h) => {
-    h.sock.open()
-    const f = await h.request(43, 'tabsWaitForLoad', { tabId: 79, timeoutMs: 5000 })
-    assert.equal(f.error, undefined)
-    assert.equal(h.replies().find((r) => r.id === 43).id, 43)
-  })
+  const parked = []
+  const realTimeout = globalThis.setTimeout
+  // 同 ③b：1s 静置手动触发（断言"已完成的分支也必须静置"照旧）
+  globalThis.setTimeout = (cb, ms, ...a) => {
+    if (ms === 1000) {
+      parked.push(cb)
+      return parked.length
+    }
+    return realTimeout(cb, ms, ...a)
+  }
+  try {
+    await withHarness({ tabStatus: 'complete' }, async (h) => {
+      h.sock.open()
+      const p = h.request(43, 'tabsWaitForLoad', { tabId: 79, timeoutMs: 5000 })
+      await sleep(20)
+      assert.equal(parked.length, 1, '已完成的分支也必须排上静置定时器')
+      parked.shift()()
+      const f = await p
+      assert.equal(f.error, undefined)
+      assert.equal(h.replies().find((r) => r.id === 43).id, 43)
+    })
+  } finally {
+    globalThis.setTimeout = realTimeout
+  }
 })
 
 test('③d tabsClose：真的调用 chrome.tabs.remove；缺 tabId 时不动浏览器', async () => {
@@ -847,10 +880,20 @@ test('⑥ proxyFetch 的 dnrHeaders：临时装 → 用 → finally 撤；请求
 
 test('⑧ 断线：3s 固定重连一次、不叠加；旧 socket 的 close 不打断新连接', async () => {
   const timers = []
+  const pendingReconnect = []
   const realTimeout = globalThis.setTimeout
+  // 3s 重连间隔**不真等**：回调留下来手动触发（"间隔是 3000ms"与"到点真的重连"两条断言不变）
   globalThis.setTimeout = (cb, ms, ...a) => {
     timers.push(ms)
+    if (ms === 3000) {
+      pendingReconnect.push(cb)
+      return pendingReconnect.length
+    }
     return realTimeout(cb, ms, ...a)
+  }
+  const fireReconnect = () => {
+    assert.ok(pendingReconnect.length, '没有排上重连定时器')
+    pendingReconnect.shift()()
   }
   try {
     await withHarness({}, async (h) => {
@@ -866,7 +909,8 @@ test('⑧ 断线：3s 固定重连一次、不叠加；旧 socket 的 close 不�
       await sleep(20)
       assert.equal(timers.filter((t) => t === 3000).length, n, '已在重连中就不能再排一个')
       // 到点后必须真的重新连（新 socket 出现）
-      await waitFor(() => h.sockets.length >= 2, { timeout: 4000 })
+      fireReconnect()
+      await waitFor(() => h.sockets.length >= 2, { timeout: 1000 })
       const fresh = h.sockets[1]
       assert.equal(fresh.url, 'ws://127.0.0.1:9539')
       // 旧 socket 再 close 一次，不能把新连接的引用置空

@@ -699,7 +699,8 @@ test('调用⑦：异步任务整任务超时 → generate_provider_timeout（�
         providerFor(`${base}/generate`, {
           statusUrl: `${base}/status`,
           pollIntervalMs: 250,
-          overallTimeoutMs: 1000,
+          // 断言是"整任务超时会如实上报"，与真实时长无关：200ms 就够跨过超时线
+          overallTimeoutMs: 200,
         }),
         { slot: 'noon' },
       )
@@ -837,7 +838,8 @@ test('调用⑨：draftId 与 taskId 分离 —— 没报告时必须留空，**
 test('参考实现②：并发上限生效（第二个任务得到 409，被映射成可读的"正忙"）', async () => {
   const logsDir = path.join(SANDBOX, 'provider-logs2')
   const script = path.join(SANDBOX, 'slow-generate.sh')
-  fs.writeFileSync(script, '#!/bin/sh\nsleep 2\nexit 0\n', { mode: 0o755 })
+  // 0.6s 足够让"第二个请求撞上第一个还在跑"，不必真占 2s 墙钟（断言与时长无关）
+  fs.writeFileSync(script, '#!/bin/sh\nsleep 0.6\nexit 0\n', { mode: 0o755 })
   const server = createGenerateServer({
     bin: '/bin/sh',
     args: [script],
@@ -855,7 +857,7 @@ test('参考实现②：并发上限生效（第二个任务得到 409，被映�
     // 关键：**不要 await 第一个**。callGenerateProvider 从调用方看是"跑到完"的
     // （异步模式下它会一直轮询到 done），所以"并发"必须真的重叠才测得到。
     const first = callGenerateProvider(provider, { slot: 'noon', keyword: 'a' })
-    await new Promise((r) => setTimeout(r, 400)) // 等第一个任务确实被受理并在跑
+    await new Promise((r) => setTimeout(r, 200)) // 等第一个任务确实被受理并在跑
     const second = await callGenerateProvider(provider, { slot: 'noon', keyword: 'b' })
     // v2.111：409 从"失败"里拆出来了。项目侧还在跑 ≠ 生成失败——
     // 落成 generate_provider_failed 会让用户去排错，而其实只需要等一会。

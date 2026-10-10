@@ -168,20 +168,28 @@ test('② 全量查之后：未检查消失、未登录数如实出现、范围�
 })
 
 test('③ 点刷新：桥只触发不等待 → 页面必须轮询到检查结束再渲染（否则只看到旧快照）', async () => {
-  const stale = { ...SCOPED, refreshing: true }
-  const page = await bootPage([SCOPED, stale, FULL], { tag: 'poll' })
-  await waitFor(() => page.text('sumNo') === '0')
+  /* 页面的轮询间隔是 `CHECK_POLL_MS = 1500`（产品常量，不为测试改）。这里只把**≥1s 的定时器**
+   * 快进到 20ms：轮询照旧发生、断言照旧（"必须轮询到检查结束再渲染"），但不再真等一轮 1.5s。 */
+  const realTimeout = globalThis.setTimeout
+  globalThis.setTimeout = (cb, ms, ...a) => realTimeout(cb, ms >= 1000 ? 20 : ms, ...a)
+  try {
+    const stale = { ...SCOPED, refreshing: true }
+    const page = await bootPage([SCOPED, stale, FULL], { tag: 'poll' })
+    await waitFor(() => page.text('sumNo') === '0')
 
-  const before = page.calls.filter((u) => u.includes('/proxy/platforms')).length
-  page.clickRefresh()
-  // 轮询间隔 1.5s：第一轮就应拿到 FULL（本用例把它排在最后一位，后续轮询重复取它）
-  await waitFor(() => page.text('sumNo') === '4', { timeout: 15000 })
+    const before = page.calls.filter((u) => u.includes('/proxy/platforms')).length
+    page.clickRefresh()
+    // 轮询间隔 1.5s：第一轮就应拿到 FULL（本用例把它排在最后一位，后续轮询重复取它）
+    await waitFor(() => page.text('sumNo') === '4', { timeout: 15000 })
 
-  assert.equal(page.text('tabNo'), '未登录 4')
-  assert.equal(page.text('sumScope'), '8/8')
-  const after = page.calls.filter((u) => u.includes('/proxy/platforms')).length
-  assert.ok(after >= before + 2, `刷新必须再查至少两次（触发 + 轮询），实际 ${before} → ${after}`)
-  page.dom.window.close()
+    assert.equal(page.text('tabNo'), '未登录 4')
+    assert.equal(page.text('sumScope'), '8/8')
+    const after = page.calls.filter((u) => u.includes('/proxy/platforms')).length
+    assert.ok(after >= before + 2, `刷新必须再查至少两次（触发 + 轮询），实际 ${before} → ${after}`)
+    page.dom.window.close()
+  } finally {
+    globalThis.setTimeout = realTimeout
+  }
 })
 
 test('④ 连接失败：数字清空为「–」，不能拿旧数据当现状', async () => {

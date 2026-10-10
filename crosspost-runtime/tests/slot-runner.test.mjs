@@ -26,7 +26,8 @@ fs.writeFileSync(
     '#!/bin/bash',
     'echo "slot=$1 run=$CROSSPOST_SLOT_RUN_ID runner=$CROSSPOST_SLOT_RUNNER"',
     'case "$1" in',
-    '  slow) sleep 1; echo "[draft-id] draft-xyz"; exit 0 ;;',
+    // 0.2s 足够制造"还在跑"的窗口；原来的 1s 只是在烧墙钟（断言与时长无关）
+    '  slow) sleep 0.2; echo "[draft-id] draft-xyz"; exit 0 ;;',
     '  boom) echo "数据源全挂"; exit 3 ;;',
     '  ok)   echo "fine"; exit 0 ;;',
     '  *)    echo "unknown"; exit 9 ;;',
