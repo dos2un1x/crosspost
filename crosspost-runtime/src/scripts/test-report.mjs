@@ -296,13 +296,21 @@ td.dim{color:var(--dim);font-size:12px}
 .bar i{display:block;height:100%;border-radius:5px}
 .wrap{max-height:560px;overflow:auto;border-radius:10px}
 .note{color:var(--dim);font-size:12px;margin-top:10px}
+.warn{background:#fff4e6;border:1px solid #ffd8a8;color:#8a4b08;border-radius:8px;
+  padding:8px 12px;font-size:12.5px;margin:6px 0 10px}
 code{background:#eef0f2;padding:1px 5px;border-radius:4px;font-size:12px}
 </style>
 <h1>CrossPost 测试耗时报表</h1>
 <div class="sub">${esc(m.when)} · <code>${esc(m.commit)}</code> · ${esc(m.node)} · ${m.cores} 核 ·
-  命令 <code>${esc(m.command)}</code>（${r.counts.cases} 例 / ${r.counts.files} 文件 ·
+  负载 ${m.load ?? '—'} · 命令 <code>${esc(m.command)}</code>（${r.counts.cases} 例 / ${r.counts.files} 文件 ·
   ${r.counts.failed} 失败 · ${r.counts.skipped} 跳过）${m.label ? ` · ${esc(m.label)}` : ''}</div>
 
+${
+  m.load != null && m.load > m.cores
+    ? `<div class="warn">⚠ 运行时机负载 <b>${m.load}</b>（${m.cores} 核）—— 机器当时是满的，
+本次耗时偏保守；与上次的差值可能来自负载而不是代码。</div>`
+    : ''
+}
 <div class="kpis">
   <div class="kpi"><div class="k">整轮墙钟</div><div class="v">${secs(r.totals.wall)}</div>
     <div class="d">${cmp ? deltaBadge(r.totals.wall, cmp.prev.wall) + ' vs 上次' : '首次记录'}</div></div>
@@ -498,6 +506,9 @@ export async function main(argv = []) {
     commit: git(['rev-parse', '--short', 'HEAD']) || '(no git)',
     node: process.version,
     cores: os.cpus().length,
+    // 负载均值：报表要能区分"代码变慢"与"机器当时很忙"（实测同一份代码 30.4s ↔ 43.8s，
+    // 差别就是负载 2.x ↔ 29.9）。缺它的话"较上次"会被误读成退化。
+    load: Number(os.loadavg()[0].toFixed(2)),
     command,
     label: typeof label === 'string' ? label : '',
     top,
@@ -526,6 +537,7 @@ export async function main(argv = []) {
     JSON.stringify(
       {
         meta,
+        load: report.meta.load,
         counts: report.counts,
         totals: report.totals,
         buckets: report.buckets,
@@ -552,6 +564,7 @@ export async function main(argv = []) {
     `  ${report.counts.cases} 例 / ${report.counts.files} 文件 · 墙钟 ${secs(report.totals.wall)} · ` +
       `CPU ${report.totals.cpu == null ? '—' : `${report.totals.cpu.toFixed(0)}s`} · ` +
       `平均占用 ${report.totals.avgCores == null ? '—' : report.totals.avgCores.toFixed(1)}/${meta.cores} 核` +
+      ` · 负载 ${meta.load}` +
       (cmp?.delta?.wall != null
         ? `（较上次 ${cmp.delta.wall > 0 ? '+' : ''}${cmp.delta.wall.toFixed(1)}s）`
         : ''),

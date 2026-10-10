@@ -120,6 +120,36 @@ test('③ 渲染：HTML 转义、Markdown/CSV 结构', () => {
   assert.ok(!html.includes('甲：慢的 <带尖括号>'), '不能出现未转义版本')
   assert.ok(html.includes('10.50s'), '墙钟带两位小数')
 
+  // 负载高于核数时要明确警告："这次慢"可能是机器忙，而不是代码退化
+  const busy = renderHtml(
+    buildReport(relCases, {
+      wall: 40,
+      cpu: 100,
+      cores: 8,
+      load: 29.9,
+      when: 'T',
+      commit: 'a',
+      node: 'v',
+      command: 'x',
+    }),
+    null,
+  )
+  assert.ok(busy.includes('运行时机负载'), '满载运行时必须标注（否则"较上次"被误读成退化）')
+  const idle = renderHtml(
+    buildReport(relCases, {
+      wall: 30,
+      cpu: 100,
+      cores: 8,
+      load: 1.2,
+      when: 'T',
+      commit: 'a',
+      node: 'v',
+      command: 'x',
+    }),
+    null,
+  )
+  assert.ok(!idle.includes('运行时机负载'), '机器不忙时不打扰')
+
   const md = renderMarkdown(r, null)
   assert.ok(md.includes('# CrossPost 测试耗时报表'))
   assert.ok(md.includes('| `a.test.mjs` | 2 | 1.50s |'), '文件表含用例数与合计')
