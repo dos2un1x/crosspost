@@ -323,6 +323,75 @@ const DEMO_TOPICS = [
   },
 ]
 
+/* 示例门禁判定（**示例数据**）：键是 `slot@day`，与上面的 DEMO / DEMO_RETAINED / DEMO_ARCHIVED 对齐。
+ * 记录里的 `aiDetect` 与 `demoCostsPayload()` 的 `meta.aiGate` **取自同一张表**，
+ * 所以报表的「AI 门禁」卡、「栏目记分卡」与详情抽屉里的判定行必然自洽 —— 不会出现
+ * "卡片说有 4 篇达标、抽屉里却是未检测"这种自相矛盾的文档图。 */
+const DEMO_GATE = {
+  'morning@0': { verdict: 'pass', value: 0.124, chars: 1200 },
+  'noon@1': { verdict: 'pass', value: 0.189, chars: 1600 },
+  'evening@2': { verdict: 'fail', value: 0.472, chars: 1800 },
+  'tips@6': { verdict: 'skip', reason: 'sampled-out' },
+  'evening@3': { verdict: 'fail', value: 0.551, chars: 2400 },
+  'hotspot@4': { verdict: 'pass', value: 0.213, chars: 1400 },
+  'morning@8': { verdict: 'pass', value: 0.098, chars: 1100 },
+  'tips@11': { verdict: 'fail', value: 0.386, chars: 900 },
+}
+
+/** 一张示例判定 → 引擎写的那种快照文本（Console 的反解器认这一种） */
+function demoSsnapshot(slot, day) {
+  const g = DEMO_GATE[`${slot}@${day}`]
+  if (!g) return null
+  if (g.verdict === 'skip') return `AI检测=未检测 · 按正文哈希抽样未命中（${g.reason}）`
+  const word = g.verdict === 'pass' ? '达标' : '超标'
+  const cmp = g.verdict === 'pass' ? '<' : '≥'
+  return (
+    `AI检测=${word} · AI特征 ${(g.value * 100).toFixed(1)}% ${cmp} 30.0% · ` +
+    `片段 0人工/2疑似/1AI · ${g.chars}字 · 风格 正常`
+  )
+}
+
+/** 把示例判定汇总成 `listCosts` 的 `meta.aiGate` 形状（口径与 `aiGateStats()` 一致） */
+function demoAiGate() {
+  const acc = { total: 0, pass: 0, fail: 0, skip: 0, unknown: 0, detected: 0, slots: {} }
+  const recent = { total: 0, pass: 0, fail: 0, skip: 0, unknown: 0, detected: 0, slots: {} }
+  let sum = 0
+  let n = 0
+  let sumR = 0
+  let nR = 0
+  for (const [key, g] of Object.entries(DEMO_GATE)) {
+    const [slot, dayStr] = key.split('@')
+    const day = Number(dayStr)
+    acc.total++
+    acc[g.verdict] = (acc[g.verdict] || 0) + 1
+    const s = (acc.slots[slot] = acc.slots[slot] || { pass: 0, fail: 0, skip: 0, unknown: 0 })
+    s[g.verdict] = (s[g.verdict] || 0) + 1
+    if (g.verdict !== 'skip' && typeof g.value === 'number') {
+      sum += g.value
+      n++
+      s.valueSum = Math.round(((s.valueSum || 0) + g.value) * 10000) / 10000
+      s.valueN = (s.valueN || 0) + 1
+      s.avgValue = Math.round((s.valueSum / s.valueN) * 10000) / 10000
+    }
+    // 「近 7 天」= day ≤ 6（与报表页的滚动窗口同口径）
+    if (day <= 6) {
+      recent.total++
+      recent[g.verdict] = (recent[g.verdict] || 0) + 1
+      if (g.verdict !== 'skip' && typeof g.value === 'number') {
+        sumR += g.value
+        nR++
+      }
+    }
+  }
+  acc.detected = acc.pass + acc.fail
+  acc.passRate = acc.detected ? acc.pass / acc.detected : null
+  acc.avgValue = n ? Math.round((sum / n) * 10000) / 10000 : null
+  recent.detected = recent.pass + recent.fail
+  recent.passRate = recent.detected ? recent.pass / recent.detected : null
+  recent.avgValue = nR ? Math.round((sumR / nR) * 10000) / 10000 : null
+  return { all: acc, recent }
+}
+
 const PLATFORM_ERROR = { fail: '登录态失效，请先在浏览器里重新登录该平台' }
 
 function demoId(d) {
@@ -407,7 +476,23 @@ function writeFixture() {
       wechat: { ...d.wechat, at: now },
       platforms,
       notify: { status: 'none' },
-      history: [],
+      // 真实草稿**至少有一条 history**（draft-only）；示例里留空会被列表正确判成"空骨架"并挂
+      // `⚠ 无记录` 徽标 —— 那是记录写盘失败的信号，不该出现在文档图里。
+      history: [
+        {
+          action: 'draft-only',
+          at: now,
+          style: d.style,
+          score: d.score,
+          wechat: 'skip',
+          platforms: null,
+          failed: [],
+          errors: [],
+          note: '未开启自动推送,仅生成草稿',
+        },
+      ],
+      // 判定行与 demoAiGate() 同源（示例数据）——文档图上卡片与抽屉必须自洽
+      ...(demoSsnapshot(d.slot, d.day) ? { aiDetect: demoSsnapshot(d.slot, d.day) } : {}),
       createdAt: now,
       updatedAt: now,
     })
@@ -433,6 +518,7 @@ function writeFixture() {
       platforms: {},
       notify: { status: 'none' },
       history: [{ action: 'retain', at: now, dir: d.dir }],
+      ...(demoSsnapshot(d.slot, d.day) ? { aiDetect: demoSsnapshot(d.slot, d.day) } : {}),
       createdAt: now,
       updatedAt: now,
     })
@@ -933,16 +1019,27 @@ async function maskAndGate(page, masks, deny) {
 /** 报表页的两张费用卡是示例数据：拦掉 /proxy/costs，喂固定载荷 */
 function demoCostsPayload(token) {
   const now = new Date().toISOString()
+  // 费用行**对上示例文章**（同一个 day+slot → 取它的 id / 标题）：否则"今日每篇费用"那张
+  // 明细会露出 `demo-cost-0` 这种占位 id，文档图上很难看，也读不出是哪一篇。
+  const articles = [...DEMO, ...DEMO_RETAINED, ...DEMO_ARCHIVED]
   const rows = [
     { day: 0, slot: 'morning', cost: 1.8241, total: 412000, hidden: 18000 },
-    { day: 0, slot: 'noon', cost: 0.9132, total: 205000, hidden: 9000 },
-    { day: 1, slot: 'noon', cost: 1.2077, total: 288000, hidden: 0 },
-    { day: 2, slot: 'morning', cost: 0.8654, total: 196000, hidden: 0 },
+    { day: 1, slot: 'noon', cost: 0.9132, total: 205000, hidden: 9000 },
+    { day: 2, slot: 'evening', cost: 1.2077, total: 288000, hidden: 0 },
+    { day: 4, slot: 'hotspot', cost: 0.8654, total: 196000, hidden: 0 },
     { day: 6, slot: 'tips', cost: 0.641, total: 141000, hidden: 0 },
-  ]
+  ].map((r) => {
+    const a = articles.find((x) => x.day === r.day && x.slot === r.slot)
+    return {
+      ...r,
+      id: a ? demoId(a) : `demo-cost-${r.day}-${r.slot}`,
+      title: a ? a.title : '示例草稿',
+    }
+  })
   return {
-    costs: rows.map((r, i) => ({
-      id: `demo-cost-${i}`,
+    costs: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
       matched: true,
       cost: r.cost,
       date: beijingDay(-r.day),
@@ -955,6 +1052,8 @@ function demoCostsPayload(token) {
       byGen: { 3: rows.length },
       zeroUsageCount: 0,
       token,
+      // AI 门禁汇总（示例数据）：与记录里的 aiDetect 同一张表 → 报表那张卡不再是"统计中…"
+      aiGate: demoAiGate(),
       pricing: {
         model: PRICING.model,
         version: PRICING.version,
@@ -1160,6 +1259,23 @@ try {
       : '沙箱 config.json 未生成',
   )
 
+  /* 品牌图标：把**仓库自带的那个 favicon** 内联成 data URL 写进沙箱配置。
+   *
+   * 为什么：沙箱里 `#brand-mark img` 拿到 200 也不解码（`complete=true, naturalWidth=0`，
+   * 且没有 4xx、没有 requestfailed）—— 生产上同一个文件是正常的（实测 64×64），
+   * 属沙箱环境独有的渲染差异。若不处理，九张 Console 截图的左上角都是一个破图占位符。
+   * 内联 data URL 用的是**同一个文件**的字节（内容不失真），且 CSP 本来就允许 `img-src data:`。 */
+  try {
+    const fav = fs.readFileSync(path.join(REPO, 'bridge', 'console', 'favicon.ico'))
+    sandboxCfg.branding = {
+      ...(sandboxCfg.branding || {}),
+      icon: `data:image/x-icon;base64,${fav.toString('base64')}`,
+    }
+    fs.writeFileSync(cfgFile, JSON.stringify(sandboxCfg, null, 2))
+  } catch (e) {
+    warn('沙箱品牌图标内联', `跳过（${(e && e.message) || e}）`)
+  }
+
   let pathsJson = {}
   const pathsExisted = fs.existsSync(pathsFile)
   try {
@@ -1292,6 +1408,32 @@ try {
       editorMarker: EDITOR_MARKER,
     })
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
+    /* 顶栏「共 N 篇 / 文章 / 留存 / 归档」是 `refreshStats()` 三库都到齐后才画的，
+       而表格只等 `/proxy/articles` 一条（首屏快路径）—— 抢在统计前拍就会拍成
+       「共 0 篇」却列着 4 行文章，自相矛盾（实测两次生成一次 8、一次 0，纯竞态）。
+       这里等它落定：有内容才算数，超时则**告警**（真回归别被静默拍进文档）。 */
+    const statsOk = await page
+      .waitForFunction(
+        () => {
+          const t = (document.querySelector('#stats')?.innerText || '').trim()
+          return t && !/共\s*0\s*篇/.test(t)
+        },
+        { timeout: 5000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (!statsOk) warn(`[${shot.label}] 顶栏统计`, '仍为 0，截图可能显示「共 0 篇」')
+    // 品牌图标是 `applyBrand()` 在配置到货后**动态插入**的 `<img>`：networkidle 之后它可能还没
+    // 解码完，于是整页图上留一个破图占位符（会出现在每一张 Console 截图里）。等它 complete 再拍。
+    await page
+      .waitForFunction(
+        () => {
+          const img = document.querySelector('#brand-mark img')
+          return !img || (img.complete && img.naturalWidth > 0)
+        },
+        { timeout: 3000 },
+      )
+      .catch(() => {})
     await page.evaluate(() => window.scrollTo(0, 0))
     // 顶栏是 sticky：整页取景时把它降级为普通流，位置与不滚动的首屏一致，且不会有叠影
     await page.addStyleTag({ content: '.topbar { position: static !important; }' })

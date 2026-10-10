@@ -66,34 +66,36 @@ curl -s localhost:9540/proxy/schedule -H "X-CrossPost-Token: $T" -H "X-CrossPost
 输出恒为 **stdout 单行 JSON**；出错走统一包装（`{"error":…}`，抛出的错误可带 `fields`
 把机器可读上下文一并下发，例如留存失败时的 `{ok:false, fileMoved:true, file, dir, recordError}` ——
 `fileMoved=true` 表示**文件已经就位、只有记录没写**，重跑同一条命令即可补录）。
-**54 个方法**，按域分组：
+**56 个方法**，按域分组：
 
-| 域          | 方法                                                                                                                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 自检 / 环境 | `doctor` `doctorText` `setup` `proxyStatus` `proxyTest` `checkAuth` `slotEnabled`                                                                                                           |
-| 项目        | `projects` `resolveProject`                                                                                                                                                                 |
-| 文章 / 草稿 | `listArticles` `getArticle` `readDraft` `createDraft` `updateDraft` `deleteDraft` `setArticleStatus`                                                                                        |
-| 分诊 / 留存 | `classifyArticles` `setArticleRisk` `archiveArticle` `retainArticle` `listRetained` `listArchive` `retainedAction`                                                                          |
-| 发布        | `publishArticle` `syncArticle` `syncStyledArticle` `publishDouyin` `markPublished` `markAllPublished` `wechatDraft` `wechatDrafts` `wechatDraftDelete`                                      |
-| 渲染 / 素材 | `listStyles` `styles` `renderPreview` `analyzeStyle` `listCoverTemplates` `generateCover` `generateCoverGallery` `generateEndingCard` `uploadImageFile` `extractArticle` `extractActiveTab` |
-| 内容质量    | `aiDetect`（朱雀 AIGC 检测；AI 会话侧的写入口是 MCP 工具 `ai_detect`，同一个实现。见 [`ai-detect.md`](ai-detect.md)）                                                                       |
-| 选题库      | `topicPoolUpsert`（MCP 面 `topic_pool_upsert`，同一个实现）`topicPoolValidate` `topicPoolShow`                                                                                              |
-| 平台        | `listPlatforms` `checkAuth`                                                                                                                                                                 |
-| 通知        | `notify` `notifyTest`                                                                                                                                                                       |
-| 费用        | `listCosts` `articleCost` `prewarmCosts`                                                                                                                                                    |
-| 其它        | `backfill`                                                                                                                                                                                  |
+| 域          | 方法                                                                                                                                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 自检 / 环境 | `doctor` `doctorText` `setup` `proxyStatus` `proxyTest` `checkAuth` `slotEnabled`                                                                                                                                |
+| 项目        | `projects` `resolveProject`                                                                                                                                                                                      |
+| 文章 / 草稿 | `listArticles` `getArticle` `readDraft` `createDraft` `updateDraft` `deleteDraft` `setArticleStatus` `recordWriting`（MCP 面 `record_writing`）                                                                  |
+| 分诊 / 留存 | `classifyArticles` `setArticleRisk` `archiveArticle` `retainArticle`（MCP 面 `retain_article`，同一个实现）`listRetained` `listArchive` `retainedAction` `repairRecords`（对账补齐缺失的留存记录，默认 dry-run） |
+| 发布        | `publishArticle` `syncArticle` `syncStyledArticle` `publishDouyin` `markPublished` `markAllPublished` `wechatDraft` `wechatDrafts` `wechatDraftDelete`                                                           |
+| 渲染 / 素材 | `listStyles` `styles` `renderPreview` `analyzeStyle` `listCoverTemplates` `generateCover` `generateCoverGallery` `generateEndingCard` `uploadImageFile` `extractArticle` `extractActiveTab`                      |
+| 内容质量    | `aiDetect`（朱雀 AIGC 检测；AI 会话侧的写入口是 MCP 工具 `ai_detect`，同一个实现。见 [`ai-detect.md`](ai-detect.md)）                                                                                            |
+| 选题库      | `topicPoolUpsert`（MCP 面 `topic_pool_upsert`，同一个实现）`topicPoolValidate` `topicPoolShow`                                                                                                                   |
+| 平台        | `listPlatforms` `checkAuth`                                                                                                                                                                                      |
+| 通知        | `notify` `notifyTest`                                                                                                                                                                                            |
+| 费用        | `listCosts` `articleCost` `prewarmCosts`                                                                                                                                                                         |
+| 其它        | `backfill`                                                                                                                                                                                                       |
 
 ## 3. MCP（stdio，`crosspost-runtime/mcp-server/index.mjs`）
 
-**22 个工具**（DSH 里名字是 `mcp__crosspost__*`）：
+**24 个工具**（DSH 里名字是 `mcp__crosspost__*`）：
 
-| 类别        | 工具                                                                                                                                                                  |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状态        | `status` `projects` `list_platforms` `check_auth` `proxy_test`                                                                                                        |
-| 内容 / 发布 | `publish_article` `publish_styled` `sync_article` `wechat_draft` `wechat_draft_delete`                                                                                |
-| 渲染 / 素材 | `render_preview` `list_styles` `create_style` `install_styles` `styles_rename` `styles_delete` `analyze_style` `generate_cover` `extract_article` `upload_image_file` |
-| 选题库      | `topic_pool_upsert`（候选入库；行形状由 schema 约束，是 AI 会话侧的写入口。脚本/定时链路走同名的 CLI 方法，同一个实现）                                               |
-| 内容质量    | `ai_detect`（朱雀 AIGC 检测；返回整体判定 + **被判 AI 的片段**及其在正文里的字符区间。见 [`ai-detect.md`](ai-detect.md)）                                             |
+| 类别        | 工具                                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状态        | `status` `projects` `list_platforms` `check_auth` `proxy_test`                                                                                                                                                |
+| 内容 / 发布 | `publish_article` `publish_styled` `sync_article` `wechat_draft` `wechat_draft_delete`                                                                                                                        |
+| 文章记录    | `record_writing`（把 §2.5 编辑决策 / §5.6 独立审稿写进文章记录；**不发布也能记**，draft-only 链路靠它才有落点，Console 抽屉的这两张卡读的就是它）                                                             |
+| 分诊 / 留存 | `retain_article`（移入低分库/风险库并写记录，**恒不发布**；恢复与删除仍只在 Console，见 `retainedAction`）                                                                                                    |
+| 渲染 / 素材 | `render_preview` `list_styles` `create_style` `install_styles` `styles_rename` `styles_delete` `analyze_style` `generate_cover` `extract_article` `upload_image_file`                                         |
+| 选题库      | `topic_pool_upsert`（候选入库；行形状由 schema 约束，是 AI 会话侧的写入口。脚本/定时链路走同名的 CLI 方法，同一个实现）                                                                                       |
+| 内容质量    | `ai_detect`（朱雀 AIGC 检测；返回整体判定 + **被判 AI 的片段**及其在正文里的字符区间；`record: true` 可把判定写进该篇的文章记录，未发布的稿子也能在 Console 看到 AI 检测。见 [`ai-detect.md`](ai-detect.md)） |
 
 项目语义：`CROSSPOST_PROJECT` 在**会话级**声明一次（一进程一项目）。
 **两个来源标记由 shell 注入、AI 无法自我豁免**：`WECHAT_AUTO_SCHEDULED=1`（定时链路）、

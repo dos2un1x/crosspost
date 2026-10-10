@@ -358,12 +358,44 @@ frontmatter 登记一条骨架，决策、审稿、AI 检测、产物归档、�
 **补录**（文件不需要再动，重跑对应的处置命令即可；重跑是幂等的）：
 
 ```bash
+# ① 一篇一篇补（原因取原文；AI 门禁行直接传 ai_detect 返回的 snapshot）
 node crosspost-runtime/src/cli.mjs retainArticle --id=<草稿id> --dir=rejected --reason="<原原因>"
+
+# ② 不知道缺了哪几篇：先看计划（dry-run），再一键补齐（写前把记录原件备份到 <localRoot>/repairs/）
+node crosspost-runtime/src/cli.mjs repairRecords --project=<项目>
+node crosspost-runtime/src/cli.mjs repairRecords --apply --project=<项目>
 ```
+
+`repairRecords` 以**文件系统事实**为准：扫 `drafts/rejected` + `drafts/risk`，凡"文件在留存库、
+记录却缺（或只有一条没有 `history` 的空骨架）"的都补成 `status=retained` + `dir` + `retainedReason`
+（原因优先取记录里已有的，其次取选题库同一 `articleId` 的 reason，都取不到就写"对账补写：见 run 日志"，
+**不编造 AI 数值**）。同一 id 在多个目录各有一份（记录描述的是归档/风险那一份）时不自动改写，
+只报出来等你人工确认。Console 留存库的「补录缺失记录」按钮与 `doctor` 的 `records` 检查走同一个实现。
+
+**决策 / 审稿 / AI 检测为什么也常常是空的**：这三样只有**发布器**会写（`publish_article` 的
+`decision` / `review` / `aiDetect` 入参），而 draft-only 链路（一键生成、定时生成）从不调发布器 ——
+判定与结论都产出了，却没有落点。补写用非发布入口：
+
+```bash
+node crosspost-runtime/src/cli.mjs aiDetect --id=<草稿id> --record --note="第2轮复检"   # AI 检测门禁行
+node crosspost-runtime/src/cli.mjs recordWriting --id=<草稿id> --decision="<决策行原文>" --review="<审稿行原文>"
+```
+
+（MCP 面分别是 `ai_detect` 的 `record: true` 与 `record_writing`。两个入口都只打这次要改的键，
+不会清掉另一个字段；写盘失败只回 `recordError`，判定结果照常返回。）
+
+**归档库与留存库也能查这些字段**：这两库里的行可以直接点开抽屉（**只读**：不显示编辑 / 留存 /
+重推那些动作，默认停在「发布记录」），决策、审稿、AI 检测、留存原因与推送结果都在里面 ——
+文章发布后记录随它一起进归档库，那里是复盘唯一能看到全貌的地方。
 
 失败时命令会把状态说清楚：`{"error":"…记录写入失败（文件已移入 rejected/，需重跑本命令补录）…",
 "fileMoved":true,"recordError":"…"}` —— `fileMoved=true` 表示**文件已经移好了**，只有账没记，
 照上面重跑一次即可（`findDraftFile` 会到 `rejected/` 里找到它）。
+
+> **写入方为什么会失败**：写作 agent 跑在文件沙箱里（只能写自己的工作区），而引擎簿记在
+> `<引擎仓库>/.local/` 下 —— 越界即 `EPERM`，于是出现"文件已留存、记录没写"。所以写作侧用
+> MCP 工具 `mcp__crosspost__retain_article`（记录由引擎进程写，不受调用方沙箱限制）；
+> `repairRecords` 是对账兜底：任何写入方（裸 `mv`、回退链路、中途中断）丢的记录都能补回来。
 
 判据由引擎派生下发：`listArticles` / `getArticle` 的每条记录带 `recordHealth`（`ok` | `empty`，
 `empty` = 该记录一条 `history` 都没有）。Console 用它显示列表角标与抽屉里的警告行。
