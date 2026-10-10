@@ -918,6 +918,21 @@ tbody tr:last-child td {
   color: var(--accent);
 }
 /* 记录空骨架警告（2026-10-08）：跨列占满 + 琥珀色描边，避免与普通信息卡混在一起看漏 */
+/* 只读抽屉（归档库 / 留存库打开）：留下记录、原文、样式预览，收起所有动作入口。
+   这两库里点开抽屉的目的是**查记录**（决策/审稿/AI 检测/留存原因），不是改稿或推送。 */
+.drawer.readonly .drawer-actions,
+.drawer.readonly .drawer-foot {
+  display: none;
+}
+
+/* 可点开的表格行（归档库 / 留存库）：整行是入口，但行内的恢复/删除按钮照旧独立 */
+tr.row-click {
+  cursor: pointer;
+}
+tr.row-click:hover td {
+  background: var(--paper-2);
+}
+
 .rg-item.rg-warn {
   grid-column: 1 / -1;
   border-color: var(--partial);
@@ -1460,6 +1475,431 @@ tbody tr:last-child td {
   min-width: 180px;
 }
 
+/* ── 报表 KPI 条（2026-10-10）─────
+   先给结论：6 个格子，每格 = 一个数 + 一句上下文（环比 / 构成 / 可点跳转）。
+   比"六张长条卡"先到达读者的眼，滚动之前就能判断这周怎么样。 */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.kpi-tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.kpi-tile .kpi-k {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.kpi-tile .kpi-v {
+  font-family: var(--mono);
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.kpi-tile .kpi-v em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-left: 3px;
+}
+.kpi-tile .kpi-sub {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+.kpi-tile .kpi-sub .up {
+  color: var(--ok);
+}
+.kpi-tile .kpi-sub .down {
+  color: var(--fail);
+}
+.kpi-tile.clickable {
+  cursor: pointer;
+}
+.kpi-tile.clickable:hover {
+  border-color: var(--accent);
+}
+
+/* 产出与去向：一条堆叠条 + 逐项说明（点得开对应的库） */
+.rp-flow-bar {
+  display: flex;
+  height: 26px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--paper-3);
+  margin: 4px 0 12px;
+}
+.rp-flow-bar span {
+  display: block;
+  height: 100%;
+}
+.rp-flow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.rp-flow-row:hover {
+  background: var(--paper-2);
+}
+.rp-flow-row .dsw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.rp-flow-row .fname {
+  min-width: 86px;
+}
+.rp-flow-row .fnum {
+  font-family: var(--mono);
+  color: var(--ink);
+  min-width: 52px;
+  text-align: right;
+}
+.rp-flow-row .fpct {
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  min-width: 44px;
+  text-align: right;
+}
+
+/* 记分卡的"缺口说明 + 补齐动作"（2026-10-10）：
+   这两列给不出数的成因不同（费用补不回来、检测能补），说明与动作放一起才不会误读。 */
+.gap-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+.gap-note b {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* 费用趋势（2026-10-10）：30 天折线 + 近 6 周每篇均价。
+   折线用 `preserveAspectRatio="none"` 让 SVG 横向铺满卡片，描边靠 `vector-effect` 保持不变形。 */
+.rp-trend svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+.rp-trend .tr-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.rp-trend .tr-area {
+  fill: var(--accent);
+  opacity: 0.08;
+  stroke: none;
+}
+.rp-trend .tr-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+.rp-trend .tr-avg {
+  stroke: var(--partial);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+.rp-trend .tr-dot {
+  fill: var(--accent);
+}
+.rp-trend-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+.rp-trend-legend {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+.rp-trend-legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  background: var(--partial);
+  vertical-align: middle;
+  margin: 0 4px 0 2px;
+}
+
+/* 栏目记分卡（2026-10-10）：把产量 / 留存率 / 每篇费用 / AI 门禁交叉成一张表。
+   比"两张各看一半的卡"多出来的信息是**交叉**：贵且难过门禁的栏目一眼就跳出来。 */
+.rp-table-wrap {
+  overflow-x: auto;
+}
+.rp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  /* **必须 fixed**：auto 布局下没有任何宽度约束的「栏目」列会把整张表的空闲宽度全吃光
+     （实测 924px），表头因此挤到右边、与表体错位。fixed + 下面这套百分比列宽才稳定。 */
+  table-layout: fixed;
+}
+/* 列宽策略（2026-10-10 二次改版）：数值列**定宽像素**，条形列吃剩余宽度。
+   为什么不用百分比：`table-layout: fixed` + 百分比在宽屏上会把"每篇费用/AI 达标/平均特征"
+   摊到相隔上千像素（实测 2858px 屏上要横跨半个屏才读完一行）。定宽 + 条形吃掉富余，
+   数字永远聚在一起，多出来的宽度变成更长的条（本来就该更长的那个元素）。 */
+.rp-table th:nth-child(1),
+.rp-table td:nth-child(1) {
+  width: 116px;
+}
+.rp-table th:nth-child(2),
+.rp-table td:nth-child(2) {
+  width: 64px;
+}
+.rp-table th:nth-child(3),
+.rp-table td:nth-child(3) {
+  width: auto; /* 富余全给它 */
+}
+.rp-table th:nth-child(4),
+.rp-table td:nth-child(4) {
+  width: 132px;
+}
+.rp-table th:nth-child(5),
+.rp-table td:nth-child(5) {
+  width: 128px;
+}
+.rp-table th:nth-child(6),
+.rp-table td:nth-child(6) {
+  width: 118px;
+}
+.rp-table th:nth-child(7),
+.rp-table td:nth-child(7) {
+  width: 128px;
+  padding-right: 0;
+}
+/* 可排序表头：有反馈才敢点 */
+.rp-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.rp-table th.sortable:hover {
+  color: var(--accent);
+}
+/* 问题行（越过门禁线 / 达标率不到一半）：不用读数字就能找到该看哪几行 */
+.rp-table tr.is-flag td:first-child {
+  box-shadow: inset 3px 0 0 var(--fail);
+}
+.rp-table .c-flag {
+  display: inline-block;
+  margin-left: 6px;
+  width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--fail-bg);
+  color: var(--fail);
+  font-size: 10.5px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+/* 指标格：条 + 数字（数字用 mono 且定宽，三列纵向对齐好扫） */
+.rp-table .c-metric {
+  white-space: nowrap;
+}
+.rp-table .c-metric b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink);
+}
+.rp-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--ink-faint);
+  padding: 0 8px 6px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.rp-table td {
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid var(--glass-line, var(--paper-3));
+  vertical-align: middle;
+}
+.rp-table tr:last-child td {
+  border-bottom: none;
+}
+.rp-table .c-name {
+  min-width: 74px;
+  white-space: nowrap;
+}
+.rp-table .c-num {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+/* 记分卡里的两条小条：产量那条铺满自己的列，比率那两条固定 72px（后面跟数字） */
+.rp-table .c-bar .rp-mini {
+  width: 100%;
+}
+.rp-table .c-metric .rp-mini {
+  display: inline-flex;
+  width: 54px;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+/* 表内的小条：与卡片里的 .rbar 同色系，但更细更短（表格里是配角） */
+.rp-mini {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--paper-3);
+  min-width: 60px;
+}
+.rp-mini span {
+  display: block;
+  height: 100%;
+}
+.rp-mini i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.rp-mini i.warn {
+  background: var(--partial);
+}
+.rp-mini i.bad {
+  background: var(--fail);
+}
+.rp-table .c-dim {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+/* AI 门禁卡 */
+.gate-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.gate-rate {
+  font-family: var(--mono);
+  font-size: 24px;
+  color: var(--ink);
+}
+.gate-note {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.gate-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--paper-3);
+  margin: 6px 0 10px;
+}
+.gate-bar span {
+  display: block;
+  height: 100%;
+}
+
+/* 平台成功率：紧凑芯片（100% 的排后面，有失败的排前面并染色） */
+.rp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass-soft);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.chip em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.chip.ok {
+  border-color: var(--ok-bg);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.chip.ok em {
+  color: var(--ok);
+  opacity: 0.75;
+}
+.chip.bad {
+  border-color: var(--fail);
+  background: var(--fail-bg);
+  color: var(--fail);
+}
+.chip.bad em {
+  color: var(--fail);
+  opacity: 0.8;
+}
+
+/* 今日每篇费用：一行一篇，点开抽屉 */
+.rp-articles {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+.rp-art {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.rp-art:hover {
+  background: var(--paper-2);
+}
+.rp-art-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-art-slot {
+  font-size: 11px;
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+.rp-art-tok {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+.rp-art-cost {
+  font-family: var(--mono);
+  color: var(--ink);
+  flex: 0 0 auto;
+  min-width: 56px;
+  text-align: right;
+}
+.rp-art.unmatched .rp-art-cost {
+  color: var(--ink-faint);
+}
+
 .rp-bars {
   display: flex;
   align-items: flex-end;
@@ -1844,6 +2284,233 @@ html[data-theme='light'] .dy-badge .dy-ico {
   color: var(--partial, #997404);
 }
 
+/* ── AI 检测行（文章抽屉「记录概览」+ 发布历史，2026-10-08） ──
+   同一行文本以前是整行贴出来的机器字段（`口径=labels_ai 值=… AI特征占比=…`），
+   现在拆成：判定徽标 + 主判据 + 明细，判定颜色与"未检测≠通过"一眼可见。 */
+.ai-detect {
+  line-height: 1.5;
+}
+.ai-verdict {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ai-verdict.pass {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.ai-verdict.fail {
+  background: var(--fail-bg);
+  color: var(--fail);
+}
+.ai-verdict.skip {
+  background: var(--skip-bg);
+  color: var(--skip);
+}
+.ai-line .ai-head {
+  margin-left: 6px;
+}
+.ai-head {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.ai-head b {
+  color: var(--ink);
+  font-weight: 700;
+}
+.ai-head .ai-op {
+  color: var(--ink-faint);
+}
+.ai-bad,
+.ai-head b.ai-bad,
+.ai-ratio.fail b {
+  color: var(--fail);
+}
+.ai-ratios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 4px;
+}
+.ai-ratio {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.ai-ratio b {
+  color: var(--ink);
+}
+.ai-ratio em {
+  font-style: normal;
+  margin-left: 3px;
+  color: var(--ink-faint);
+}
+.ai-ratio.fail {
+  color: var(--fail);
+}
+.ai-meta,
+.ai-meta-inline,
+.ai-note,
+.ai-fails,
+.ai-detect-raw {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.ai-meta,
+.ai-fails,
+.ai-note {
+  margin-top: 3px;
+}
+.ai-fails {
+  color: var(--fail);
+}
+.ai-hint {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--skip);
+}
+.ai-code {
+  margin-left: 5px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+.ai-meta-inline {
+  margin-left: 6px;
+}
+.ai-verdict.sm {
+  font-size: 10.5px;
+  padding: 0 7px;
+}
+
+/* 决策/审稿是长文：跨两列（窄抽屉下自然退化成整行，因为 auto-fill 会先减列数） */
+.rg-item.rg-wide {
+  grid-column: span 2;
+}
+
+/* ── 编辑决策 / 独立审稿（2026-10-10）──
+   原文是写作侧的一行 `决策=…|理由=…|重复风险=…` / `审稿=90 行动=publish issues=3(minor:…)`，
+   这里按字段排版：主线当标题、其余字段左标签右内容、指令与 issue 各成列表。
+   解析不出来时退回 `.ai-detect-raw`（原样一行），内容永不消失。 */
+.ed-block {
+  line-height: 1.55;
+}
+.ed-main {
+  font-size: 12.5px;
+  color: var(--ink);
+  margin-bottom: 5px;
+}
+.ed-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ed-score {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.ed-score b {
+  color: var(--ink);
+}
+.ed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.ed-k {
+  flex: 0 0 52px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+/* 值这一列自己换行：徽标与标签都不许被压成竖排（`medium` 逐字换行很难看） */
+.ed-v {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ed-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--paper-3, var(--skip-bg));
+  color: var(--ink-soft);
+}
+.ed-badge.low {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.ed-badge.medium {
+  background: var(--partial-bg);
+  color: var(--partial);
+}
+.ed-badge.high {
+  background: var(--fail-bg);
+  color: var(--fail);
+}
+.ed-avoid {
+  color: var(--ink-faint);
+}
+.ed-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.ed-list li {
+  margin-bottom: 2px;
+}
+.ed-issues-head {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.ed-issues {
+  margin: 2px 0 0;
+  padding-left: 14px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.ed-issues li {
+  margin-bottom: 3px;
+}
+.ed-sev {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  background: var(--skip-bg);
+  color: var(--skip);
+  text-transform: lowercase;
+}
+.ed-sev.minor {
+  background: var(--skip-bg);
+  color: var(--skip);
+}
+.ed-sev.major {
+  background: var(--partial-bg);
+  color: var(--partial);
+}
+.ed-sev.blocker {
+  background: var(--fail-bg);
+  color: var(--fail);
+}
+.ed-cat {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--ink-faint);
+}
+.ed-inline {
+  color: var(--ink-soft);
+}
+
 /* ── 默认推送平台配置（2026-08-20） ── */
 .pf-grid {
   display: flex;
@@ -1978,6 +2645,33 @@ html[data-theme='light'] .dy-badge .dy-ico {
 }
 .retained-ops {
   white-space: nowrap;
+}
+/* ── 留存原因列（2026-10-09）──
+   这一列回答"它为什么进了留存库"。长原因截断 + hover 看全文（`title`），
+   缺记录时写「⚠ 无记录」而不是留白——留白看起来像"系统随便扣下来的稿子"。 */
+.cell-reason {
+  max-width: 320px;
+}
+.ret-reason {
+  display: -webkit-box;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ret-reason.missing {
+  color: var(--partial);
+}
+.ret-reason.faint {
+  color: var(--ink-faint);
+}
+.ret-reason-at {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
 }
 .retained-ops .btn {
   margin-right: 4px;

@@ -5,6 +5,7 @@ import { slotName } from './slot-lexicon.mjs'
 import { store } from './state.mjs'
 import { $, escapeHtml, riskBadge, fmtTime, pageSlice, renderPager } from './utils.mjs'
 import { loadArticles } from './views-articles.mjs'
+import { openDetail } from './views-detail.mjs'
 
 // 作者：dos2un1x · 项目：https://github.com/dos2un1x/crosspost
 export async function loadArchive() {
@@ -55,7 +56,7 @@ function renderArchive() {
   tbody.innerHTML = shown
     .map((r) => {
       const missing = !r.hasFile
-      return `<tr>
+      return `<tr class="row-click" data-id="${escapeHtml(r.id)}" title="点开查看记录（只读）">
       <td class="cell-date">${escapeHtml(r.date || '—')}</td>
       <td><span class="cell-slot">${escapeHtml(slotName(r.slot) || '—')}</span></td>
       <td class="cell-title"><span class="${missing ? '' : 'has-file'}" ${missing ? 'style="color:var(--ink-faint)"' : ''}>${escapeHtml(r.title || r.id)}${missing ? ' <em style="font-style:normal;font-size:11px">（文件缺失）</em>' : ''}</span></td>
@@ -74,6 +75,15 @@ function renderArchive() {
     .forEach((btn) =>
       btn.addEventListener('click', () => archiveOp(btn.dataset.op, btn.dataset.id)),
     )
+  // 2026-10-10：归档稿也能点开抽屉（**只读**：不显示编辑/留存/推送那些动作）——
+  // 决策、审稿、AI 检测这些记录随文章一起归档了，此前只有"草稿"视图能看，
+  // 一发布进归档库就再也查不到，复盘只能翻日志。
+  tbody.querySelectorAll('tr.row-click').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return // 恢复/删除 按钮不该顺带把抽屉打开
+      openDetail(tr.dataset.id, { readOnly: true })
+    })
+  })
 }
 
 async function archiveOp(op, id) {

@@ -1,5 +1,12 @@
 // 详情抽屉视图（2026-08-24 app.js 拆分 Phase 1）
 import { getJSON, postJSON } from './api.mjs'
+import { aiDetectDetailHtml, aiDetectInlineHtml } from './ai-detect-line.mjs'
+import {
+  decisionDetailHtml,
+  decisionInlineHtml,
+  reviewDetailHtml,
+  reviewInlineHtml,
+} from './editorial-line.mjs'
 import { PLATFORM_NAMES, RISK_NAMES } from './const.mjs'
 import { slotName } from './slot-lexicon.mjs'
 import {
@@ -17,13 +24,31 @@ import {
   fmtNum,
   styleDisplayName,
   groupStyles,
+  historyMeta,
+  stripSpecRefs,
 } from './utils.mjs'
 
-export async function openDetail(id) {
+/**
+ * 打开文章抽屉。
+ *
+ * @param {string} id
+ * @param {{readOnly?:boolean}} [opts] `readOnly` 用于**归档库 / 留存库**：那里打开抽屉是为了
+ *   **查记录**（决策、审稿、AI 检测、留存原因都随文章一起躺在记录里），不是来改稿或推送的，
+ *   所以不显示编辑/留存/重推那些动作，并默认停到「发布记录」页（见 renderDetail）。
+ */
+export async function openDetail(id, opts = {}) {
   // 记录打开抽屉时所在视图（仅文章视图改写 URL，避免从其他视图打开时劫持地址栏）
   const tab = document.querySelector('.tab.active')
   const fromView = (tab && tab.dataset.view) || 'articles'
-  store.detail = { id, record: null, draft: null, fromView, failedIds: [] }
+  store.detail = {
+    id,
+    record: null,
+    draft: null,
+    fromView,
+    readOnly: !!opts.readOnly,
+    freshOpen: false,
+    failedIds: [],
+  }
   store.selectedPlatforms = new Set()
   // 2026-09-11：**只有"关闭→打开"这一次才清空重推结果行**。
   // 注意 openDetail 也被内部用作"刷新当前抽屉"（重推/补记/留存后 await openDetail(store.detail.id)），
@@ -76,6 +101,18 @@ export function closeDetail() {
 async function renderDetail({ freshOpen = false } = {}) {
   const rec = store.detail.record
   const dr = store.detail.draft
+  // 只读态（归档库/留存库打开）：动作条与底部推送区由 CSS 收起，默认停到「发布记录」
+  const readOnly = !!store.detail.readOnly
+  $('#detail-drawer').classList.toggle('readonly', readOnly)
+  if (readOnly && (freshOpen || store.detail.freshOpen !== true)) {
+    store.detail.freshOpen = true
+    document
+      .querySelectorAll('.dtab')
+      .forEach((b) => b.classList.toggle('active', b.dataset.dtab === 'record'))
+    document
+      .querySelectorAll('.dtab-pane')
+      .forEach((p) => p.classList.toggle('active', p.id === 'pane-record'))
+  }
   // 2026-09-11：平台登录状态改为**非阻塞**——/proxy/platforms 已纯缓存直读，
   // 冷启动立即返回 init=true（后台检查中）；不再让抽屉等平台检查，徽标随后由订阅更新。
   ensurePlatformAuth()
@@ -336,27 +373,26 @@ function renderRecordGrid(rec) {
       `<div class="rg-item"><span class="k">质量评分</span><div class="v"><span class="score-badge">${s.total}</span><span style="color:var(--ink-faint)"> / 100</span>${s.rewrites ? ` <span class="score-rewrite">重写 ${s.rewrites} 次</span>` : ''}${s.at ? '<br><span style="color:var(--ink-faint);font-size:11px">' + fmtTime(s.at) + '</span>' : ''}${dimTxt ? '<br><span style="color:var(--ink-faint);font-size:11px">' + dimTxt + '</span>' : ''}</div></div>`,
     )
   }
-  // 编辑决策 / 独立审稿快照（2026-08-26 阶段 C-3）
+  // 编辑决策 / 独立审稿快照（2026-08-26 阶段 C-3；2026-10-10 改成结构化渲染）
+  // 原文是写作侧按 §2.5 / §5.6 写的一行 `决策=…|理由=…|重复风险=…` / `审稿=90 行动=publish issues=3(…)`，
+  // 整行贴出来读的人得自己拆字段与括号层级；这里拆回字段排版（排版逻辑与解析都在 editorial-line.mjs，
+  // 解析不出来就原样显示——那些是历史数据，写法还在演进）。
   if (rec.decision || rec.review) {
     items.push(
-      `<div class="rg-item"><span class="k">编辑决策</span><div class="v" style="font-size:11.5px;color:var(--ink-soft);line-height:1.5">${escapeHtml(rec.decision || '—')}</div></div>`,
+      `<div class="rg-item rg-wide"><span class="k">编辑决策</span><div class="v">${decisionDetailHtml(rec.decision || '')}</div></div>`,
     )
     items.push(
-      `<div class="rg-item"><span class="k">独立审稿</span><div class="v" style="font-size:11.5px;color:var(--ink-soft);line-height:1.5">${escapeHtml(rec.review || '—')}</div></div>`,
+      `<div class="rg-item rg-wide"><span class="k">独立审稿</span><div class="v">${reviewDetailHtml(rec.review || '')}</div></div>`,
     )
   }
   // AI 检测快照（朱雀）：与发布通知里那句原文同源（§5.55 门禁行）。
   // 为什么要显式区分"跳过"：skip 是"未检测"而不是"通过"——两者在面板上必须一眼可辨，
   // 否则事后复盘会把"key 没配/额度用尽"当成"这篇达标"。
+  // 2026-10-08：不再整行贴出（那行是给机器/日志的），拆回字段排版（徽标 + 主判据 + 明细），
+  // 解析与排版都在 ai-detect-line.mjs，老记录的老格式也在那里兼容。
   if (rec.aiDetect) {
-    const txt = String(rec.aiDetect)
-    const skipped = /跳过|skip/.test(txt)
-    const bad = !skipped && /超标|fail/.test(txt)
-    const color = bad ? 'var(--fail)' : skipped ? 'var(--ink-faint)' : ''
     items.push(
-      `<div class="rg-item"><span class="k">AI 检测</span><div class="v" style="font-size:11.5px;line-height:1.5${color ? `;color:${color}` : ''}">${escapeHtml(txt)}${
-        skipped ? '<br><span style="font-size:11px">未检测（不是通过）</span>' : ''
-      }</div></div>`,
+      `<div class="rg-item"><span class="k">AI 检测</span><div class="v">${aiDetectDetailHtml(rec.aiDetect)}</div></div>`,
     )
   }
   // 发布产物 HTML 归档（2026-08-26 阶段 C-2）
@@ -416,12 +452,23 @@ function renderTimeline(rec) {
             escapeHtml(h.errors.map((e) => `${e.what}: ${e.error}`).join('; ')) +
             '</span>'
           : ''
+      // 头行按 action 给标签（2026-10-09）：此前只特判 dryRun，留存/恢复/归档/补记全被写成"发布"
+      // 且硬补 `微信 — · 平台 —` 占位 —— 那两行看起来就像"发过但什么都没有"。
+      const head = historyMeta(h).join(' · ')
+      // 留存/归档的原因原先只在记录里、时间线上看不到（它写在 `reason` 而不是 `note`）
+      const reasonTxt =
+        (h.action === 'retain' || h.action === 'archive') && h.reason
+          ? `<div class="tl-detail">理由: ${escapeHtml(stripSpecRefs(String(h.reason)))}</div>`
+          : ''
       return `<li class="${cls}">
-      <div class="tl-head">${h.action === 'dryRun' ? '渲染测试' : '发布'} · 微信 ${h.wechat || '—'} · 平台 ${h.platforms || '—'}${h.score !== undefined ? ` · 评分 ${h.score}` : ''}${failedTxt}</div>
+      <div class="tl-head">${escapeHtml(head)}${failedTxt}</div>
       <div class="tl-time">${fmtTime(h.at)}</div>
       ${h.style ? `<div class="tl-detail">样式: ${escapeHtml(styleDisplayName(h.style))}</div>` : ''}
-      ${h.aiDetect ? `<div class="tl-detail">${escapeHtml(String(h.aiDetect))}</div>` : ''}
-      <div class="tl-detail">${escapeHtml(h.note || '')}</div>${errTxt}
+      ${h.aiDetect ? `<div class="tl-detail">${aiDetectInlineHtml(h.aiDetect)}</div>` : ''}
+      ${reasonTxt}
+      ${h.decision ? `<div class="tl-detail">决策：${decisionInlineHtml(h.decision)}</div>` : ''}
+      ${h.review ? `<div class="tl-detail">审稿：${reviewInlineHtml(h.review)}</div>` : ''}
+      <div class="tl-detail">${escapeHtml(stripSpecRefs(h.note || ''))}</div>${errTxt}
     </li>`
     })
     .join('')

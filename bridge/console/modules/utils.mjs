@@ -25,6 +25,97 @@ export function statusText(s) {
   )
 }
 
+/**
+ * 已知的**规范坐标** → 人话（2026-10-10）。
+ *
+ * 抽屉是给人和读者看的信息，`§5.55` / `§5.6` 这类条款号是内部规范的定位符，
+ * 出现在记录、原因、通知里只会让人困惑（"§5.6 独立审稿" → 直接写"独立审稿"）。
+ */
+const SPEC_REF_NAMES = {
+  '§2.5': '编辑决策',
+  '§4.0': '编辑决策',
+  '§5.5': '自评门槛',
+  '§5.55': 'AI 检测门禁',
+  '§5.6': '独立审稿',
+  '§5.7': '定向修订',
+}
+
+/**
+ * 把展示文本里的规范条款号换成说法。
+ *
+ * **只换多级号**（`§5.55` / `§5.6` / `§4.0`）：单级的 `§1` / `§5` 在记录里常指
+ * **文章自己的小节**（例："已删 §1 与 §5 重复的论述"），删掉会让句子失去所指 ——
+ * 判据是"带小数点"：规范坐标都是多级的，文章小节引用都是单级的。
+ * 未知的多级号直接去掉（不编名字），并清掉留下的空格与空括号。
+ */
+export function stripSpecRefs(s) {
+  let t = String(s == null ? '' : s)
+  if (!t.includes('§')) return t
+  t = t.replace(/§\s*\d+(?:\.\d+)+/g, (m) => {
+    const key = '§' + m.replace(/[^\d.]/g, '')
+    return Object.prototype.hasOwnProperty.call(SPEC_REF_NAMES, key) ? SPEC_REF_NAMES[key] : ''
+  })
+  return (
+    t
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\(\s*\)|（\s*）/g, '')
+      .replace(/\s+([，,。;；：:)）])/g, '$1')
+      // 汉字之间的孤空格（删掉条款号后留下的）在这里并回去；"AI 检测" 这类跨中英的空格不受影响
+      .replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1')
+      .replace(/^[，,、;；\s]+/, '')
+      .trim()
+  )
+}
+
+/**
+ * `history[].action` → 人读标签（2026-10-09）。
+ *
+ * 为什么要有它：抽屉的发布历史此前只特判了 `dryRun`，其余 action **一律写成"发布"** ——
+ * 而记录里 1383 条 history 中有 786 条是留存/恢复/归档/补记/状态，于是它们全被标成
+ * 「发布 · 微信 — · 平台 —」：既不是事实，又让人以为"发过好几次却一个平台结果都没有"。
+ * 未登记的 action 原样回显（宁可显示 `some-action`，也不要编一个好听的名字）。
+ */
+export function historyLabel(action) {
+  const a = String(action == null ? '' : action)
+  return (
+    {
+      publish: '发布',
+      'draft-only': '草稿（未推送）',
+      dryRun: '渲染测试',
+      retain: '留存',
+      restore: '恢复',
+      archive: '归档',
+      backfill: '补记（日志回填）',
+      mark: '补记（人工）',
+      status: '状态变更',
+      'ai-detect': 'AI 检测',
+      writing: '写作快照',
+    }[a] || a
+  )
+}
+
+/** 这些 action 才真的带推送结果（微信/平台）——其余条目不该渲染这两个数字 */
+const PUSH_ACTIONS = new Set(['publish', 'draft-only', 'dryRun', 'backfill', 'mark'])
+
+/**
+ * 一条 history → 头行片段数组（标签 + **只有真的发生过**的字段）。
+ * 调用方 `join(' · ')`；**不补 `—` 占位**：没发生的事就不写。
+ */
+export function historyMeta(h) {
+  const e = h && typeof h === 'object' ? h : {}
+  const parts = [historyLabel(e.action)]
+  if (PUSH_ACTIONS.has(String(e.action))) {
+    if (e.wechat) parts.push(`微信 ${e.wechat}`)
+    if (e.platforms) parts.push(`平台 ${e.platforms}`)
+  }
+  if (e.score !== undefined && e.score !== null) parts.push(`评分 ${e.score}`)
+  if (e.action === 'retain') parts.push(e.dir === 'risk' ? '→ 风险库' : '→ 低分库')
+  if (e.action === 'archive') parts.push('→ 归档库')
+  if (e.action === 'restore') parts.push('← 移回草稿目录')
+  if (e.action === 'status' && e.to) parts.push(`→ ${e.to}`)
+  return parts
+}
+
 export function fmtTime(t) {
   if (!t) return '—'
   const d = new Date(t)

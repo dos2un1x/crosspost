@@ -284,7 +284,10 @@ try {
       topics: '#topics-tbody tr',
       retained: '#retained-tbody tr',
       archive: '#archive-tbody tr',
-      reports: '#rp-weekly .rp-bar-col, #rp-status .donut-row, #rp-slots .rp-row',
+      // 2026-10-10 报表改版：#rp-status（状态构成）并入「产出与去向」堆叠条，
+      // 顶部新增 KPI 条与 AI 门禁卡 —— 探针跟着换，别让验收盯着一堆已删除的节点等人。
+      reports:
+        '#rp-kpi .kpi-tile, #rp-flow .rp-flow-row, #rp-weekly .rp-bar-col, #rp-slots tbody tr, #rp-platforms .chip',
       settings: '#schedule-list .sched-row, #pf-grid .pf-item',
     }
     // 2026-09-19（v2.69）：改成**有界等待节点出现**，别再赌固定时长。

@@ -470,6 +470,96 @@ test(
   },
 )
 
+test(
+  '回填④：不覆盖写作侧写下的 reason（2026-10-09 修：此前被「Console 一键生成」冲掉）',
+  { timeout: 60000 },
+  async () => {
+    const p = await withProvider({ sleepMs: 50 })
+    writeProject(p.port)
+    try {
+      const kw = KEYWORD(1)
+      const kw2 = KEYWORD(2) // KEYWORD() 每次返回新随机串：要复用同一个值，不能调两次
+      // 写作侧在同一个 (date,slot,keyword) 上已经 upsert 过它自己的叙述（含 AI 检测数字与去向）
+      const writerReason = 'AI检测未达标(AI特征100.0%>30%),已留存drafts/rejected/未推送'
+      writePool([
+        {
+          id: 't-reason',
+          date: '2099-01-01',
+          slot: 'noon',
+          keyword: kw,
+          status: 'rejected',
+          reason: writerReason,
+        },
+        // 另一条本来就没有 reason：回填仍应补上来源标记（这条路径不能因为改了就不写）
+        {
+          id: 't-empty',
+          date: '2099-01-01',
+          slot: 'noon',
+          keyword: kw2,
+          status: 'rejected',
+          reason: '',
+        },
+      ])
+      const r1 = withProject(PROJECT_ID, () => topics.startTopicGenerate('noon', kw))
+      const r2 = withProject(PROJECT_ID, () => topics.startTopicGenerate('noon', kw2))
+      assert.equal(r1.ok, true)
+      assert.equal(r2.ok, true)
+      await waitQuiet()
+      const rows = readPool()
+      const kept = rows.find((t) => t.id === 't-reason')
+      assert.equal(kept.status, 'generated')
+      assert.equal(kept.reason, writerReason, '写作侧的 AI 叙述必须原样保留')
+      assert.ok(kept.articleId, 'articleId 照常回填')
+      const filled = rows.find((t) => t.id === 't-empty')
+      assert.equal(filled.status, 'generated')
+      assert.equal(filled.reason, 'Console 一键生成', '本来就空时才写来源标记')
+    } finally {
+      await p.close()
+    }
+  },
+)
+
+test(
+  '收尾对账：只移动了文件、没写记录的留存稿，在任务收尾时被补上记录（2026-10-09）',
+  { timeout: 60000 },
+  async () => {
+    const p = await withProvider({ sleepMs: 400 })
+    writeProject(p.port)
+    try {
+      const kw = KEYWORD(1)
+      const draftId = `2099-01-01-noon-${kw}`
+      const r = withProject(PROJECT_ID, () => topics.startTopicGenerate('noon', kw))
+      assert.equal(r.ok, true)
+      // 模拟"写入方在沙箱里移了文件、但写不进记录"的现场：
+      // 文件出现在 drafts/rejected/，而项目簿记里没有它。
+      const rejected = path.join(PROJECTS, PROJECT_ID, 'drafts', 'rejected')
+      fs.mkdirSync(rejected, { recursive: true })
+      fs.writeFileSync(
+        path.join(rejected, `${draftId}.md`),
+        '---\ntitle: 收尾对账样例\nscore: 90\nrisk: none\n---\n\n正文。\n',
+      )
+      await waitQuiet()
+      // 记录落在**项目域**（<localRoot>/project-state/<项目>/articles/）
+      const recPath = path.join(
+        SANDBOX,
+        'local',
+        'project-state',
+        PROJECT_ID,
+        'articles',
+        `${draftId}.json`,
+      )
+      assert.ok(fs.existsSync(recPath), `收尾对账应补出记录：${recPath}`)
+      const rec = JSON.parse(fs.readFileSync(recPath, 'utf8'))
+      assert.equal(rec.status, 'retained')
+      assert.equal(rec.retainedDir, 'rejected')
+      const entry = (rec.history || []).find((h) => h.action === 'retain')
+      assert.equal(entry && entry.source, 'reconciled')
+    } finally {
+      await p.close()
+    }
+  },
+)
+
 test('队列⑧：未提供能力时入队被结构性拒绝（返回对象，不抛异常、不写日志）', () => {
   // 无项目上下文 + 引擎 config 无 generate.provider ⇒ 能力缺项。
   // 这条与 generate-provider.test.mjs「桥接①」同源，此处额外确认**返回对象而非 Promise**

@@ -326,34 +326,48 @@
     </main>
 
     <main id="view-reports" class="view">
-      <!-- 页头整块删除（2026-10-06）：切到本视图时 `switchView('reports')` 一定会调
-           `loadReports()`（立即画一遍 + 三库到货后再画一遍），所以
-           标题（顶栏已标「报表」）、副标题（"前端计算,零 token" 是实现细节）、
-           以及那个只是再调一次 `loadReports()` 的「⟳ 刷新」按钮，三者都没有存在必要。
-           要看最新数据：切走再切回来，或刷新页面。 -->
-      <!-- 单栏：**每个模块独占一行、横向填满**（2026-10-06，与设置页 / 接入与自检同款）。
-           改前是三段 `wf-grid` 两栏并排，还各带一条 inline `margin-top` 补间距。 -->
+      <!-- 2026-10-10 改版：**先给结论，再给分解**。
+           旧版上来就是六张等宽长条卡（每周产出 / 平台成功率 / 栏目产量 / 状态构成 /
+           今日费用 / 近 7 日费用），每张卡都占满一行、大片空白，读者要先自己做完加法
+           才知道"这周怎么样"。新版把能一句话说清的数放到顶部 KPI 条，下面才是分解图。 -->
+      <div id="rp-kpi" class="kpi-strip"></div>
+
       <div class="wf-grid">
         <section class="card">
+          <h2>产出与去向</h2>
+          <p class="card-sub">三库合计（文章 + 留存 + 归档）；点某一段跳到对应的库</p>
+          <div id="rp-flow"></div>
+        </section>
+
+        <section class="card">
+          <h2>AI 门禁</h2>
+          <p class="card-sub" id="rp-gate-sub">
+            朱雀 AIGC 检测的人工特征口径：达标才进独立审稿，超标按门禁留存
+          </p>
+          <div id="rp-gate"></div>
+        </section>
+
+        <section class="card">
           <h2>每周产出量</h2>
-          <p class="card-sub">文章 + 留存 + 归档 三库合计</p>
+          <p class="card-sub">近 8 周（周一为周起点）· 三库合计</p>
           <div id="rp-weekly" class="rp-bars"></div>
         </section>
+
         <section class="card">
-          <h2>平台成功率排行</h2>
-          <div id="rp-platforms" class="rp-list"></div>
-        </section>
-        <section class="card">
-          <h2>栏目产量</h2>
-          <p class="card-sub">
-            三库合计（文章 + 留存 + 归档）；条形按「在库 / 留存 / 归档」分段，7 个类型恒列出
+          <h2>栏目记分卡</h2>
+          <p class="card-sub" id="rp-slots-sub">
+            按栏目把产量、留存率、每篇费用与 AI 门禁交叉起来：一眼看出哪个栏目最费钱、最难达标。
+            费用只算能追到会话的产出，达标率的分母是**检测过**的篇数
           </p>
-          <div id="rp-slots" class="rp-list"></div>
+          <div id="rp-slots" class="rp-table-wrap"></div>
         </section>
+
         <section class="card">
-          <h2>状态构成</h2>
-          <div id="rp-status" class="rp-donut"></div>
+          <h2>平台成功率</h2>
+          <p class="card-sub" id="rp-platforms-sub"></p>
+          <div id="rp-platforms" class="rp-chips"></div>
         </section>
+
         <section class="card">
           <h2>今日生成费用（token 估算）</h2>
           <!-- 计价口径由接口给（meta.pricing）：型号/价格表版本/峰谷规则都写在引擎里，
@@ -362,10 +376,18 @@
             统计今日全量产出费用（文章 + 留存 + 归档）。只算能追到会话的产出；单价随峰谷时段变化
           </p>
           <div id="rp-cost" class="rp-list">计算中…（首次需解压会话缓存）</div>
+          <!-- 每篇明细（2026-10-10）：费用按篇可追，就点得开抽屉看它的记录 -->
+          <div id="rp-cost-articles" class="rp-articles"></div>
         </section>
+
         <section class="card">
-          <h2>近 7 日每日费用</h2>
-          <div id="rp-cost-daily" class="rp-list">加载中…</div>
+          <h2>费用趋势</h2>
+          <p class="card-sub" id="rp-trend-sub">
+            近 30 天每日费用（只算能追到会话的产出）；下面是近 6 周的每篇均价对比 ——
+            总额受产量影响，均价才回答"钱有没有花得更省"
+          </p>
+          <div id="rp-trend" class="rp-trend">加载中…</div>
+          <div id="rp-cost-daily" class="rp-list"></div>
         </section>
       </div>
     </main>
@@ -1193,6 +1215,16 @@
         <div class="toolbar-note">
           <span class="dot partial"></span>低分 <span class="dot fail"></span>高风险 ·
           自动链路永不触碰，仅人工处理
+          <!-- 记录对账（2026-10-09）：留存记录写盘会在**有沙箱**的调用方里静默失败
+               （写作 agent 只能写自己的工作区），于是留存库那几行没有原因、抽屉显示「⚠ 无记录」。
+               这个按钮走桥的 CLI worker（沙箱外）把缺失的记录补齐，见 /proxy/repair-records。 -->
+          <button
+            class="btn small ghost"
+            id="retained-repair"
+            title="把「文件已在留存库、记录却没写」的缺口补上（写前备份记录原件）"
+          >
+            补录缺失记录
+          </button>
         </div>
       </div>
       <div id="retained-count" class="pstats"></div>
@@ -1206,6 +1238,7 @@
               <th>类别</th>
               <th>分数</th>
               <th>风险</th>
+              <th>留存原因</th>
               <th>操作</th>
             </tr>
           </thead>

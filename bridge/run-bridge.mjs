@@ -1824,6 +1824,23 @@ const ROUTES = [
     handler: async (c) => c.sendJson(200, await runCli(['classifyArticles'], 60000)),
   },
 
+  // ── 记录对账（2026-10-09）──
+  //
+  // 为什么由**桥**来跑：留存的记录写盘会在**有沙箱**的调用方里静默失败（写作 agent 的
+  // workspace-write 只能写自己的工作区，引擎簿记在沙箱之外）。桥的 CLI worker 不受那个
+  // 沙箱约束，所以"补齐缺失记录"这件事必须有一个沙箱外的入口——Console 按钮走这里。
+  // GET = 只读计划（dry-run），POST = 应用（写前把记录原件备份到 <localRoot>/repairs/）。
+  {
+    method: 'GET',
+    match: '/proxy/repair-records',
+    handler: async (c) => c.sendJson(200, await runCli(['repairRecords'], 60000)),
+  },
+  {
+    method: 'POST',
+    match: '/proxy/repair-records',
+    handler: async (c) => c.sendJson(200, await runCli(['repairRecords', '--apply'], 120000)),
+  },
+
   // ── 归档库（2026-08-21：草稿文件移入 drafts/archive/，人工恢复/删除） ──
   {
     method: 'GET',

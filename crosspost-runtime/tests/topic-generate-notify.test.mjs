@@ -302,8 +302,18 @@ test('生成成功：真发一条通知到**项目级**端点（引擎级诱饵�
     assert.match(body, /2099-01-01-noon-__notify_e2e__/, '通知里要有草稿 id')
     assert.match(body, /菜市场里的算术/, '通知里要带上草稿标题（只给 id 没人看得懂）')
 
-    // 任务状态接口也要能看到投递结果（Console/排障用）
-    const task = topics.getTopicGenTasks().tasks.find((t) => t.id === taskId)
+    // 任务状态接口也要能看到投递结果（Console/排障用）。
+    // `task.notify` 由 settle 之后**异步**落定（`notifyTaskSettled` 不 await），
+    // 而 stub 端点命中 `hook.hits` 早于那次写回 —— 所以这里等它落定，而不是赌一个时序。
+    const taskOf = () => topics.getTopicGenTasks().tasks.find((t) => t.id === taskId)
+    assert.ok(
+      await waitFor(() => {
+        const n = taskOf() && taskOf().notify
+        return !!(n && n.status)
+      }),
+      '投递结果应写回任务（status 非空）',
+    )
+    const task = taskOf()
     assert.equal(task.notify && task.notify.status, 'ok', JSON.stringify(task.notify))
   } finally {
     await hook.close()

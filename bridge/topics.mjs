@@ -36,6 +36,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getArticlesDir, getDraftsDir, parseDraftFile } from '../crosspost-runtime/src/articles.mjs'
 import { pushHumanFeedback } from '../crosspost-runtime/src/editorial-memory.mjs'
+import { reconcileRecords } from '../crosspost-runtime/src/record-repair.mjs'
 import { getTopicPoolFile, getHistoryDir, getLogsDir } from '../crosspost-runtime/src/resources.mjs'
 import { lockDirFor, withPoolLock, writePoolFile } from '../crosspost-runtime/src/topic-pool.mjs'
 import { currentProject, withProject } from '../crosspost-runtime/src/project-context.mjs'
@@ -694,9 +695,36 @@ async function runTask(task) {
     // 于是用户会看到"生成完了，但列表里还写着未生成"，直到下次手动刷新。
     // 先回填再 settle 之后，`done` 才是"连选题库都写完了"的可信信号。
     backfillGeneratedTopic(task)
+    // 记录对账（2026-10-09）：写作 agent 在 workspace-write 沙箱里跑，`retainArticle` 能把文件
+    // 移进 `drafts/rejected/`，但写引擎簿记会 EPERM。收尾时按刚生成的这一篇补一次对账——
+    // 写入只与"刚跑完的流水线"因果绑定（plan 为空则一个字节都不写），不猜、不扫全量。
+    reconcileAfterRun([task.draftId])
     settle(task, 'done')
   }
   pumpQueue()
+}
+
+/**
+ * 生成/处置跑完后补一次留存记录对账（2026-10-09）。
+ *
+ * 为什么放在任务收尾而不是启动时全量扫：对账是**写入**动作，只在"刚有一条流水线可能
+ * 丢了记录"的时点做才有因果；启动时全量扫会把桥重启变成一次无声的全盘改写。
+ * 失败不阻塞任务（记录缺口还能事后用 `repairRecords --apply` 或 Console 按钮补）。
+ */
+function reconcileAfterRun(draftIds) {
+  const ids = (draftIds || []).filter(Boolean)
+  if (!ids.length) return
+  try {
+    const r = reconcileRecords({ apply: true, draftIds: ids })
+    if (r && r.applied && r.applied.length) {
+      console.error(
+        `[records] 对账补写 ${r.applied.length} 篇留存记录：${r.applied.map((a) => a.id).join(',')}` +
+          `（备份 ${r.backupRoot}）`,
+      )
+    }
+  } catch (e) {
+    console.error(`[records] 对账失败（不阻塞任务）: ${String((e && e.message) || e)}`)
+  }
 }
 
 /**
@@ -769,7 +797,12 @@ function backfillGeneratedTopic(task) {
 
       target.status = 'generated'
       target.articleId = task.draftId
-      target.reason = 'Console 一键生成'
+      // 只在**本来就空**的时候写来源标记（2026-10-09 修）。
+      // 此前是无条件 `target.reason = 'Console 一键生成'` —— 而写作侧刚在同一个 key 上
+      // upsert 过它自己的 reason（里面写着 AI 检测数字、"为何留存"这类复盘信息），
+      // 于是那些叙述被这 6 个字**冲掉**（实测：2026-10-09 四篇一键生成的选题库行
+      // 只剩「Console 一键生成」，事后完全看不出它们为什么进了留存库）。
+      if (!target.reason) target.reason = 'Console 一键生成'
       writeTopicPool(topics)
       return { written: true, ambiguous: false, locked }
     })

@@ -8,6 +8,9 @@ import {
   escapeHtml,
   escapeAttr,
   statusText,
+  stripSpecRefs,
+  historyLabel,
+  historyMeta,
   fmtTime,
   todayStr,
   riskBadge,
@@ -31,6 +34,71 @@ test('escapeHtml 转义 & < > " \' ', () => {
 
 test('escapeAttr 与 escapeHtml 同源（属性转义）', () => {
   assert.equal(escapeAttr('"'), '&quot;')
+})
+
+test('stripSpecRefs：规范条款号换说法，文章小节引用不许动（2026-10-10）', () => {
+  // 已知的多级条款号 → 说法（这几条是记录/留存原因里真实出现过的写法）
+  assert.equal(stripSpecRefs('轮数用尽按§5.55留存'), '轮数用尽按AI 检测门禁留存')
+  assert.equal(stripSpecRefs('未进入§5.6'), '未进入独立审稿')
+  assert.equal(stripSpecRefs('决策见§4.0'), '决策见编辑决策')
+  assert.equal(stripSpecRefs('自评未过§5.5'), '自评未过自评门槛')
+  // 未知的多级号直接去掉，不留空括号与残空格
+  assert.equal(stripSpecRefs('按 §9.99 处理'), '按处理')
+  assert.equal(stripSpecRefs('（§9.99）'), '')
+  // **单级号是指文章自己的小节**（"已删 §1 与 §5 重复的论述"）——一个字符都不许改
+  const articleRefs = '已删§1与§5重复的"国产硬件优化"论述、§5改口径'
+  assert.equal(stripSpecRefs(articleRefs), articleRefs)
+  // 没有 § 的文本原样返回（不做无谓的改写）
+  assert.equal(stripSpecRefs('普通文本，无条款号'), '普通文本，无条款号')
+  assert.equal(stripSpecRefs(null), '')
+})
+
+test('historyLabel：非发布类 history 不再被写成"发布"（2026-10-09）', () => {
+  // 记录里 1383 条 history 有 786 条是这些动作；此前它们全被渲染成「发布 · 微信 — · 平台 —」
+  assert.equal(historyLabel('publish'), '发布')
+  assert.equal(historyLabel('draft-only'), '草稿（未推送）')
+  assert.equal(historyLabel('dryRun'), '渲染测试')
+  assert.equal(historyLabel('retain'), '留存')
+  assert.equal(historyLabel('restore'), '恢复')
+  assert.equal(historyLabel('archive'), '归档')
+  assert.equal(historyLabel('backfill'), '补记（日志回填）')
+  assert.equal(historyLabel('mark'), '补记（人工）')
+  assert.equal(historyLabel('status'), '状态变更')
+  assert.equal(historyLabel('ai-detect'), 'AI 检测') // 未发布稿的判定记录（2026-10-09 起）
+  assert.equal(historyLabel('writing'), '写作快照') // 编辑决策/独立审稿的落点（2026-10-10 起）
+  // 未登记的 action 原样回显：宁可显示 `some-action`，也不要编一个好听的名字
+  assert.equal(historyLabel('some-action'), 'some-action')
+  assert.equal(historyLabel(null), '')
+})
+
+test('historyMeta：没发生过的字段不写占位（微信/平台只在推送类条目上出现）', () => {
+  // 留存/恢复/归档：没有微信与平台这回事，不许补 `—`
+  assert.deepEqual(historyMeta({ action: 'retain', dir: 'rejected' }), ['留存', '→ 低分库'])
+  assert.deepEqual(historyMeta({ action: 'retain', dir: 'risk' }), ['留存', '→ 风险库'])
+  assert.deepEqual(historyMeta({ action: 'restore', from: 'retained' }), ['恢复', '← 移回草稿目录'])
+  assert.deepEqual(historyMeta({ action: 'archive' }), ['归档', '→ 归档库'])
+  assert.deepEqual(historyMeta({ action: 'status', to: 'archived' }), ['状态变更', '→ archived'])
+  // 推送类：有值才写，且带评分
+  assert.deepEqual(
+    historyMeta({ action: 'publish', wechat: 'ok', platforms: '10/10', score: 93 }),
+    ['发布', '微信 ok', '平台 10/10', '评分 93'],
+  )
+  assert.deepEqual(
+    historyMeta({ action: 'draft-only', wechat: 'skip', platforms: null, score: 90 }),
+    ['草稿（未推送）', '微信 skip', '评分 90'],
+  )
+  // 写作快照：同样没有微信/平台，决策与审稿各自由时间线的分支渲染
+  assert.deepEqual(historyMeta({ action: 'writing', decision: '决策=…', review: '审稿=90' }), [
+    '写作快照',
+  ])
+  // AI 检测条目：没有微信/平台这回事，但会带判定（判定行由时间线的 aiDetect 分支渲染）
+  assert.deepEqual(
+    historyMeta({ action: 'ai-detect', aiDetect: 'AI检测=达标', note: '第2轮复检' }),
+    ['AI 检测'],
+  )
+  // 空对象与脏输入不炸
+  assert.deepEqual(historyMeta(null), [''])
+  assert.deepEqual(historyMeta({}), [''])
 })
 
 test('statusText 状态映射 + 未知透传', () => {
