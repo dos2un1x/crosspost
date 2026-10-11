@@ -5,6 +5,11 @@
 // 那条规则对 png/jpg 等二进制扩展名整类跳过。图片本身由
 // `crosspost-runtime/tests/docs-screenshots.mjs` 在隔离沙箱里生成，并在落盘前
 // 对整份 DOM 断言过"页面已无本机痕迹"；本文件守的是另一半：
+//
+// 九张图在 README 里是**缩略显示**的：Markdown 图片语法给不了宽度，所以那九行写的是
+// `[<img src="…" width="340" alt="…">](…)` —— 缩略图 + 点开看原图。于是"引用"的判定必须
+// 同时认 HTML `<img src>`，否则九张图会被 ② 误判成孤儿图（见 readmeImages）。
+//
 //   ① 引用的图都在、且图片一律住在 docs/images/（不许散落）
 //   ② docs/images/ 里没有孤儿图（换了图忘了删旧图 = 发布物里多一份没人看的二进制）
 //   ③ 体积与像素尺寸在预期量级（防"误拍整页长图"与体积爬升）
@@ -59,10 +64,16 @@ function pngChunkTypes(buf) {
   return types
 }
 
-/** README 里引用的图片路径（保持出现顺序） */
+/** README 里引用的图片路径（保持出现顺序）。两种写法都算引用：
+ *  Markdown `![alt](src)`，以及 HTML `<img src="…">` —— 缩略图只能走后者（宽度是 HTML 属性）。 */
 function readmeImages() {
   const src = fs.readFileSync(README, 'utf8')
-  return [...src.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)].map((m) => m[1])
+  return [
+    ...src.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g),
+    ...src.matchAll(/<img\s+[^>]*?\bsrc=["']([^"'\s]+)["']/g),
+  ]
+    .sort((a, b) => a.index - b.index)
+    .map((m) => m[1])
 }
 
 test('文档图片①：README 引用的图都在 docs/images/ 下且真的存在', () => {
