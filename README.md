@@ -123,8 +123,8 @@ Console、MCP 工具描述与文档都从它派生：
 
 |                                                        微信公众号                                                         |                                                  抖音图文                                                   |                                                       小红书                                                        |
 | :-----------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------: |
-| [<img src="docs/images/gongzhonghao.png" width="340" alt="微信公众号示例：微信搜一搜卡片">](docs/images/gongzhonghao.png) | [<img src="docs/images/douyin.jpg" width="130" alt="抖音图文示例：账号二维码卡片">](docs/images/douyin.jpg) | [<img src="docs/images/xiaohongshu.jpg" width="130" alt="小红书示例：账号二维码卡片">](docs/images/xiaohongshu.jpg) |
-|                                      示例卡片：微信搜一搜「深频率」即可找到公众号。                                       |                     示例卡片：抖音搜索页扫一扫进账号主页（卡上是抖音号 `342570552`）。                      |                    示例卡片：小红书里搜「深频率」，或扫卡上的码找到账号（小红书号 `dos2unix`）。                    |
+| [<img src="docs/images/gongzhonghao.png" width="220" alt="微信公众号示例：微信搜一搜卡片">](docs/images/gongzhonghao.png) | [<img src="docs/images/douyin.jpg" width="220" alt="抖音图文示例：账号二维码卡片">](docs/images/douyin.jpg) | [<img src="docs/images/xiaohongshu.jpg" width="220" alt="小红书示例：账号二维码卡片">](docs/images/xiaohongshu.jpg) |
+|                                                示例卡片：微信搜「深频率」                                                 |                                        示例卡片：抖音号 `342570552`                                         |                                            示例卡片：小红书号 `dos2unix`                                            |
 
 ## 常用命令
 
