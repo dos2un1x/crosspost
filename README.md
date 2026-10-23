@@ -34,6 +34,11 @@ Console(浏览器)  CLI  MCP  DSH preset          ← 入口
 
 ## 三步上手
 
+> 从源码运行时，先克隆仓库并拉取子模块：
+> `git clone --recurse-submodules git@github.com:dos2un1x/crosspost.git`。
+> `crosspost-runtime/core/src/adapters` 是私有 submodule（`dos2un1x/adapters`），
+> 需要该私有仓库的访问权限；已克隆的仓库用 `git submodule update --init --recursive` 补齐。
+
 ```bash
 # 1) 初始化：建数据目录、生成配置、装齐子包依赖（runtime / bridge）、构建渲染核心
 npm install

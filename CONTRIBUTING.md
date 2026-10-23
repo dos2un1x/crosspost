@@ -7,12 +7,17 @@
 ## 1. 开发环境
 
 ```bash
+git clone --recurse-submodules git@github.com:dos2un1x/crosspost.git
+cd crosspost
 npm install                      # 根 devDeps（eslint / prettier / typescript-eslint）
 npm run setup                    # 装齐两个子包依赖 + 构建 crosspost-runtime/core 的 dist
 npm run dev                      # 前台起桥（= node bridge/run-bridge.mjs）
 ```
 
 - **Node.js ≥ 24**：6 处 `engines` + `.nvmrc` + `.npmrc` 的 `engine-strict` 一起把关。
+- `crosspost-runtime/core/src/adapters` 是私有 submodule（`dos2un1x/adapters`）。
+  已克隆但没拉子模块时执行 `git submodule update --init --recursive`；
+  没有该私有仓库的访问权限时，core 构建会因缺 `src/adapters` 失败。
 - 根 `package.json` **没有 workspaces**：依赖在两个子包里，`npm install` 只装根 devDeps。
   背景见 [`docs/dependencies.md`](docs/dependencies.md) §1.1。
 - 目录结构与数据流见 [`docs/architecture.md`](docs/architecture.md)。

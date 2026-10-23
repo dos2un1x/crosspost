@@ -1,0 +1,3 @@
+[submodule "crosspost-runtime/core/src/adapters"]
+	path = crosspost-runtime/core/src/adapters
+	url = git@github.com:dos2un1x/adapters.git

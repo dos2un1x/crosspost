@@ -5,6 +5,12 @@ name: CI
 #   · schedule：**每天 02:10（北京时间）自动跑一次**（cron 用 UTC：18:10 UTC = 次日 02:10 +08）
 #   · workflow_dispatch：手动下发
 # push 仍不自动跑（避免每个 commit 都吃 Actions 分钟）——每日一次足够守住"开箱即用"这条线。
+#
+# 私有 submodule（2026-10-24）：
+#   `crosspost-runtime/core/src/adapters` 指向私有仓库 `dos2un1x/adapters`。public 父仓库的
+#   默认 GITHUB_TOKEN 只能读当前仓库，克隆不了它，所以除 static 外的作业都需要仓库 secret
+#   `SUBMODULE_TOKEN`（fine-grained PAT，对 dos2un1x/adapters 只读）。
+#   fork PR 拿不到 secret，因此这些作业对 fork PR 直接跳过；static（lint/format）仍照常跑。
 on:
   workflow_dispatch:
   pull_request:
@@ -70,6 +76,7 @@ jobs:
 
   # ② core：构建 + 类型门槛 + vitest（含覆盖率门槛，15s 上下，不拆）
   core:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -78,6 +85,9 @@ jobs:
       # `version-contract` 直接判红（首跑就是这么红的）。
       - uses: actions/checkout@v5
         with:
+          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+          submodules: recursive
           fetch-depth: 0
           fetch-tags: true
 
@@ -111,6 +121,7 @@ jobs:
 
   # ③ runtime：分两片并行（本作业占原 151s 里的绝大部分，分片是墙钟最大的杠杆）
   runtime:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -120,6 +131,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+          submodules: recursive
           fetch-depth: 0
           fetch-tags: true
 
@@ -182,11 +196,15 @@ jobs:
 
   # ④ 覆盖率门槛：跑**全量**（阈值按整轮判，不能分片），与分片并行互不占墙钟
   coverage:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
+          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+          submodules: recursive
           fetch-depth: 0
           fetch-tags: true
 
@@ -221,11 +239,15 @@ jobs:
 
   # ⑤ Linux 独有证据 + 空环境冒烟（原先排在 test 作业最后，前面一红就轮不到它们）
   smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
+          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+          submodules: recursive
           fetch-depth: 0
           fetch-tags: true
 
@@ -277,12 +299,16 @@ jobs:
   # （生产草稿、本机接入项目、launchd 槽位、9540 上的桥、系统 Chrome），
   # 在 runner 上会把"环境缺"报成"代码红"。验收仍是本机命令。
   fresh-clone:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       # 同上：`fresh-clone-smoke` 要拿仓库 tag 核对回退版本的主次版本
       - uses: actions/checkout@v5
         with:
+          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
+          token: ${{ secrets.SUBMODULE_TOKEN }}
+          submodules: recursive
           fetch-depth: 0
           fetch-tags: true
 
