@@ -37,7 +37,8 @@ Console(浏览器)  CLI  MCP  DSH preset          ← 入口
 > 从源码运行时，先克隆仓库并拉取子模块：
 > `git clone --recurse-submodules git@github.com:dos2un1x/crosspost.git`。
 > `crosspost-runtime/core/src/adapters` 是私有 submodule（`dos2un1x/adapters`），
-> 需要该私有仓库的访问权限；已克隆的仓库用 `git submodule update --init --recursive` 补齐。
+> 需要该私有仓库的访问权限（获取方式见文末「赞赏与交流」）；
+> 已克隆的仓库用 `git submodule update --init --recursive` 补齐。
 
 ```bash
 # 1) 初始化：建数据目录、生成配置、装齐子包依赖（runtime / bridge）、构建渲染核心
@@ -175,12 +176,15 @@ Console、MCP 工具描述与文档都从它派生：
 引擎免费、无遥测、没有付费档位。它替你省下时间的话，可以请作者喝杯咖啡；
 用得不顺、想聊平台适配或接入细节，欢迎进群 —— **Star 也是支持**。
 
-| 赞赏                                         | 交流群                                                  |
-| -------------------------------------------- | ------------------------------------------------------- |
-| ![微信赞赏码](docs/images/wechat-reward.jpg) | ![CrossPost 交流群二维码](docs/images/wechat-group.jpg) |
-| 请作者喝杯咖啡                               | 使用、接入与平台适配都可以在群里聊                      |
+| 赞赏                                         | 交流群                                                  | 作者微信                                                                 |
+| -------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| ![微信赞赏码](docs/images/wechat-reward.jpg) | ![CrossPost 交流群二维码](docs/images/wechat-group.jpg) | <img src="docs/images/wechat-user.jpg" width="220" alt="作者微信二维码"> |
+| 请作者喝杯咖啡                               | 使用、接入与平台适配都可以在群里聊                      | 扫码添加作者微信：需要 `adapters` 访问权限，或想直接交流                 |
 
 > 群二维码由微信生成，**7 天后失效**（失效日期印在图上）；过期后请以本仓库里这张为准。
+>
+> `crosspost-runtime/core/src/adapters` 是私有 submodule，不随公开仓库分发；
+> 需要它来自行构建、二次开发或接入平台适配的，扫上方「作者微信」二维码联系获取。
 
 ## 许可
 

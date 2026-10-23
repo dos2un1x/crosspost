@@ -8,8 +8,8 @@ name: CI
 #
 # 私有 submodule（2026-10-24）：
 #   `crosspost-runtime/core/src/adapters` 指向私有仓库 `dos2un1x/adapters`。public 父仓库的
-#   默认 GITHUB_TOKEN 只能读当前仓库，克隆不了它，所以除 static 外的作业都需要仓库 secret
-#   `SUBMODULE_TOKEN`（fine-grained PAT，对 dos2un1x/adapters 只读）。
+#   默认 GITHUB_TOKEN 只能读当前仓库，克隆不了它，所以除 static 外的作业都通过仓库 secret
+#   `SUBMODULE_SSH_KEY`（对 dos2un1x/adapters 只读的 deploy key）认证。
 #   fork PR 拿不到 secret，因此这些作业对 fork PR 直接跳过；static（lint/format）仍照常跑。
 on:
   workflow_dispatch:
@@ -85,8 +85,8 @@ jobs:
       # `version-contract` 直接判红（首跑就是这么红的）。
       - uses: actions/checkout@v5
         with:
-          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          # 私有 submodule：用只读 deploy key（secret SUBMODULE_SSH_KEY）。
+          ssh-key: ${{ secrets.SUBMODULE_SSH_KEY }}
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
@@ -131,8 +131,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          # 私有 submodule：用只读 deploy key（secret SUBMODULE_SSH_KEY）。
+          ssh-key: ${{ secrets.SUBMODULE_SSH_KEY }}
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
@@ -202,8 +202,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          # 私有 submodule：用只读 deploy key（secret SUBMODULE_SSH_KEY）。
+          ssh-key: ${{ secrets.SUBMODULE_SSH_KEY }}
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
@@ -245,8 +245,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          # 私有 submodule：用只读 deploy key（secret SUBMODULE_SSH_KEY）。
+          ssh-key: ${{ secrets.SUBMODULE_SSH_KEY }}
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
@@ -306,8 +306,8 @@ jobs:
       # 同上：`fresh-clone-smoke` 要拿仓库 tag 核对回退版本的主次版本
       - uses: actions/checkout@v5
         with:
-          # 私有 submodule：默认 GITHUB_TOKEN 读不到 dos2un1x/adapters，必须用 PAT。
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          # 私有 submodule：用只读 deploy key（secret SUBMODULE_SSH_KEY）。
+          ssh-key: ${{ secrets.SUBMODULE_SSH_KEY }}
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
