@@ -426,3 +426,135 @@ test('会话代际检查：最新的纯命令会话不得被当成"usage 位置�
   )
   assert.match(out, /跳过.*无 LLM 调用/, '应当说明跳过了一个没有 LLM 调用的会话（取样可追溯）')
 })
+
+/**
+ * prompt 模板变量契约（2026-10-27，DSH 0.2.1 实测）。
+ *
+ * 背景：0.2.0-rc.2 的 `dsh-agent-loop` 还注册 prompt 变量 `cwd`，本仓库的 persona 因此写着
+ * `suffix: Your working directory is {{cwd}}.`；0.2.1 的 working-directory 重构把 `cwd`
+ * 删了（目录改由 required runtime-context 快照下发，"never enters the system prompt"），
+ * 而模板插值是**严格**的 → 该预设下**每一轮**都在请求之前失败：
+ *   unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix";
+ *   registered variables: provider, model
+ * 宿主只把它显示成"本轮运行失败"，人格文字都读不出来，所以极难自诊断。
+ * 第 4b 节按**部署自己**的注册表（`systemPrompt.variable(`）逐个对账。
+ *
+ * 用**假部署**（lib 里只注册 provider/model）而不看本机：本机 0.2.0-rc.2 仍注册 cwd，
+ * 真机当下是绿的——而这条护栏守的是"下一次升级"。同一个 fixture 里放两份预设，
+ * 一次跑出两个方向：未注册的必须 ✖ 且点名变量，已注册的必须 ✔（区分"查过且通过"与"跳过"）。
+ */
+test('prompt 模板变量：部署没注册的 {{cwd}} 必须判负，已注册的 {{model}} 不得误报', () => {
+  const deploy = path.join(tmp, 'vars-deploy')
+  const loopLib = path.join(deploy, 'node_modules', '@deepseek-ai', 'dsh-agent-loop', 'lib')
+  fs.mkdirSync(loopLib, { recursive: true })
+  fs.writeFileSync(
+    path.join(loopLib, 'index.js'),
+    'ctx.systemPrompt.variable("provider", f)\nctx.systemPrompt.variable("model", f)\n',
+  )
+  const bin = path.join(deploy, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  fs.mkdirSync(path.dirname(bin), { recursive: true })
+  fs.writeFileSync(bin, '#!/usr/bin/env node\nprocess.exit(0)\n')
+  fs.chmodSync(bin, 0o755)
+
+  const presets = path.join(tmp, 'vars-presets')
+  fs.mkdirSync(path.join(presets, 'broken'), { recursive: true })
+  fs.mkdirSync(path.join(presets, 'okay'), { recursive: true })
+  fs.writeFileSync(
+    path.join(presets, 'broken', 'cordis.patch.yml'),
+    [
+      '- insert:',
+      '    - id: persona',
+      "      name: '@deepseek-ai/dsh-persona'",
+      '      config:',
+      '        prefix: You run on {{model}}.',
+      '        suffix: Your working directory is {{cwd}}.',
+      '',
+    ].join('\n'),
+  )
+  fs.writeFileSync(
+    path.join(presets, 'okay', 'cordis.patch.yml'),
+    [
+      '- insert:',
+      '    - id: persona',
+      "      name: '@deepseek-ai/dsh-persona'",
+      '      config:',
+      '        prefix: You run on {{model}}.',
+      '',
+    ].join('\n'),
+  )
+
+  const r = runViaSymlink(
+    { CROSSPOST_NODE: process.execPath, DSH_BIN: bin, REPO_PRESETS: presets },
+    (dshHome) => {
+      fs.mkdirSync(path.join(dshHome, 'profiles', 'node_modules'), { recursive: true })
+    },
+  )
+  const out = stripAnsi(`${r.stdout}${r.stderr}`)
+  const section = out.slice(out.indexOf('4b.'), out.indexOf('5. profile'))
+
+  assert.ok(section.length > 0, `第 4b 节必须存在（否则这类"每轮失败"不在检查范围内）：\n${out}`)
+  assert.match(section, /\{\{cwd\}\}/, `要点名是哪个变量没注册：\n${section}`)
+  assert.match(
+    section,
+    /unknown prompt variable/,
+    `要给出渲染期那条原文报错（使用者才搜得到、才知道"早于模型调用"）：\n${section}`,
+  )
+  assert.match(
+    section,
+    /✖[^\n]*broken\/cordis\.patch\.yml/,
+    `未注册变量的那份预设必须判 ✖：\n${section}`,
+  )
+  assert.match(
+    section,
+    /✔[^\n]*okay\/cordis\.patch\.yml/,
+    `已注册的 {{model}} 不得误报（否则使用者会忽略这条检查）：\n${section}`,
+  )
+})
+
+/**
+ * 包装脚本启动器契约（2026-10-27，`~/.local/bin/dsh` 改指仓库版时建立）。
+ *
+ * 背景：仓库版 dsh 没有安装产物（入口是 `apps/cli/src/bin.ts`），要跑它得经 tsx；而
+ * `--import tsx` 按 cwd 解析、仓库的 workspace 导入又靠 tsconfig 的 paths —— 于是启动器
+ * 只能是个包装脚本（exec node --import …tsx… bin.ts，且自己**不 cd**）。旧脚本只认
+ * `…/node_modules/@deepseek-ai/dsh/lib/bin.js`，对这类启动器直接判"推断不出部署目录"，
+ * 而它恰恰是 0.2.1 下唯一在跑的那份 —— 安全网在最该生效的时候失效。
+ *
+ * 判据：脚本必须认启动器自报的 `# dsh-source:` 标记（**不要**用正则从脚本里抠绝对路径：
+ * 那条老正则以「非引号非空白 + 字符 + 斜杠 + apps」拼接，BSD grep 不做回溯，抠出来是空串，
+ * 实测踩到；macOS 默认就是 BSD grep。
+ */
+test('包装脚本启动器：靠 `# dsh-source:` 标记认源入口（不得只认安装产物）', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8')
+  assert.ok(
+    /# dsh-source:/.test(src) || /dsh-source:/.test(src),
+    '第 0 节必须认 `# dsh-source:` 标记——仓库版启动器就是包装脚本，认不出等于漏检整个部署',
+  )
+  assert.ok(
+    /sed -n 's\/\^# dsh-source:/.test(src),
+    '应从包装脚本里读 `# dsh-source:` 那一行（不要把启动器的拼路径方式写死进检查）',
+  )
+  // 抠路径的正则是个已知坑：BSD grep 不做回溯，`/[^"[:space:]]*/…/apps/cli/src/bin\.ts` 抠出空串
+  assert.doesNotMatch(
+    src,
+    /\[\^"\[:space:\]\]\*\/apps\/cli/,
+    '别用会回溯失败的正则抠启动器路径（BSD grep 实测抠出空串）',
+  )
+})
+
+/**
+ * 预设宿主包链的护栏（2026-10-27，`dsh` 切仓库版时建立）。
+ *
+ * 背景：预设插件 `import '@deepseek-ai/dsh-tools'`——那是**宿主提供的包**，所以 bundle 目录
+ * 里有一条软链指向某份安装。仓库版宿主（tsx + tsconfig 的 paths）会把它解析到**仓库源码**，
+ * 于是"链指哪儿"在 GUI 下完全看不出来；只有宿主换成已构建产物（npx 那份）时才真的用链。
+ * 链还指着 npx 就是"旧 API 跑新宿主"：不报错、只少能力——正是这类问题最该被自检盯住。
+ * 这条测试守的是"脚本必须盯着这类链，并给出可直接执行的修法"，不守具体某台机器的链接。
+ */
+test('静态护栏：预设的 @deepseek-ai/* 宿主包链指 npx 时要提醒并给修法', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8')
+  assert.ok(/node_modules\/@deepseek-ai\/\*/.test(src), '要扫预设自带的宿主包链')
+  assert.ok(/_npx\//.test(src), '要认出指向 npx 安装的链')
+  assert.match(src, /预设宿主包链/, '要给出可读的告警文案（否则使用者不知道这条警告在说什么）')
+  assert.match(src, /ln -sfn/, '要给出可直接执行的修法，而不是让人自己猜该指哪')
+})

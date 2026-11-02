@@ -42,6 +42,18 @@
 #       被换名的**，旧脚本会漏掉它（那一行会静默消失，能力少一个而没人报错）；
 #     · 相对行（`./plugins/*.js`）按 patch 文件所在目录解析，逐条断言文件存在；
 #     · bundle 必须声明 `dsh.bundle.patch`，否则安装器判 `not-a-bundle`。
+#
+# ⚠ 2026-10-27（DSH 0.2.1）**prompt 变量只剩 provider/model**：
+#
+#   0.2.0-rc.2 的 `dsh-agent-loop` 还注册 `cwd`，本仓库的 persona 因此写着
+#   `suffix: Your working directory is {{cwd}}.`；0.2.1 的 working-directory 重构把
+#   `cwd` 删了（目录改由 required runtime-context 快照下发，永不进系统提示词），而模板
+#   插值是**严格**的 —— 于是该预设下**每一轮**都失败，报在请求之前：
+#     unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix";
+#     registered variables: provider, model
+#   宿主只把它显示成"本轮运行失败"，普通启动没有任何提示，人格文字也读不出来。
+#   新增第 4b 节：把每个 `{{…}}` 与部署**自己**注册的变量表（`systemPrompt.variable(`）
+#   逐个对账；`pnpm dsh web` 起的宿主也查（那时部署是仓库本身，扫 workspace 源码）。
 set -uo pipefail
 
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
@@ -112,22 +124,60 @@ session_files_by_mtime() {
 realpath_py() { python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"; }
 
 # ── 0. 部署与启动链 ──────────────────────────────────────────────────────
+# 仓库版启动器有两种形态，都要认：
+#   ① 源入口本身 …/apps/cli/src/bin.ts（`pnpm dsh web`，或 DSH_BIN 显式指过去）；
+#   ② 包装脚本（2026-10-27 起 `~/.local/bin/dsh` 就是：exec node --import …/tsx … bin.ts）。
+# 两者都**必须在仓库目录里**跑：tsx 按 cwd 找 tsconfig，而 workspace 导入（@deepseek-ai/*
+# → packages|vendor 源码）靠 tsconfig.base.json 的 paths；换个 cwd 就退化成解析包构建产物，
+# 直接 `does not provide an export named 'FiberState'`（实测）。所以 dev_launch() 自己 cd。
+dev_launch() { ( cd "$DEV_ROOT" && "$NODE" --import tsx "$DSH_SRC" "$@" ); }
+
 sec "0. 部署与启动链"
 LIVE_BIN="$(realpath_py "$DSH_BIN" 2>/dev/null || echo '')"
 DEPLOY=""
+DEV_ROOT=""     # 非空 = 启动器指向仓库版，部署就是这个仓库
+DEV_LAUNCH=0
+DSH_SRC=""      # 仓库版的 TS 源入口（apps/cli/src/bin.ts）
 if [ -n "$LIVE_BIN" ] && [ -f "$LIVE_BIN" ]; then
-  DEPLOY="$(printf '%s' "$LIVE_BIN" | sed 's|/node_modules/@deepseek-ai/dsh/lib/bin.js$||')"
+  case "$LIVE_BIN" in
+    */apps/cli/src/bin.ts) DSH_SRC="$LIVE_BIN" ;;
+    */node_modules/@deepseek-ai/dsh/lib/bin.js)
+      DEPLOY="$(printf '%s' "$LIVE_BIN" | sed 's|/node_modules/@deepseek-ai/dsh/lib/bin.js$||')" ;;
+    *)
+      # 包装脚本（shim）：不解析它怎么拼路径，只认它自报的 `# dsh-source: <源入口>` 标记。
+      # 这类启动器最容易被漏检——本次 `{{cwd}}` 就是仓库版（0.2.1）先炸的，而旧脚本只认
+      # 安装产物，会直接判"推断不出部署目录"。
+      # 注意：**不要**改成从脚本里正则抠绝对路径——macOS 的 BSD grep 在这类
+      # `/[^"[:space:]]*/apps/…` 模式上不做回溯，抠出来是空的（实测）。
+      DSH_SRC="$(sed -n 's/^# dsh-source:[[:space:]]*//p' "$LIVE_BIN" 2>/dev/null | head -1)"
+      ;;
+  esac
   ok "dsh 启动器 → $LIVE_BIN"
-  if [ -n "$DEPLOY" ] && [ -d "$DEPLOY" ]; then
-    ok "当前部署目录 ${DEPLOY}（$("$DSH_BIN" --version 2>/dev/null | head -1)）"
-  else
-    bad "无法从启动器推断部署目录（预期 …/node_modules/@deepseek-ai/dsh/lib/bin.js）"
+  if [ -n "$DSH_SRC" ] && [ -f "$DSH_SRC" ]; then
+    DEV_ROOT="$(cd "$(dirname "$DSH_SRC")/../../.." 2>/dev/null && pwd || echo '')"
+    if [ -n "$DEV_ROOT" ] && [ -d "$DEV_ROOT/packages" ]; then
+      DEV_LAUNCH=1
+      ok "当前部署 = 仓库本身（源入口）${DEV_ROOT}（$(dev_launch --version 2>/dev/null | head -1)）"
+    else
+      DEV_ROOT=""
+      DSH_SRC=""
+      bad "源入口 ${LIVE_BIN} 不在一个 DSH 仓库里（找不到 packages/）"
+    fi
+  fi
+  if [ "$DEV_LAUNCH" != 1 ]; then
+    if [ -n "$DEPLOY" ] && [ -d "$DEPLOY" ]; then
+      ok "当前部署目录 ${DEPLOY}（$("$DSH_BIN" --version 2>/dev/null | head -1)）"
+    elif [ -z "$DSH_SRC" ]; then
+      bad "无法从启动器推断部署目录（预期 …/node_modules/@deepseek-ai/dsh/lib/bin.js、…/apps/cli/src/bin.ts，或带 `# dsh-source:` 的包装脚本）"
+    fi
   fi
 else
   bad "$DSH_BIN 无法解析（realpath 失败）"
 fi
 NPX_DIRS="$(ls -d "$HOME"/.npm/_npx/*/node_modules/@deepseek-ai/dsh 2>/dev/null | wc -l | tr -d ' ')"
-if [ "${NPX_DIRS:-0}" -gt 1 ]; then
+if [ "$DEV_LAUNCH" = 1 ]; then
+  ok "启动器指向仓库版；npx 安装 ${NPX_DIRS:-0} 份仅作备用（不再被启动器使用）"
+elif [ "${NPX_DIRS:-0}" -gt 1 ]; then
   warn "本机有 $NPX_DIRS 份 dsh 安装；启动器只指向其中一份，升级后确认软链是否需重指"
 else
   ok "只有 1 份 dsh 安装（无多版本混用）"
@@ -241,6 +291,41 @@ for d in "$REPO_PRESETS"/*; do
     PRESET_DIRS+=("$d")
   fi
 done
+
+# 1b. 预设自带的**宿主包链**（2026-10-27 实测踩到）
+#
+# 预设插件 `import '@deepseek-ai/dsh-tools'`——那是**宿主提供的包**，所以 bundle 目录里
+# 有一条软链。仓库版宿主（tsx + tsconfig 的 paths）会把它解析到**仓库源码**，于是链指哪
+# 儿在 GUI 下看不出来；但一旦宿主换成**已构建产物**（npx 那份，或启动器指回 npx），插件就
+# 真的去链接目标取包。链还指着 npx 时，就是"旧 API 跑新宿主"：不报错、只少能力。
+# 所以只在启动器是仓库版时提醒（指 npx 的启动器下它本来是对的，不该红）。
+if [ "$DEV_LAUNCH" = 1 ]; then
+  host_links=0
+  for l in "$REPO_PRESETS"/*/node_modules/@deepseek-ai/*; do
+    [ -L "$l" ] || continue
+    t="$(readlink "$l")"
+    case "$t" in
+      */.npm/_npx/*)
+        host_links=$((host_links + 1))
+        if [ "$host_links" -le 3 ]; then
+          name="$(basename "$l")"
+          pkg="$(grep -rl "\"name\": \"@deepseek-ai/$name\"" --include=package.json "$DEV_ROOT/packages" 2>/dev/null | head -1)"
+          warn "预设宿主包链仍指 npx 安装: $l → $t"
+          if [ -n "$pkg" ]; then
+            hint "指向仓库版: ln -sfn ${pkg%/package.json} $l"
+          else
+            hint "指向仓库版: ln -sfn <仓库里同名包目录> $l"
+          fi
+        fi
+        ;;
+    esac
+  done
+  if [ "$host_links" -eq 0 ]; then
+    ok "预设的宿主包链都指向仓库版（或没有这类链）"
+  else
+    hint "共 $host_links 条：宿主已是仓库版，仓库跑在前面时这些包会落后（插件少能力且无提示）"
+  fi
+fi
 
 # 目录式预设（≤0.1.x 的载体）在 0.2.0 起**没有读取方**：留在盘上只会让人以为它还生效。
 # 这类"能力静默消失"是本脚本最该报出来的一类，所以存在即告警，并指出去哪看新的声明。
@@ -472,7 +557,17 @@ for d in ${PRESET_DIRS[@]+"${PRESET_DIRS[@]}"}; do
   for f in "$d"/*.patch.yml; do [ -f "$f" ] && REPO_PATCH_LIST="$REPO_PATCH_LIST$f
 "; done
 done
-if [ -z "$DEPLOY" ] || [ ! -d "$DEPLOY/node_modules" ]; then
+# 解析根：仓库版启动器下没有 $DEPLOY——改用 apps/cli/package.json（workspace 包的
+# 软链在那里）；安装版仍从 dsh 包自己的 package.json 起算。否则本节在 `pnpm dsh web`
+# 起的宿主上会**静默跳过**，而这恰恰是升级后最该跑的一条检查（2026-11-02 实测：
+# `.../dsh-tool-subagent-control/list-agents` 被删导出，旧版预设因此 never started）。
+RESOLVE_PJ=""
+if [ "$DEV_LAUNCH" = 1 ] && [ -f "$DEV_ROOT/apps/cli/package.json" ]; then
+  RESOLVE_PJ="$DEV_ROOT/apps/cli/package.json"
+elif [ -n "$DEPLOY" ] && [ -d "$DEPLOY/node_modules" ]; then
+  RESOLVE_PJ="$DEPLOY/node_modules/@deepseek-ai/dsh/package.json"
+fi
+if [ -z "$RESOLVE_PJ" ]; then
   warn "无法确定当前部署目录（DSH_BIN 解析失败），跳过行名可达性检查"
 else
   # 收**所有**带引号的行名，相对名（./…）由第 2 节按 patch 目录检查存在性，
@@ -486,12 +581,11 @@ else
   if [ -z "$SPECS" ]; then
     warn "未发现可解析的预设行名（跳过）"
   else
-    spec_out="$("$NODE" --input-type=module - "$DEPLOY" "$PROFILE_PJS" $SPECS <<'JS' 2>&1
+    spec_out="$("$NODE" --input-type=module - "$RESOLVE_PJ" "$PROFILE_PJS" $SPECS <<'JS' 2>&1
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
-const deploy = process.argv[2]
 const profilePjs = (process.argv[3] || '').split(' ').filter(Boolean)
-const roots = [deploy + '/node_modules/@deepseek-ai/dsh/package.json', ...profilePjs]
+const roots = [process.argv[2], ...profilePjs]
   .filter((p) => existsSync(p))
 const reqs = roots.map((p) => createRequire(p))
 const n = reqs.length
@@ -514,7 +608,11 @@ JS
     if [ "${n_fail:-0}" -gt 0 ]; then
       FAIL=$((FAIL + n_fail))
       hint "上列 ✖ 的行名在该部署里解析不到——**包已改名/被删除，或 specifier 写法不对**（那一行会静默消失，或新会话绑定失败）"
-      hint "查新名：ls $DEPLOY/node_modules/@deepseek-ai | grep <关键字>"
+      if [ "$DEV_LAUNCH" = 1 ]; then
+        hint "查新名：ls $DEV_ROOT/apps/cli/node_modules/@deepseek-ai | grep <关键字>（或 ls $DEV_ROOT/packages/*/*）"
+      else
+        hint "查新名：ls $DEPLOY/node_modules/@deepseek-ai | grep <关键字>"
+      fi
       hint "本次实证：@deepseek-ai/dsh-workflow-worker-thread → @deepseek-ai/dsh-workflow-ptc"
       hint "本地插件行必须写成**包名 + 子路径**（如 preset-crosspost/plugins/crosspost.js）："
       hint "  相对名 ./plugins/… 按 config 目录（profile 目录）解析，找不到文件 → 新会话 never started"
@@ -544,7 +642,7 @@ for d in ${PRESET_DIRS[@]+"${PRESET_DIRS[@]}"}; do
     fi
     if printf '%s' "$blk" | grep -qE '^[[:space:]]+text:'; then
       bad "$name: persona 行仍残留旧键 text"
-      hint '把 text 改成 prefix（“工作目录”那句可拆到 suffix）'
+      hint '把 text 改成 prefix（别再把手写的工作目录那句拆到 suffix：0.2.1 起 {{cwd}} 不再注册）'
     fi
   fi
 done
@@ -555,18 +653,100 @@ for pf in "$DSH_HOME"/profiles/*/cordis.patch.yml; do
     ok "$name profile: system-prompt 使用 personaPrefix"
   elif grep -qE '^[[:space:]]+persona:' "$pf"; then
     bad "$name profile: 仍用旧键 persona（新版为 personaPrefix/personaSuffix，会被静默丢弃）"
-    hint '注意 patch 是整体替换 config：改名时要一并补 personaSuffix，否则连 headless 的 cwd 后缀也丢'
+    hint '注意 patch 是整体替换 config：改名时要一并补 personaPrefix，否则整段人格没了'
+    hint '⚠ 别再补 `personaSuffix: … {{cwd}}`：0.2.1 起 prompt 变量只剩 provider/model（第 4b 节）'
   else
     ok "$name profile: 未覆盖 system-prompt（无需检查）"
   fi
 done
+
+# ── 4b. prompt 模板变量（2026-10-27，DSH 0.2.1 实测）────────────────────
+#
+# 背景：prompt 模板的插值是**严格**的。某个 section 的文本引用了未注册的变量，该
+# section 每次渲染就抛错，而渲染发生在**请求之前**——于是那一轮直接失败：
+#   unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix";
+#   registered variables: provider, model
+# 0.2.1 的注册表只剩 provider / model（`cwd` 在这一版的 working-directory 重构里被删，
+# 目录改由 required runtime-context 快照下发，"never enters the system prompt"）；
+# 0.2.0-rc.2 时代写的 `suffix: Your working directory is {{cwd}}.` 一升级就炸，
+# 症状是"该预设下每一轮都本轮运行失败"，且人格文字读不出来 → 极难自诊断。
+#
+# 变量表**从部署自己抠**（`systemPrompt.variable("名字"`），不写死版本：下次 DSH
+# 增删变量，这条检查自动跟着变。注释行不算模板（本仓库的说明文字里会引用变量名）。
+sec "4b. prompt 模板变量（每个 {{…}} 都必须是部署里注册过的）"
+TPL_REPO_ROOT="$(cd "$REPO_PRESETS/.." 2>/dev/null && pwd || echo "$REPO_PRESETS/..")"
+TPL_VAR_SRC=""  # 要扫的部署源码/产物目录
+if [ "$DEV_LAUNCH" = 1 ]; then
+  TPL_VAR_SRC="$DEV_ROOT/packages"
+elif [ -n "$DEPLOY" ] && [ -d "$DEPLOY/node_modules/@deepseek-ai" ]; then
+  TPL_VAR_SRC="$DEPLOY/node_modules/@deepseek-ai"
+fi
+# 注册表来源既可能是**安装产物**（lib/*.js，双引号），也可能是 pnpm dev 的 **workspace 源码**
+# （src/*.ts，单引号），两种引号都要认。tests/ 不扫：那里的 `variable('cwd')` 是测试夹具，
+# 扫进去会让"部署其实没注册"被测试代码掩盖。
+discover_prompt_vars() {
+  grep -rhoE "systemPrompt\.variable\(['\"][a-z][a-z0-9_]*['\"]" "$@" 2>/dev/null \
+    | sed -E 's/.*variable\(.//; s/.$//' | sort -u | tr '\n' ' ' || true
+}
+REGISTERED_VARS=""
+if [ "$DEV_LAUNCH" = 1 ]; then
+  REGISTERED_VARS="$(discover_prompt_vars "$TPL_VAR_SRC"/*/*/src)"
+elif [ -n "$TPL_VAR_SRC" ]; then
+  REGISTERED_VARS="$(discover_prompt_vars "$TPL_VAR_SRC")"
+fi
+if [ -z "$REGISTERED_VARS" ]; then
+  warn "无法从部署里发现已注册的 prompt 变量，跳过模板变量检查"
+  hint "扫过的位置: ${TPL_VAR_SRC:-（没有任何可用部署目录）}"
+  hint "指对部署再跑：DSH_BIN=/path/to/dsh bash $0（pnpm dev 起的宿主也可）"
+else
+  ok "部署注册的 prompt 变量: $(printf '%s' "$REGISTERED_VARS" | sed 's/ $//')"
+  # 三类文件都扫：仓库 preset、各 profile 的叠加层、发给接入方的示例模板。
+  # 用 realpath 去重——`link:` 安装下 bundle patch 与仓库里的就是同一份。
+  : >"$TMP/tpl-files.raw"
+  for tf in "$REPO_PRESETS"/*/cordis.patch.yml \
+            "$DSH_HOME"/profiles/*/cordis.patch.yml \
+            "$TPL_REPO_ROOT"/examples/*/dsh-profile/cordis.patch.yml; do
+    if [ ! -f "$tf" ]; then continue; fi
+    realpath_py "$tf" >>"$TMP/tpl-files.raw" 2>/dev/null || printf '%s\n' "$tf" >>"$TMP/tpl-files.raw"
+  done
+  sort -u "$TMP/tpl-files.raw" >"$TMP/tpl-files"
+  while IFS= read -r tf; do
+    if [ ! -f "$tf" ]; then continue; fi
+    TVARS="$(
+      grep -vE '^[[:space:]]*#' "$tf" 2>/dev/null \
+        | grep -oE '\{\{[a-z][a-z0-9_]*\}\}' | sed -E 's/\{\{//; s/\}\}//' \
+        | sort -u | tr '\n' ' ' || true
+    )"
+    if [ -z "${TVARS// /}" ]; then continue; fi
+    TVARS_MISS=""
+    for tv in $TVARS; do
+      case " $REGISTERED_VARS " in
+        *" $tv "*) ;;
+        *) TVARS_MISS="$TVARS_MISS {{$tv}}" ;;
+      esac
+    done
+    if [ -n "$TVARS_MISS" ]; then
+      bad "$tf"
+      hint "未注册的模板变量:${TVARS_MISS}（部署注册表: $(printf '%s' "$REGISTERED_VARS" | sed 's/ $//')）"
+      hint '症状：该 section 每次渲染抛 unknown prompt variable → 那一轮"本轮运行失败"（早于模型调用）'
+      hint '修法：删掉那一行模板，或换成已注册的变量；工作目录已由 runtime context 下发，不必自己写'
+    else
+      ok "${tf}：模板变量都在注册表里（$(printf '%s' "$TVARS" | sed 's/ $//')）"
+    fi
+  done <"$TMP/tpl-files"
+fi
 
 # ── 5. profile 组合与 bundle 可用性 ────────────────────────────────────
 sec "5. profile 组合（dsh --dump-config）与 bundle"
 for prof in "$DSH_HOME"/profiles/*/; do
   name="$(basename "$prof")"
   if [ ! -f "$prof/package.json" ]; then continue; fi
-  if "$DSH_BIN" --profile "$name" --dump-config >"$TMP/$name.out" 2>"$TMP/$name.err"; then
+  if [ "$DEV_LAUNCH" = 1 ]; then
+    compose_dump() { dev_launch --profile "$1" --dump-config; }
+  else
+    compose_dump() { "$DSH_BIN" --profile "$1" --dump-config; }
+  fi
+  if compose_dump "$name" >"$TMP/$name.out" 2>"$TMP/$name.err"; then
     ok "profile $name 组合成功"
   else
     bad "profile $name 组合失败"; hint "$(head -3 "$TMP/$name.err" | tr '\n' ' ')"

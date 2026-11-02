@@ -290,6 +290,19 @@ node -e "console.log(require('fs').realpathSync('node_modules/preset-crosspost')
 模块解析预设里的 `@deepseek-ai/*` 名——**包改名/被删时那一行会静默消失**，这是唯一能自动发现的地方
 被改名或删除的包（例如 `dsh-workflow-worker-thread` 已被 `dsh-workflow-ptc` 取代）只能靠它发现。
 
+**升级后新会话直接建不出来**（2026-11-02，0.2.2-alpha.2 实测）：报
+
+```
+agent-preset/invalid: tool-subagent-list-agents
+(@deepseek-ai/dsh-tool-subagent-control/list-agents): never started
+```
+
+这是同一类问题的**硬失败**版本：预设里那一行指向的子路径导出已被删除，挂载审计过不了，整份
+预设都绑定不了。0.2.1-rc.1 起 `list_agents` 已并入 `@deepseek-ai/dsh-tool-subagent-control`
+主入口，删掉独立的 `tool-subagent-list-agents` 行即可；同一版还把 `modelSelectionSettings`
+改名为 `modelSelection`（发现工具用 `modelDiscovery: true`），`backgroundMode` 则早在
+0.2.1-alpha.1 删除。第 3b 节在仓库版宿主下也会跑，升级后先跑它。
+
 ## 12. 敲了斜杠指令却看不到结果（全新空会话）
 
 **症状**：在一个**还没有任何对话内容**的新会话里敲 `/crosspost-status` 这类指令，

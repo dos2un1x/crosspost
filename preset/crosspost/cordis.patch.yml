@@ -30,11 +30,14 @@
 #
 # 安装方式见 README（`link:` 符号链，仓库即源，改代码免重装）。
 #
-# 行清单对齐 0.2.0-rc.2 的 `cordis` 预设：删掉已不存在的 `dsh-workflow-worker-thread`
-# （→ `dsh-workflow-ptc`）、`enableRunInBackground` 改名 `backgroundMode`，并补上
-# command-goal / tool-cordis / present / tool-plugin-manager / modelSelectionSettings /
-# skill-filesystem.customSkillDirs。**下次 DSH 升级后先跑 `preset/upgrade-check.sh`**——
-# 它会逐条断言这里的每个包名在当前部署里可达（本次就是这么发现 workflow-worker-thread 没了的）。
+# 行清单对齐 0.2.2-alpha.2 的 `cordis` 预设。历次升级迁移：
+#   0.2.0-rc.2：`dsh-workflow-worker-thread` → `dsh-workflow-ptc`；
+#               `enableRunInBackground` → `backgroundMode`
+#   0.2.1-alpha.1：`backgroundMode` 整个删除（委派一律走 managed activation）
+#   0.2.1-rc.1：`/list-agents` 子路径导出并入主入口；
+#               `modelSelectionSettings` → `modelSelection`，发现工具改由 `modelDiscovery` 控制
+# **每次 DSH 升级后先跑 `preset/upgrade-check.sh`**——它会逐条断言这里的每个包名在当前
+# 部署里可达（第 3b 节）；本次 `never started` 就属于"包名解析不到"这一类。
 - insert:
     - id: preset-crosspost
       name: '@deepseek-ai/dsh-agent-preset'
@@ -45,12 +48,22 @@
         order: 5
         plugins:
           # ── identity ────────────────────────────────────────────────────────────
-          # 本预设自带人格，覆盖部署默认值。`{{model}}`/`{{cwd}}` 按该 agent 自己的
-          # 路由与工作目录解析。
+          # 本预设自带人格，覆盖部署默认值。`{{model}}` 按该 agent 自己的路由解析。
+          #
+          # ⚠ 不要在这里写 `{{cwd}}`（2026-10-27 实测，DSH 0.2.1）。prompt 模板的插值是
+          # **严格**的：引用了未注册的变量，该 section 每次渲染就抛错，早于模型调用——
+          # 于是该预设下的**每一轮**都"本轮运行失败"：
+          #   unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix";
+          #   registered variables: provider, model
+          # 0.2.1 的注册表只有 `provider` / `model`（`dsh-agent-loop` 只注册这两个）；
+          # `cwd` 在 0.2.0 之后的 "centralize working directories" 改动里被删掉，目录改由
+          # working-directory 以 required runtime-context 快照下发，"never enters the
+          # system prompt"。所以工作目录不必再在人格里说一遍——模型从 runtime context 里
+          # 已经看得到（0.2.0-rc.2 那版部署里 `cwd` 仍在，这行当时是有效的）。
+          # 想在本地复核：`preset/upgrade-check.sh` 第 4b 节会逐个模板变量对注册表。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: Your working directory is {{cwd}}.
               prefix: >-
                 You are a coding agent powered by the {{model}} model.
 
@@ -169,24 +182,29 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
-
-              - id: tool-subagent-list-agents
-                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                # 2026-11-02（DSH 0.2.2-alpha.2）：`list_agents` 已并入这个主入口
+                # （`registerListAgents`），独立的 `/list-agents` 子路径导出被删除。
+                # 再单列一行 `tool-subagent-list-agents` 会让整份预设挂载失败，
+                # 新建会话时报：
+                #   agent-preset/invalid: tool-subagent-list-agents
+                #   (@deepseek-ai/dsh-tool-subagent-control/list-agents): never started
+                # 上游迁移说明：docs/upgrade-guide/v0.2.1-rc.1/subagent-control-tools/
 
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: spawn
                   toolName: subagent
-                  modelSelectionSettings: true
-                  backgroundMode: continuable
+                  # 0.2.1-rc.1 起：modelSelectionSettings → modelSelection；
+                  # list_subagent_models 改由 modelDiscovery 控制（旧版随前者自动注册）。
+                  modelSelection: true
+                  modelDiscovery: true
 
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: fork
                   toolName: subagent_fork
-                  backgroundMode: continuable
 
               # 产品级 provider 是 host 面单例。复制本预设、把某个普通工具行的 `disabled`
               # 去掉即可只对由副本组成的 agent 暴露该产品。
@@ -196,7 +214,6 @@
                 config:
                   provider: codex
                   toolName: subagent_codex
-                  backgroundMode: one-shot
                   maxDepth: provider-managed
 
               - id: tool-subagent-claude-code
@@ -205,7 +222,6 @@
                 config:
                   provider: claude-code
                   toolName: subagent_claude_code
-                  backgroundMode: one-shot
                   maxDepth: provider-managed
 
               # 2026-10-03：`@deepseek-ai/dsh-workflow-worker-thread` 在 0.2.0-rc.2 已不存在，
