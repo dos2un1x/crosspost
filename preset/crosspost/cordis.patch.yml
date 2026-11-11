@@ -30,14 +30,31 @@
 #
 # 安装方式见 README（`link:` 符号链，仓库即源，改代码免重装）。
 #
-# 行清单对齐 0.2.2-alpha.2 的 `cordis` 预设。历次升级迁移：
+# 行清单以 0.2.2-rc.1 的 `cordis` 预设为基线（`packages/bundle/web-app/presets/cordis.patch.yml`），
+# **有意偏离**见下方「与上游基线的差异」一节——别把"和上游不一致"当成漏改。
+# 历次升级迁移：
 #   0.2.0-rc.2：`dsh-workflow-worker-thread` → `dsh-workflow-ptc`；
 #               `enableRunInBackground` → `backgroundMode`
 #   0.2.1-alpha.1：`backgroundMode` 整个删除（委派一律走 managed activation）
 #   0.2.1-rc.1：`/list-agents` 子路径导出并入主入口；
 #               `modelSelectionSettings` → `modelSelection`，发现工具改由 `modelDiscovery` 控制
+#   0.2.2-rc.1（2026-11-11 核对）：补 `time-context`——上游自 0.2.1 起就带着它，本预设
+#               此前一直漏（模型看不到"当前时间/时区"，只能自己跑 date）。上游新增的
+#               `tool-schedule` / `tool-plugin-market` 两行**有意不跟**（理由见差异一节）。
 # **每次 DSH 升级后先跑 `preset/upgrade-check.sh`**——它会逐条断言这里的每个包名在当前
 # 部署里可达（第 3b 节）；本次 `never started` 就属于"包名解析不到"这一类。
+#
+# ── 与上游基线（cordis 预设）的差异 ─────────────────────────────────────────────
+# 缺 `tool-schedule`（`@deepseek-ai/dsh-tool-schedule`）：CrossPost 自己有一层调度
+#   （`.crosspost/schedule.json` + 桥内定时器，见 docs/scheduling.md）。再挂 DSH 的 Host
+#   定时任务，模型就得在两套"定时"之间选，选错就会"排了程却没跑流水线"。需要桌面级
+#   提醒（把一句话投递回某个会话）时再加，别为了对齐而加。
+# 缺 `tool-plugin-market`（`@deepseek-ai/dsh-plugin-market/tools`）：Creator 模式的自助
+#   插件市场入口，与本预设（发布流水线）无关；`tool-plugin-manager` 已按 profileContext
+#   门控保留，需要装包时用它。
+# `tool-web.fetch: false`：本预设不带 `web_fetch`，是既有行为（上游默认 true）。
+# `tool-ralph` 保持启用：上游 0.2.2 起已把 ralph 移出官方预设（改由 `ralph-bundle`
+#   按需装载），本机继续用它，所以这一行留着并保持 enabled。
 - insert:
     - id: preset-crosspost
       name: '@deepseek-ai/dsh-agent-preset'
@@ -72,6 +89,13 @@
             config:
               maxBytes: 65536
 
+          # 每步注入"当前时间 / 浏览器时区 / 距上条消息多久"（默认 10 分钟节流；
+          # `refreshIntervalMs: 0` = 每步都注入）。公众号场景强依赖日期（"今天的选题"、
+          # 草稿 id 的 `YYYY-MM-DD`、定时槽位），不给时钟模型只能自己跑 `date`——
+          # 而 runtime context 里的时间快照只覆盖"本轮开始"，多步长任务会越走越偏。
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+
           # ── shell ───────────────────────────────────────────────────────────────
           # `shell-env` 留在 HOST 组合里（`apps/cli/src/web.ts` 注入它来发布
           # `DSH_WEB_URL`/`DSH_WEB_MODE`）；两个 shell 工具从 preset 侧消费 host 注册表，
@@ -87,8 +111,12 @@
           # ── filesystem ──────────────────────────────────────────────────────────
           # 两行都注册进 host 的 `tools` 注册表、不发布服务，所以不需要 realm；
           # `fs` 服务与其策略留在 host。
+          # `applyPatch` 默认就是 false（宿主 Config 默认值）；显式写出来是为了与上游
+          # `cordis` 预设逐字对齐、也让"本预设不带 apply_patch"在配置里可见。
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
 
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
@@ -235,9 +263,10 @@
               - id: tool-workflow
                 name: '@deepseek-ai/dsh-tool-workflow'
 
-              # 与上游 default 不同：上游发的是 `disabled: true`（"Ralph remains disabled in
-              # shipped defaults"）。这里**保持启用**以延续本机既有行为；ralph 现走 PTC 引擎
-              # （host `ptc-runtime` 行），改回关闭只需加一行 `disabled: true`。
+              # 与上游不同：0.2.2 起官方四个预设都**不再包含** ralph（已移到可选的
+              # `ralph-bundle`，见 `packages/experimental/ralph-bundle`）。这里保持启用以
+              # 延续本机既有行为；ralph 走 PTC 引擎（host `ptc-runtime` 行），改回关闭只需
+              # 加一行 `disabled: true`。
               - id: tool-ralph
                 name: '@deepseek-ai/dsh-tool-ralph'
                 config:

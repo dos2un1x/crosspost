@@ -20,10 +20,13 @@
 #   · 空会话里执行指令 → 阶段变 active → 指令卡片正常显示；
 #   · 真正一条消息都没有的空会话（order 为空）→ 仍然判 inactive → 欢迎页照旧。
 #
-# ⚠ 代价与寿命：补丁改的是 **DSH 安装目录里的构建产物**
-#   （`<部署>/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js`），
-#   **npx 重新安装或升级 DSH 会把它冲掉**。冲掉后重放本脚本即可（幂等）。
-#   `preset/upgrade-check.sh` 第 0 节会在"曾经打过补丁但补丁已不在"时提醒。
+# ⚠ 代价与寿命：补丁改的是 **DSH 的构建产物**，两种布局都支持（2026-11-11）：
+#   · 安装产物：`<部署>/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js`
+#     —— **npx 重新安装或升级 DSH 会把它冲掉**；
+#   · 源入口仓库：`<仓库>/packages/client/ui-chat/lib/client.js`
+#     —— **下一次客户端构建会重写它**（`pnpm run build:web`；`dev:web` 的 watcher 同理）。
+#   冲掉后重放本脚本即可（幂等）。`preset/upgrade-check.sh` 第 0 节会在
+#   "曾经打过补丁但补丁已不在"时提醒（两种布局都认）。
 #
 # 用法：
 #   bash preset/patches/dsh-blank-session-command-nodes.sh            # 打补丁（幂等）
@@ -55,11 +58,23 @@ DSH_BIN="${DSH_BIN:-$(command -v dsh 2>/dev/null || true)}"
 [ -n "$DSH_BIN" ] || DSH_BIN="$HOME/.local/bin/dsh"
 
 DEPLOY="${DSH_DEPLOY:-}"
+SOURCE_DEPLOY=0
 if [ -z "$DEPLOY" ]; then
   live="$("$NODE_BIN" -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$DSH_BIN" 2>/dev/null || true)"
   case "$live" in
     */node_modules/@deepseek-ai/dsh/lib/bin.js) DEPLOY="${live%/node_modules/@deepseek-ai/dsh/lib/bin.js}" ;;
   esac
+  # 源入口启动器（2026-10-27 起的包装脚本）：没有 node_modules 部署路径，只自报
+  # 一行 `# dsh-source: <repo>/apps/cli/src/bin.ts`。与 upgrade-check 第 0 节同一判据。
+  if [ -z "$DEPLOY" ] && [ -f "$DSH_BIN" ]; then
+    src_entry="$(sed -n 's/^# dsh-source:[[:space:]]*//p' "$DSH_BIN" 2>/dev/null | head -1)"
+    case "$src_entry" in
+      */apps/cli/src/bin.ts)
+        DEPLOY="$(cd "$(dirname "$src_entry")/../../.." 2>/dev/null && pwd || echo '')"
+        [ -n "$DEPLOY" ] && [ -d "$DEPLOY/packages" ] && SOURCE_DEPLOY=1
+        ;;
+    esac
+  fi
 fi
 if [ -z "$DEPLOY" ] || [ ! -d "$DEPLOY" ]; then
   printf '\033[31m✖\033[0m 无法确定 DSH 部署目录（用 DSH_DEPLOY=<目录> 显式指定）\n' >&2
@@ -67,11 +82,27 @@ if [ -z "$DEPLOY" ] || [ ! -d "$DEPLOY" ]; then
   exit 1
 fi
 
-CLIENT="${DSH_CLIENT:-$DEPLOY/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js}"
-if [ ! -f "$CLIENT" ]; then
-  printf '\033[31m✖\033[0m 找不到客户端产物: %s\n' "$CLIENT" >&2
-  printf '      该部署可能没有 web 客户端（或 DSH 改了包布局）——本补丁只对装了 Web UI 的部署有意义\n' >&2
+# 客户端产物两种布局：
+#   · 安装产物（npx）：<部署>/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
+#   · 仓库源码入口：<仓库>/packages/client/ui-chat/lib/client.js（由 pnpm run build:web 生成）
+# 后者只活到**下一次客户端构建**（`pnpm run build:web` / `dev:web` 的 watcher 都会重写它）；
+# 仓库的 `lib/` 在 .gitignore 里，所以补丁不会弄脏 DSH 仓库。
+CLIENT="${DSH_CLIENT:-}"
+if [ -z "$CLIENT" ]; then
+  for candidate in \
+    "$DEPLOY/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js" \
+    "$DEPLOY/packages/client/ui-chat/lib/client.js"; do
+    if [ -f "$candidate" ]; then CLIENT="$candidate"; break; fi
+  done
+fi
+if [ -z "$CLIENT" ] || [ ! -f "$CLIENT" ]; then
+  printf '\033[31m✖\033[0m 找不到客户端产物（试过两种布局）\n' >&2
+  printf '      部署根: %s\n' "$DEPLOY" >&2
+  printf '      装了 Web UI 的安装产物在 node_modules/…，仓库版要先 pnpm run build:web\n' >&2
   exit 1
+fi
+if [ "$SOURCE_DEPLOY" = 1 ]; then
+  printf '  \033[33m⚠\033[0m 源入口部署：补丁打在仓库的构建产物上，下一次客户端构建会覆盖它\n'
 fi
 
 VER="$("$DSH_BIN" --version 2>/dev/null | head -1)"
@@ -163,7 +194,11 @@ RC=$?
 
 if [ "$RC" -eq 0 ] && [ "$MODE" = "patch" ]; then
   printf '\n部署: %s（%s）\n' "$DEPLOY" "${VER:-版本未知}"
-  printf '注意：npx 重新安装 / 升级 DSH 会覆盖该文件——升级后重放本脚本即可\n'
-  printf '      （preset/upgrade-check.sh 第 0 节会在补丁被冲掉时提醒）\n'
+  if [ "$SOURCE_DEPLOY" = 1 ]; then
+    printf '注意：源入口部署，下一次客户端构建（pnpm run build:web / dev:web）会覆盖该文件\n'
+  else
+    printf '注意：npx 重新安装 / 升级 DSH 会覆盖该文件\n'
+  fi
+  printf '      升级或重建后重放本脚本即可（preset/upgrade-check.sh 第 0 节会提醒补丁被冲掉）\n'
 fi
 exit "$RC"

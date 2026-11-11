@@ -110,7 +110,15 @@ function apply(ctx) {
       bridgeHandle = subprocess.spawn({
         argv: [NODE, BRIDGE_SCRIPT],
         cwd: WORKSPACE,
-        stdio: { stdin: 'ignore', stdout: 'collect', stderr: 'collect' },
+        // 收集模式是**对象** `{ maxBytes }`，不是字符串 `'collect'`（2026-11-11 修）。
+        // 传字符串不报错——`SubprocessOutputMode` 只有 'pipe' | 'inherit' | 对象，
+        // 未知字符串会按"不需要输出"处理，于是 `handle.collected.stdout` 缺席；
+        // 这里只需要句柄来 terminate，所以静默了整整一个版本。
+        stdio: {
+          stdin: 'ignore',
+          stdout: { maxBytes: 64 * 1024 },
+          stderr: { maxBytes: 64 * 1024 },
+        },
         graceMs: 2000,
         env: {},
       })
@@ -138,9 +146,22 @@ function apply(ctx) {
     for (const k of Object.keys(v)) o[k] = safe(v[k])
     return o
   }
+  /**
+   * 跑一条 shell 命令并解析 stdout 的 JSON。
+   *
+   * ⚠ 宿主 API（2026-11-11 按 DSH 0.2.2-rc.1 修正）：`ShellExecutor` 只有
+   * `resolve(request) → ShellExecSpec` 与 `execute(spec) → ShellExecution`，
+   * **没有 `run`**（`run → execute` 是 2026-08-26 的上游改名）。输出也不在句柄上：
+   * 要 `await exec.result()` 拿 `ShellRunResult`，再读 `result.stdout.text`。
+   * 写成 `shell.run(spec)` 时抛的是 TypeError，而工具层统一 catch 成
+   * `{ error: "shell.run is not a function" }`——**工具在、调不动**，preset 挂载审计
+   * 也看不见（第 3 节只检查"插件能 import"）。这类形状漂移由
+   * `crosspost-runtime/tests/preset-plugin-mount.test.mjs` 的桩按真实 API 兜住。
+   */
   async function shellJson(command) {
     const spec = shell.resolve({ command })
-    const res = await shell.run(spec)
+    const exec = await shell.execute(spec)
+    const res = await exec.result()
     const out = (res.stdout && res.stdout.text) || ''
     try {
       return JSON.parse(out)

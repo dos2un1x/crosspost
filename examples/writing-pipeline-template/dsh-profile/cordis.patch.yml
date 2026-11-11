@@ -5,9 +5,11 @@
 #       ② insert 发布器 MCP（引擎的 xp_* / crosspost MCP 工具）
 # 数据源（新闻/热榜那类）按你自己的需要再加 MCP client 进来。
 
+# ⚠ persona 文案里别写 `{{cwd}}`：DSH 0.2.1 起 prompt 变量只剩 `provider` / `model`，
+# 未注册的变量会让该 section 每次渲染抛错（unknown prompt variable …），整轮失败。
+# 工作目录已由 runtime context 下发，不必在人格里再说一遍。
 - id: system-prompt
   config:
-    personaSuffix: Your working directory is {{cwd}}.
     personaPrefix: >-
       你是「我的写作流水线」的执行体，本次任务只处理一个栏目。
       写作规范见本流水线仓库的 SKILL.md，必须读取并按其执行（含 SOP、评分与发布纪律）。

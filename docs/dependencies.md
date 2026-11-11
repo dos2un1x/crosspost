@@ -43,12 +43,12 @@ npm install && npm run setup    # 幂等：已存在则保留配置，缺依赖�
 
 ## 2. 可选（缺了功能降级，不阻塞启动）
 
-| 可选件             | 用途                                      | 缺失表现                                                                                                     |
-| ------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `unzstd`（zstd）   | 解压会话压缩文件以统计 token 费用         | 费用报表拿不到部分会话数据；`doctor` 会提醒（**容器镜像自带**）                                              |
-| `lark-cli`         | 飞书通知通道                              | 通知发不出去；`doctor` 会提醒（**容器镜像自带 linux 版**，但凭据要各自配——见 [`docker.md`](docker.md) §2.1） |
-| `systemd`（Linux） | 桥的用户级守护                            | 只能前台 `node bridge/run-bridge.mjs`                                                                        |
-| DSH ≥ 0.2.0-rc.2   | agent preset 接入（7 个 `xp_*` 原生工具） | 只能在 CLI / MCP / Console 里用；`doctor` 的 `preset-bundle` / `preset-installed` 两条会提醒                 |
+| 可选件             | 用途                                                     | 缺失表现                                                                                                                        |
+| ------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `unzstd`（zstd）   | 解压会话压缩文件以统计 token 费用                        | 费用报表拿不到部分会话数据；`doctor` 会提醒（**容器镜像自带**）；`node --test` 里 token-cost 相关用例会 `spawnSync zstd ENOENT` |
+| `lark-cli`         | 飞书通知通道                                             | 通知发不出去；`doctor` 会提醒（**容器镜像自带 linux 版**，但凭据要各自配——见 [`docker.md`](docker.md) §2.1）                    |
+| `systemd`（Linux） | 桥的用户级守护                                           | 只能前台 `node bridge/run-bridge.mjs`                                                                                           |
+| DSH ≥ 0.2.2-rc.1   | agent preset 接入（7 个 `xp_*` 原生工具 + 7 条斜杠指令） | 只能在 CLI / MCP / Console 里用；`doctor` 的 `preset-bundle` / `preset-installed` 两条，以及 `preset/upgrade-check.sh` 会提醒   |
 
 **DSH preset 作为可选件的判据**：
 
@@ -61,6 +61,26 @@ npm install && npm run setup    # 幂等：已存在则保留配置，缺依赖�
 - 装法用 `link:`（profile 里 `"preset-crosspost": "link:~/crosspost/preset/crosspost"`）：
   仓库即源，改代码免重装。`file:` 安装会被包管理器物化成副本树，改仓库要重装。
   安装三条命令与工具面缺失的排查见 [`troubleshooting.md`](troubleshooting.md) §11。
+- bundle 目录里的 `node_modules/@deepseek-ai/{dsh-tools,dsh-agent-preset}` 是**宿主提供的包**
+  （插件 `import '@deepseek-ai/dsh-tools'`），指向某一份 DSH 安装。仓库版宿主会按 tsconfig 的
+  `paths` 把它解析到仓库源码，所以链只在"已构建宿主"（npx 那份）下真正生效；但两条链必须与
+  **启动器指的那份 DSH 对齐**——换启动器要重指，否则就是"旧 API 跑新宿主"：不报错、只少能力。
+  `preset/upgrade-check.sh` 的第 1b 节只在启动器是仓库版时提醒还指着 npx 的链，并给出 `ln -sfn` 修法。
+
+**DSH 0.2.2 的三处行为变化（会直接影响流水线）**：
+
+- **`fs-observation-policy` 默认关闭**（上游 0.2.2-alpha.2 起）：`write` 可以覆盖没读过的文件，
+  `edit` 也不再要求先读。写作流水线（`wechat-auto`）的 `--dump-config` 里是 `disabled: true`。
+  要恢复"读前写"的护栏，在 profile 的 `cordis.patch.yml` 里加
+  `- {id: fs-observation-policy, disabled: false}`。
+- **搜索默认走 DeepSeek Search API**（`web.searchProvider: deepseek-search-api`）：一次搜索不再
+  是一次模型请求，会话里**不再产生 `web/deepseek-search-llm-request` 事件**。`token-cost` 的
+  "隐藏调用"估算里那一项因此恒为 0（这是对的：不再烧模型 token），但 **Search API 的调用费不进
+  费用报表**。想恢复旧口径，就在 profile 的 `@deepseek-ai/dsh-web` 行里把 `searchProvider` 设回
+  `deepseek-official`。
+- **subagent 工具按名字寻址**（0.2.2-alpha.3）：`send_message` / `interrupt_agent` 的 `agent_id`
+  参数改名 `agent`，`list_agents` 行改为 `{name, status, description}`。本仓库没有消费这些字段的
+  代码（preset 只声明 `tool-subagent*` 行），无需改；以后写脚本解析 `list_agents` 时按新形状来。
 
 `doctor` 的可选项只给**提醒**不给失败；必需项缺失才判红。
 

@@ -17,8 +17,12 @@ DSH 的斜杠指令结果被渲染成**流程节点**，而聊天流程视图只
 
 ## 通用约定
 
-- **位置**：补丁改的是 `<DSH 部署>/node_modules/<包>/lib/*.js` 这类**构建产物**，
-  npx 重新安装或升级 DSH 会覆盖。所以每个补丁都必须在 `preset/upgrade-check.sh` 里有一条
+- **位置**：补丁改的是 **DSH 的构建产物**，两种部署布局都要认（2026-11-11）：
+  · 安装产物：`<DSH 部署>/node_modules/<包>/lib/*.js`——npx 重新安装/升级 DSH 会覆盖；
+  · 源入口仓库：`<仓库>/packages/client/ui-chat/lib/client.js` 这类路径——下一次客户端构建
+  （`pnpm run build:web`，或 `dev:web` 的 watcher）会重写它；仓库的 `lib/` 在 `.gitignore` 里，
+  所以补丁不会弄脏 DSH 仓库。
+  两种布局都会在升级/重建后被冲掉，所以每个补丁都必须在 `preset/upgrade-check.sh` 里有一条
   「补丁还在不在」的检查（用备份文件当"打过补丁"的标记），被冲掉时给出重放命令。
 - **备份**：就地留一份 `<文件>.orig-before-crosspost-patch`，既当还原源，也当"已打过补丁"的标记。
 - **安全**：替换前后做语法校验（把结果写成临时 `.mjs` 交给 `node --check`），

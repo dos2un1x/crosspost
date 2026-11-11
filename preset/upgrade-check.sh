@@ -188,15 +188,26 @@ fi
 # 判据用**备份文件是否在**——它就是"打过补丁"的标记（补丁脚本自己写、自己删）。
 # 没打过就一句话都不说（不制造噪音）；打过而补丁串没了 = npx 升级把它冲掉了 → 提醒重放。
 # 背景与那一行判定见 preset/patches/dsh-blank-session-command-nodes.sh 的文件头。
-if [ -n "$DEPLOY" ] && [ -d "$DEPLOY" ]; then
-  CLIENT_JS="$DEPLOY/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js"
-  CLIENT_BAK="$CLIENT_JS.orig-before-crosspost-patch"
+# 部署根两种：安装产物看 DEPLOY，仓库版（源入口）看 DEV_ROOT——后者以前整段被跳过，
+# 于是"源入口部署 + 打过补丁"这条组合永远不告警。客户端产物也按两种布局找。
+PATCH_ROOT="${DEPLOY:-$DEV_ROOT}"
+if [ -n "$PATCH_ROOT" ] && [ -d "$PATCH_ROOT" ]; then
+  CLIENT_JS=""
+  for cand in \
+    "$PATCH_ROOT/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js" \
+    "$PATCH_ROOT/packages/client/ui-chat/lib/client.js"; do
+    if [ -f "$cand" ]; then CLIENT_JS="$cand"; break; fi
+  done
+  CLIENT_BAK="${CLIENT_JS:+$CLIENT_JS.orig-before-crosspost-patch}"
   PATCH_TAG='snapshot.order.length > 0'
-  if [ -f "$CLIENT_BAK" ]; then
+  if [ -n "$CLIENT_BAK" ] && [ -f "$CLIENT_BAK" ]; then
     if grep -q "$PATCH_TAG" "$CLIENT_JS" 2>/dev/null; then
       ok "本地客户端补丁在位（空会话里的指令结果可见）"
+      if [ "$PATCH_ROOT" = "$DEV_ROOT" ]; then
+        hint "源入口部署：补丁活到下一次客户端构建（pnpm run build:web）之后要重放"
+      fi
     else
-      warn "本地客户端补丁已被升级冲掉（空会话里指令结果会被欢迎页盖住）"
+      warn "本地客户端补丁已被冲掉（空会话里指令结果会被欢迎页盖住）"
       hint "重放：bash $REPO_PRESETS/patches/dsh-blank-session-command-nodes.sh"
       hint "还原：同上 --revert（优先用备份 ${CLIENT_BAK}）"
     fi
@@ -846,6 +857,9 @@ fi
 
 # ── 8. 会话日志格式（费用报表依赖）────────────────────────────────────
 sec "8. 会话日志格式（费用报表依赖）"
+# ⚠ 会话是**多帧 zstd**（2026-11-11 实测：一个 500KB 会话由 355 个帧拼成）。`unzstd` CLI
+# 默认跨帧解码，所以下面 `-f/-dc` 拿到的是全部行；Node 的 `zlib.zstdDecompressSync()`
+# 只解第一帧（实测只解出 204 字节 header）。将来若想换实现，先看 token-cost.mjs 文件头那段。
 # 排序不许经 `xargs -0 ls -t`（GNU 空输入会列当前目录 → 见 session_files_by_mtime 注释）
 newest="$(session_files_by_mtime | head -1)"
 if [ -z "$newest" ]; then

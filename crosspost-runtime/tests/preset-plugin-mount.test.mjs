@@ -4,7 +4,8 @@
 // 它 `inject: ['tools','fs','shell','subprocess','timer']`，并依赖这些服务的**具体形状**：
 //
 //   · `ctx.tools.register(defineTool({...}))`  —— 工具注册
-//   · `ctx.get('shell').resolve({command})` + `.run(spec)` → `{ stdout: { text } }`
+//   · `ctx.get('shell').resolve({command})` → spec，`execute(spec)` → 句柄 → `await 句柄.result()`
+//     → `{ stdout: { text } }`（**没有 `.run(spec)`**，0.2.x 也没有、0.2.2-rc.1 更没有）
 //   · `ctx.get('subprocess').spawn({ argv, cwd, stdio, graceMs, env })` —— 自拉起桥
 //   · `ctx.get('fs').resolve/writeText/readText`
 //   · `ctx.get('timer').timeout(ms)`、`ctx.effect(fn)`
@@ -77,9 +78,16 @@ function makeStubCtx({ shellReply = '{}' } = {}) {
             assert.ok(spec && typeof spec.command === 'string', 'shell.resolve 需要 { command }')
             return { __spec: spec }
           },
-          run: async (spec) => {
+          // 真实宿主（DSH 0.2.x / 0.2.2-rc.1）：`ShellExecutor` 只有 resolve + execute。
+          // `execute` 返回的是**句柄**，前台输出要 `await handle.result()` 再读
+          // `ShellRunResult.stdout.text`。桩里**故意不实现 `run`**——否则插件里
+          // "调一个宿主不存在的方法"又会变回绿色（2026-11 实际踩到：7 个 xp_* 工具
+          // 全调 `shell.run`，TypeError 被工具层 catch 成 {error}，一直没人发现）。
+          execute: async (spec) => {
             shellCalls.push(spec)
-            return { stdout: { text: shellReply } }
+            return {
+              result: async () => ({ stdout: { text: shellReply }, stderr: { text: '' } }),
+            }
           },
         }
       if (name === 'subprocess')
@@ -126,7 +134,7 @@ test('preset 插件挂载：注入 5 个宿主服务，注册 7 个 xp_* 工具'
   }
 })
 
-test('preset 插件挂载：xp_status 真调一次（shell.resolve/run → JSON → 形状映射）', async (t) => {
+test('preset 插件挂载：xp_status 真调一次（shell.resolve/execute/result → JSON → 形状映射）', async (t) => {
   if (!canResolveDshTools()) {
     t.skip('当前环境无 @deepseek-ai/dsh-tools（未安装 DSH），跳过挂载检查')
     return
@@ -147,7 +155,7 @@ test('preset 插件挂载：xp_status 真调一次（shell.resolve/run → JSON 
   assert.equal(
     shellCalls.length,
     1,
-    'xp_status 应恰好走一次 shell.run（桩里 run 才拿得到 stdout.text）',
+    'xp_status 应恰好走一次 shell.execute（桩里 execute 才拿得到 result().stdout.text）',
   )
   assert.match(
     String(shellCalls[0].__spec.command),
@@ -222,6 +230,15 @@ test('preset 插件挂载：没有桥时自拉起，dispose 收掉（subprocess.
   )
   assert.equal(typeof opts.graceMs, 'number', 'subprocess.spawn 需要 graceMs（宿主用它兜住退出）')
   assert.ok(opts.stdio && typeof opts.stdio === 'object', 'subprocess.spawn 需要 stdio 描述')
+  // 收集模式是**对象** `{ maxBytes }`：宿主的 `SubprocessOutputMode` 只有
+  // 'pipe' | 'inherit' | 对象；传字符串 `'collect'` 不报错，只是那条流不会被收集。
+  for (const stream of ['stdout', 'stderr']) {
+    const mode = opts.stdio[stream]
+    assert.ok(
+      mode && typeof mode === 'object' && Number.isFinite(mode.maxBytes),
+      `stdio.${stream} 必须是 { maxBytes } 收集模式（实际 ${JSON.stringify(mode)}）`,
+    )
+  }
 
   assert.equal(disposers.length, 1, 'ctx.effect 应登记 1 个 disposer')
   disposers[0]()

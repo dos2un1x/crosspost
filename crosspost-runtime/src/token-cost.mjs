@@ -16,6 +16,11 @@
  *     绝不能累加，否则历史费用翻倍。
  *     ⚠ 代际再往上走时必须**复验**这条：位置一变，报表会静默归零而不是报错。
  *       preset/upgrade-check.sh 第 8 节会在代际 > 4 时提醒。
+ *   - **zstd 是多帧的**（2026-11-11 实测，DSH 0.2.2-rc.1）：一个会话文件由几百个独立 zstd
+ *     帧顺序拼接（每个 flush 一帧），必须整体解压才拿得到全部行。`unzstd` CLI 默认跨帧解码
+ *     （所以本文件选它）；而 Node 的 `zlib.zstdDecompressSync()` 只解**第一帧**——实测一个
+ *     500KB / 355 帧的会话只能解出 204 字节的 header。将来若想摆脱 unzstd 依赖，必须自己
+ *     按帧切分（每帧以 magic `28 B5 2F FD` 开头）或改用跨帧解码器，别直接换 sync API。
  *   - 计费方式: 每个 usage 事件独立计费（逐 step 累加），按事件时间戳判峰谷
  *
  * 价格: DeepSeek deepseek-v4-flash（每百万 tokens，人民币）
