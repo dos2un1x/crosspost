@@ -34,7 +34,13 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { getArticlesDir, getDraftsDir, parseDraftFile } from '../crosspost-runtime/src/articles.mjs'
+import {
+  ensureDraftRecord,
+  getArticlesDir,
+  getDraftsDir,
+  parseDraftFile,
+  upsertRecord,
+} from '../crosspost-runtime/src/articles.mjs'
 import { pushHumanFeedback } from '../crosspost-runtime/src/editorial-memory.mjs'
 import { reconcileRecords } from '../crosspost-runtime/src/record-repair.mjs'
 import { getTopicPoolFile, getHistoryDir, getLogsDir } from '../crosspost-runtime/src/resources.mjs'
@@ -695,6 +701,12 @@ async function runTask(task) {
     // 于是用户会看到"生成完了，但列表里还写着未生成"，直到下次手动刷新。
     // 先回填再 settle 之后，`done` 才是"连选题库都写完了"的可信信号。
     backfillGeneratedTopic(task)
+    // 生成也是一条过程（2026-11-01）：一键生成的稿子**从不调发布器**，它们的记录全靠写作侧
+    // 那一步的 `record_writing`。写作侧没调成（沙箱/遗漏/被中断），记录就只剩一条空骨架，
+    // Console 抽屉显示「⚠ 无生成/发布记录」——而稿子偏偏就是这条任务生成出来的。
+    // 引擎**确实知道**这个事实（任务号/栏目/选题/提供者/耗时），就把它记下来；
+    // 放在对账之前，"刚生成的这篇"从一开始就有 history，对账也不用猜。
+    recordGeneratedDraft(task)
     // 记录对账（2026-10-09）：写作 agent 在 workspace-write 沙箱里跑，`retainArticle` 能把文件
     // 移进 `drafts/rejected/`，但写引擎簿记会 EPERM。收尾时按刚生成的这一篇补一次对账——
     // 写入只与"刚跑完的流水线"因果绑定（plan 为空则一个字节都不写），不猜、不扫全量。
@@ -702,6 +714,60 @@ async function runTask(task) {
     settle(task, 'done')
   }
   pumpQueue()
+}
+
+/**
+ * 把「这条草稿是本条生成任务的产出」写进文章记录（2026-11-01）。
+ *
+ * 为什么由引擎写：一键生成链路**恒草稿、从不调发布器**，记录里的过程只可能来自写作侧的
+ * `record_writing` / `ai_detect --record`。那两样是 AI 会话里的调用，**没有硬保证**——
+ * 少调一次、被沙箱挡下、会话被中断，记录就只剩一条空骨架（`history: []`），Console 显示
+ * 「⚠ 无生成/发布记录」。而这句告警本来是给"记录写盘失败"用的，落到正常产出上就成了假警报：
+ * 事后复盘分不清"这篇没生成过"和"生成过但过程没记下来"。
+ *
+ * 引擎这里知道的是**事实**：任务号、栏目、选题、提供者、起止时间，以及提供者回报的 draftId。
+ * 所以按"生成"记一条，**不编造**决策/审稿/AI 检测（那些仍然只能由写作侧提供）。
+ *
+ * 三个刻意的取舍：
+ *   ① `at` 用**任务开始时间**，并按时间插进 history 的正确位置——生成是这一批过程里最早的
+ *      一件事，排在「写作快照 / AI 检测」之后会读成倒序（面板按数组顺序渲染）；
+ *   ② 失败只记 stderr、**不阻塞任务收尾**：记录是旁路，一条已经生成好的稿子不能因为记账
+ *      失败被标成 failed；
+ *   ③ 显式 `withProject(task.projectId)`：任务队列全局共享，收尾时的上下文可能已经不是
+ *      发起项目（同 notifyTaskSettled 的理由）。
+ */
+function recordGeneratedDraft(task) {
+  if (!task || !task.draftId) return
+  try {
+    withProject(task.projectId || '', () => {
+      const file = path.join(getDraftsDir(task.projectId || undefined), `${task.draftId}.md`)
+      // 提供者回报了 draftId、文件却不在：可能还在写盘 / 被直接移进留存库。宁可少记一条，
+      // 也不按 id 编一条记录（那种记录会在 Console 上变成永远对不上文件的幽灵行）。
+      if (!fs.existsSync(file)) return
+      const parsed = parseDraftFile(file)
+      const rec = ensureDraftRecord(parsed)
+      const at = task.startedAt || new Date().toISOString()
+      const entry = {
+        action: 'generate',
+        slot: task.slot || null,
+        keyword: task.keyword || null,
+        taskId: task.id || null,
+        provider: task.via || null,
+        durationMs: taskElapsedMs(task),
+        at,
+      }
+      rec.history = Array.isArray(rec.history) ? rec.history : []
+      const atMs = Date.parse(at)
+      const idx = rec.history.findIndex((h) => {
+        const t = Date.parse(h && h.at)
+        return Number.isFinite(t) && Number.isFinite(atMs) && t > atMs
+      })
+      rec.history.splice(idx < 0 ? rec.history.length : idx, 0, entry)
+      upsertRecord(rec)
+    })
+  } catch (e) {
+    console.error(`[topics] 生成记录写入失败 ${task.id}: ${String((e && e.message) || e)}`)
+  }
 }
 
 /**

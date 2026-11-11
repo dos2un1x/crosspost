@@ -949,9 +949,21 @@ test('桥接①：未提供能力时 startTopicGenerate 立即给出结构化拒
 test('桥接②：走 manifest 声明的 HTTP 端点跑通一次「一键生成」，并回填选题库', async () => {
   const logsDir = path.join(SANDBOX, 'bridge-provider-logs')
   const script = path.join(SANDBOX, 'bridge-generate.sh')
+  // 生成脚本落一篇真草稿（2026-11-01）：引擎要在收尾时把「这条草稿是这次任务生成的」
+  // 记进文章记录 —— 空脚本会让这条断言无从验证。
+  const e2eDraftDir = path.join(PROJECTS, 'p-e2e', 'drafts')
+  const e2eDraftId = '2026-09-19-noon-e2e-article'
+  fs.mkdirSync(e2eDraftDir, { recursive: true })
   fs.writeFileSync(
     script,
-    '#!/bin/sh\necho "生成中 slot=$1 keyword=$2"\necho "[draft-id] 2026-09-19-noon-e2e-article"\nexit 0\n',
+    [
+      '#!/bin/sh',
+      'echo "生成中 slot=$1 keyword=$2"',
+      `printf '%s\\n' '---' 'title: 一键生成 e2e' 'score: 88' '---' '' '正文' > '${path.join(e2eDraftDir, `${e2eDraftId}.md`)}'`,
+      `echo "[draft-id] ${e2eDraftId}"`,
+      'exit 0',
+      '',
+    ].join('\n'),
     { mode: 0o755 },
   )
   const server = createGenerateServer({ bin: '/bin/sh', args: [script], logsDir, timeoutMs: 10000 })
@@ -1024,6 +1036,26 @@ test('桥接②：走 manifest 声明的 HTTP 端点跑通一次「一键生成�
       undefined,
       '项目写入不该落到默认域选题库',
     )
+
+    // 记录：引擎要把「这条草稿是本条任务生成的」写进文章记录（2026-11-01）。
+    // 一键生成链路从不调发布器，写作侧的 record_writing 没落成时，这一条是记录里唯一的凭据；
+    // 缺了它 Console 就只剩「⚠ 无生成/发布记录」这句（形同"这篇没生成过"）。
+    const recFile = path.join(
+      SANDBOX,
+      'local',
+      'project-state',
+      'p-e2e',
+      'articles',
+      `${e2eDraftId}.json`,
+    )
+    const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'))
+    const gen = (rec.history || []).find((h) => h.action === 'generate')
+    assert.ok(gen, `记录里应有 generate 条目，实际 ${JSON.stringify(rec.history)}`)
+    assert.equal(gen.slot, 'noon')
+    assert.equal(gen.keyword, KEYWORD)
+    assert.equal(gen.provider, 'http')
+    assert.ok(gen.taskId, '要留下任务号，事后才能对上那一轮的 run 日志')
+    assert.equal(rec.score?.total, 88, '草稿 frontmatter 的评分照常回填进记录')
   } finally {
     removeProject('p-e2e')
     await new Promise((r) => server.close(r))

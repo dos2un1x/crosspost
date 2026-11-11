@@ -90,6 +90,8 @@ export function historyLabel(action) {
       status: '状态变更',
       'ai-detect': 'AI 检测',
       writing: '写作快照',
+      // 2026-11-01：一键生成的引擎侧记账（写作侧的 record_writing 没落成时，记录里至少还有它）
+      generate: '生成',
     }[a] || a
   )
 }
@@ -113,6 +115,12 @@ export function historyMeta(h) {
   if (e.action === 'archive') parts.push('→ 归档库')
   if (e.action === 'restore') parts.push('← 移回草稿目录')
   if (e.action === 'status' && e.to) parts.push(`→ ${e.to}`)
+  // 生成：标清是哪条任务、哪个栏目、跑了多久 —— 复盘"这篇是点按钮出来的还是定时出来的"
+  if (e.action === 'generate') {
+    if (e.slot) parts.push(`栏目 ${e.slot}`)
+    if (e.provider) parts.push(`提供者 ${e.provider}`)
+    if (Number.isFinite(e.durationMs)) parts.push(`用时 ${Math.round(e.durationMs / 1000)} 秒`)
+  }
   return parts
 }
 
