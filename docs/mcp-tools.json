@@ -1,0 +1,731 @@
+{
+  "$comment": "由服务端 tools/list 生成；手工编辑会被下次生成覆盖。",
+  "serverName": "crosspost",
+  "toolPrefix": "mcp__crosspost__",
+  "toolCount": 24,
+  "tools": [
+    {
+      "name": "status",
+      "fullName": "mcp__crosspost__status",
+      "description": "多平台发布助手状态（经浏览器代理通道）：proxyMode、扩展连接、Bridge 状态。",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "projects",
+      "fullName": "mcp__crosspost__projects",
+      "description": "列出经 .crosspost/project.json 接入引擎的写作项目：id / 名称 / 声明的能力 / 数据源可达性。未接入任何项目时返回空列表（引擎仍可用，平台域功能不依赖项目）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "可选：只查某个项目 id"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "list_platforms",
+      "fullName": "mcp__crosspost__list_platforms",
+      "description": "列出27 个已知平台（默认派发 10 个）的登录状态（经浏览器代理）：isAuthenticated / username / error。",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "check_auth",
+      "fullName": "mcp__crosspost__check_auth",
+      "description": "检查指定平台登录状态（经浏览器代理）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "description": "平台 ID，如 zhihu/csdn/juejin"
+          }
+        },
+        "required": ["platform"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "extract_article",
+      "fullName": "mcp__crosspost__extract_article",
+      "description": "从 URL 或已打开的浏览器标签页提取文章（标题/正文 Markdown/HTML/封面）。activeTab 为 true 时读活动标签页（url 可选，用于匹配指定标签页）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "文章 URL；activeTab 模式下用它匹配已打开的标签页，否则直接抓取该 URL"
+          },
+          "activeTab": {
+            "type": "boolean",
+            "description": "为 true 时从浏览器已打开的标签页提取"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "sync_article",
+      "fullName": "mcp__crosspost__sync_article",
+      "description": "把文章发布到目标平台（恒为草稿，不直接发布，防封禁；经浏览器代理）。目标平台限27 个已知平台（默认派发 10 个）。并发发布，结果按请求顺序返回。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "目标平台 ID 列表，如 [\"zhihu\",\"csdn\",\"juejin\"]"
+          },
+          "title": {
+            "type": "string",
+            "description": "文章标题（纯文本）"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Markdown 正文（不含标题行）"
+          },
+          "content": {
+            "type": "string",
+            "description": "HTML 正文（可选，与 markdown 二选一）"
+          },
+          "cover": {
+            "type": "string",
+            "description": "封面图 URL（可选）"
+          },
+          "concurrency": {
+            "type": "number",
+            "description": "并发发布数（默认取配置，1-10）"
+          }
+        },
+        "required": ["platforms", "title"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "upload_image_file",
+      "fullName": "mcp__crosspost__upload_image_file",
+      "description": "把本地图片上传到指定平台图床（默认 zhihu）。返回图片 URL，可作正文插图/封面。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "本地图片绝对路径"
+          },
+          "platform": {
+            "type": "string",
+            "description": "图床平台，默认 zhihu"
+          }
+        },
+        "required": ["filePath"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "proxy_test",
+      "fullName": "mcp__crosspost__proxy_test",
+      "description": "验收工具：经浏览器代理通道请求 httpbin 系服务，返回实际请求头，验证来源检测一致性（浏览器原生 UA/Sec-Fetch）。",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_styles",
+      "fullName": "mcp__crosspost__list_styles",
+      "description": "列出可用样式（内置 10 + custom）：name / category / desc。",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "render_preview",
+      "fullName": "mcp__crosspost__render_preview",
+      "description": "用指定样式渲染 Markdown 为微信兼容 styled HTML（纯本地零网络）。返回完整 HTML，供检查样式效果。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "markdown": {
+            "type": "string",
+            "description": "Markdown 正文"
+          },
+          "style": {
+            "type": "string",
+            "description": "样式名（默认 swiss；内置 10 + custom-*）"
+          }
+        },
+        "required": ["markdown"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "generate_cover",
+      "fullName": "mcp__crosspost__generate_cover",
+      "description": "根据标题 + 封面模板生成双尺寸封面 PNG（2.35:1 主图 + 1:1 缩略，本地程序化渲染，免费无版权，中文正常）。模板：nebula 星云 / orb3d 3D球 / aurora 极光 / particles 粒子 / glasscard 玻璃卡 / spectrum 频谱 / bokeh 光斑 / cyber 霓虹 / skyline 天际线 / mountains 山峦 / bignum 大数字 / iridescent 虹彩 / minimal 极简留白。返回 PNG 文件路径。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "文章标题"
+          },
+          "template": {
+            "type": "string",
+            "description": "封面模板（默认 nebula；13 款可选）"
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "副标题（可选）"
+          },
+          "tag": {
+            "type": "string",
+            "description": "栏目角标（可选）"
+          },
+          "outDir": {
+            "type": "string",
+            "description": "输出目录（默认 /tmp/crosspost-cover）"
+          }
+        },
+        "required": ["title"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "publish_styled",
+      "fullName": "mcp__crosspost__publish_styled",
+      "description": "用样式引擎渲染 Markdown（内置 10 样式 + 公式 + 脚注 + 引用 + ASCII 表格）后同步到目标平台（恒为草稿，经浏览器代理）。图片经 zhihu 图床（本地/外链自动上传）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "目标平台 ID 列表，如 [\"zhihu\",\"csdn\",\"weixin\"]"
+          },
+          "title": {
+            "type": "string",
+            "description": "文章标题"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Markdown 正文"
+          },
+          "style": {
+            "type": "string",
+            "description": "样式名（默认 swiss）"
+          },
+          "cover": {
+            "type": "string",
+            "description": "封面图 URL（可选）"
+          },
+          "concurrency": {
+            "type": "number",
+            "description": "并发发布数（默认取配置，1-10）"
+          }
+        },
+        "required": ["platforms", "title", "markdown"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "wechat_draft",
+      "fullName": "mcp__crosspost__wechat_draft",
+      "description": "用 AppID/AppSecret 直连微信官方 API 创建公众号草稿（恒草稿）：样式渲染 + 正文图官方 CDN 上传 + 封面自动生成上传。需在 crosspost-runtime/.env 或 config.json 配置 WECHAT_APP_ID/WECHAT_APP_SECRET。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "文章标题"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Markdown 正文"
+          },
+          "style": {
+            "type": "string",
+            "description": "样式名（默认 swiss）"
+          },
+          "thumb": {
+            "type": "string",
+            "description": "封面本地文件路径（缺省自动生成）"
+          },
+          "author": {
+            "type": "string",
+            "description": "作者（可选，空则不显示）"
+          },
+          "digest": {
+            "type": "string",
+            "description": "摘要（可选，空则不显示）"
+          },
+          "sourceUrl": {
+            "type": "string",
+            "description": "原文链接 content_source_url（可选）"
+          }
+        },
+        "required": ["title", "markdown"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "analyze_style",
+      "fullName": "mcp__crosspost__analyze_style",
+      "description": "从 URL 或本地 HTML 分析文章视觉样式并保存为 custom 样式（Playwright 计算样式 + 标题/引用结构识别，channel:chrome 复用系统浏览器）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "文章 URL（Playwright 打开页面分析）"
+          },
+          "htmlPath": {
+            "type": "string",
+            "description": "本地 HTML 文件路径"
+          },
+          "name": {
+            "type": "string",
+            "description": "样式名（缺省由文章标题生成 custom-xxx）"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "create_style",
+      "fullName": "mcp__crosspost__create_style",
+      "description": "克隆模板 + 参数定制创建新样式（如 name=\"品牌绿\" from=\"swiss\" params={accent:\"#2f9e44\"}）。创建后立即可用于 render_preview/publish_styled。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "样式名（自动补 custom- 前缀）"
+          },
+          "from": {
+            "type": "string",
+            "description": "模板样式（默认 swiss；内置或已存在 custom）"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "覆盖字段：bg/accent/text/secondary/font/borderWidth/desc/headingProfile/headingStructure/blockquoteStructure 等（旧式下划线字段名仍被接受）"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "install_styles",
+      "fullName": "mcp__crosspost__install_styles",
+      "description": "把一份样式包装进自有样式目录（一个样式一个 JSON，装完即可在 list_styles 与 Console 下拉里选到）。缺省装仓库自带的起手包（crosspost-runtime/styles/，55 个）；也可以指向旧样式目录做一次性迁移（旧拼写会被翻译、已废弃的 cssTemplate 会被忽略、颜色字段里的 !important 与渐变会被规整成 hex）。逐个校验：坏文件只报错不写盘。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "type": "string",
+            "description": "样式包目录（缺省 = 仓库自带的起手包）"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "已存在的同名样式是否覆盖（默认 false，跳过）"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "只报告不写盘（校验规则与真装一致）"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "styles_delete",
+      "fullName": "mcp__crosspost__styles_delete",
+      "description": "删除一个 custom 样式（内置样式无法删除，会返回\"样式不存在\"）。删除后立即可用 list_styles 验证。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "样式名（自动补 custom- 前缀），如 custom-deepseek-harness手把手详细安装教"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "styles_rename",
+      "fullName": "mcp__crosspost__styles_rename",
+      "description": "重命名 custom 样式（自动补 custom- 前缀；内置样式无法重命名）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "oldName": {
+            "type": "string",
+            "description": "旧样式名，如 custom-xxx 或 xxx"
+          },
+          "newName": {
+            "type": "string",
+            "description": "新样式名"
+          }
+        },
+        "required": ["oldName", "newName"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "wechat_draft_delete",
+      "fullName": "mcp__crosspost__wechat_draft_delete",
+      "description": "按 mediaId 删除微信官方 API 通道创建的公众号草稿（不可恢复）。mediaId 取自 wechat_draft 返回的 mediaId，或经 CLI wechatDrafts 列表核对标题后使用。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "草稿 mediaId（wechat_draft 返回的 mediaId）"
+          }
+        },
+        "required": ["mediaId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "publish_article",
+      "fullName": "mcp__crosspost__publish_article",
+      "description": "读草稿文件 → 校验 → 样式渲染 → 微信官方通道存草稿 → 多平台存草稿（失败自动重试 1 次）→ 写文章库记录 → 按配置发通知。恒为草稿，绝不自动发表。平台列表缺省取 config.json platforms.default（面板设置页可配置）；未登录平台发布器自动跳过（skip，通知注明），不报失败。**是否真的派发受 config.json.autoPush「生成后自动推送」开关门控：定时链路（WECHAT_AUTO_SCHEDULED=1）永不豁免——开关关闭时只落草稿并返回 dispatch:\"skipped\" 与 skipReason；交互式会话/CLI/Console 属人工触发，不受开关限制，但也不得改调 sync_article/publish_styled/wechat_draft 绕过**。AI 只需调用这一次即可完成全部发布流程，返回结构化结果（微信 mediaId、各平台 postUrl、未登录跳过列表）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "草稿文件绝对路径（与 id 二选一）"
+          },
+          "id": {
+            "type": "string",
+            "description": "草稿 id（文件名去 .md，如 2026-08-19-hotspot-xxx）"
+          },
+          "project": {
+            "type": "string",
+            "description": "目标写作项目 id（可选；缺省取会话级 CROSSPOST_PROJECT，再缺省走默认草稿目录）。指定后会按 .crosspost/project.json 解析该项目的草稿目录再找 id，避免发错项目的同 id 草稿"
+          },
+          "style": {
+            "type": "string",
+            "description": "样式名（默认按栏目映射：morning=swiss/noon=editorial/evening=ink/tips=ink/hotspot=editorial）"
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "平台 ID 列表（缺省取 config.json platforms.default，面板设置页可配置；未登录平台自动跳过；douyin 仅走手动通道）"
+          },
+          "wechat": {
+            "type": "boolean",
+            "description": "是否走微信官方通道（默认 true）"
+          },
+          "notify": {
+            "type": "boolean",
+            "description": "发布后是否按配置发通知（默认 true，通知由发布器直发不经 AI）"
+          },
+          "concurrency": {
+            "type": "number",
+            "description": "多平台并发数（默认 5，1-10）"
+          },
+          "score": {
+            "type": "number",
+            "description": "文章质量评分（0-100，§5.5 自评写 frontmatter 时可省略，发布器自动读取；显式传入时优先）"
+          },
+          "scoreDims": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "评分维度明细（可选，随 score 入库）"
+          },
+          "rewrites": {
+            "type": "number",
+            "description": "低分重写次数（可选，随 score 入库）"
+          },
+          "decision": {
+            "type": "string",
+            "description": "编辑决策快照（可选，§4.0 决策行「决策=主线|理由|重复风险」原文，随记录/历史入库，可复盘）"
+          },
+          "review": {
+            "type": "string",
+            "description": "独立审稿快照（可选，§5.6 审稿行「审稿=分 行动=publish|revise|block 修订=n」原文，随记录/历史入库，可复盘）"
+          },
+          "aiDetect": {
+            "type": "string",
+            "description": "AI 检测快照（可选，§5.55 门禁行原文，直接传 `ai_detect` 返回里的 `snapshot` 字段，形如「AI检测=达标 · AI特征 10.4% < 30.0% · 片段 8人工/1疑似/1AI · 2620字 · 风格 正常」；随记录/历史入库，并出现在发布通知里。**检测被跳过时也要传**（原因会写进去），否则事后无法区分\"通过\"与\"没检测\"。注意：config.json → aiDetect.requireSnapshotOnPublish=true 时，不传这项会**不派发**（仍落草稿，回执里给原因））"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "retain_article",
+      "fullName": "mcp__crosspost__retain_article",
+      "description": "把草稿移入 drafts/rejected（低分）或 drafts/risk（高风险）并写文章库记录（**恒不发布**）。写作侧在这些时刻调用：自评/审稿未过、命中风险、AI 检测轮数用尽仍不达标（§5.55）。`reason` 请带上可复盘的原文（如 AI 门禁行「AI检测=超标 · AI特征 47.2% ≥ 30.0% …」，直接传 `ai_detect` 返回的 `snapshot`），它会显示在 Console 留存库的「留存原因」列。记录由引擎写，不受调用方文件沙箱限制（这是它与 shell 调 CLI 的关键区别）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "草稿文件名去 .md"
+          },
+          "dir": {
+            "type": "string",
+            "enum": ["rejected", "risk"],
+            "description": "留存目录：rejected=低分库（默认）/ risk=风险库"
+          },
+          "reason": {
+            "type": "string",
+            "description": "留存原因（显示在 Console 留存库；建议带 AI 门禁行原文）"
+          },
+          "project": {
+            "type": "string",
+            "description": "目标项目 id（可选；缺省取连接配置 CROSSPOST_PROJECT）"
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "record_writing",
+      "fullName": "mcp__crosspost__record_writing",
+      "description": "把写作侧的 §2.5 决策行与 §5.6 审稿行写进**这篇文章的文章库记录**（Console 抽屉的「编辑决策」「独立审稿」两张卡与发布历史都读它）。**不发布也能记**——这是它与publish_article 入参的关键区别。原文照抄即可（面板会把它拆成字段排版：主线/理由/重复风险/写作指令，审稿的行动/分数/issues 逐条）。只给一个字段也行，另一个保持原值；三个都不给会被拒（别写空历史）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "草稿文件名去 .md（与 file 二选一）"
+          },
+          "file": {
+            "type": "string",
+            "description": "草稿文件绝对路径（与 id 二选一）"
+          },
+          "decision": {
+            "type": "string",
+            "description": "§2.5 决策行原文，形如「决策=主线…|理由=…|重复风险=medium(避开角度:…)|写作指令=…」"
+          },
+          "review": {
+            "type": "string",
+            "description": "§5.6 审稿行原文，形如「审稿=90 自评=92 行动=publish issues=2(minor:事实-…;minor:表达-…)」"
+          },
+          "note": {
+            "type": "string",
+            "description": "随记录写进历史的一条短注（如「修订后复评」）"
+          },
+          "project": {
+            "type": "string",
+            "description": "目标项目 id（可选；缺省取连接配置 CROSSPOST_PROJECT）"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "topic_pool_upsert",
+      "fullName": "mcp__crosspost__topic_pool_upsert",
+      "description": "把本轮候选（含落选）写入项目选题库，按 (date, slot, keyword) upsert：命中的条目就地更新、未命中的追加，绝不移除同日同 slot 的其它条目，已 generated 的条目不降级。任何一行不合格 → 整次写入被拒（一个字节都不落盘），返回里带逐条原因。目标项目由连接配置（CROSSPOST_PROJECT）决定，无需传项目。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "候选所属日期，YYYY-MM-DD"
+          },
+          "slot": {
+            "type": "string",
+            "description": "槽位 id，例如 hotspot / hotspot2 / tips / noon / evening"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "keyword": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "候选关键词（与 date+slot 一起构成唯一键）"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "文章标题；采用项写实际标题，落选给空串 \"\"。**必须给**：漏了这个字段会让后面所有字段错位"
+                },
+                "score": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "五维评分 0-100；没有就给 null"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["adopted", "generated", "rejected"],
+                  "description": "adopted=采用未生成 / generated=已生成文章 / rejected=落选"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "落选原因（与低分维度对应）；采用项给空串"
+                },
+                "articleId": {
+                  "type": "string",
+                  "description": "已生成文章时给草稿文件名（去 .md）"
+                }
+              },
+              "required": ["keyword", "title", "score", "status", "reason"],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "description": "本轮候选：3-5 条，采用项与落选都要写"
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "一键生成分支：只写自己这一条（status=generated）"
+          },
+          "articleId": {
+            "type": "string",
+            "description": "manual 分支的草稿文件名（去 .md）"
+          }
+        },
+        "required": ["date", "slot", "rows"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "ai_detect",
+      "fullName": "mcp__crosspost__ai_detect",
+      "description": "用腾讯朱雀（EdgeOne Makers 内置模型 @makers/zhuque-text）检测一篇文章的 AI 生成浓度，返回整体判定（pass/fail/skip）、AI 特征字符占比，以及**被判 AI 的片段**（含回映射到正文的字符区间与预览）。检测对象是剥离 markdown 标记后的纯文本（正文需 >350 字，过短直接 skip）。凭证走 crosspost-runtime/.env 的 ZHUQUE_API_KEY（追加额度可再用 ZHUQUE_API_KEYS 填多把，引擎在余量最多的 key 之间均衡消耗、某把被限流/额度用尽时自动换下一把）；无凭证或配额不足时返回 skip 而不是报错——调用方必须把 skip 记成「未检测」，不得当成通过。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "草稿文件绝对路径（与 id / text 三选一）"
+          },
+          "id": {
+            "type": "string",
+            "description": "草稿文件名去 .md（在当前项目草稿目录里找；与 file / text 三选一）"
+          },
+          "text": {
+            "type": "string",
+            "description": "直接给正文（基线回测/排查用；与 file / id 三选一）"
+          },
+          "project": {
+            "type": "string",
+            "description": "目标项目 id（可选；缺省取会话级 CROSSPOST_PROJECT）"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["bands", "distribution", "metric"],
+            "description": "判定口径模式（缺省取 config.json → aiDetect.gate.mode）：bands=三段各给一个区间（humanMin~humanMax / aiMin~aiMax / uncertainMin~uncertainMax，三项之和为 1，故\"每段都 ≥30%\"实际等价于\"每段都落在 30%-40%\"）；distribution=三条硬线（人工≥humanMin、AI≤aiMax、疑似≤uncertainMax）；metric=旧的单指标口径"
+          },
+          "humanMin": {
+            "type": "number",
+            "description": "distribution 模式：人工特征占比下限 0-1（缺省 config → aiDetect.gate.humanMin）"
+          },
+          "aiMax": {
+            "type": "number",
+            "description": "distribution 模式：AI 特征占比上限 0-1（缺省 config → aiDetect.gate.aiMax）"
+          },
+          "uncertainMax": {
+            "type": "number",
+            "description": "distribution 模式：疑似 AI 占比上限 0-1（缺省 config → aiDetect.gate.uncertainMax）"
+          },
+          "humanMax": {
+            "type": "number",
+            "description": "bands 模式：人工特征占比上界 0-1"
+          },
+          "aiMin": {
+            "type": "number",
+            "description": "bands 模式：AI 特征占比下界 0-1"
+          },
+          "uncertainMin": {
+            "type": "number",
+            "description": "bands 模式：疑似 AI 占比下界 0-1"
+          },
+          "sampleRate": {
+            "type": "number",
+            "description": "抽样检测率 0-1（缺省 config → aiDetect.sampleRate，默认 1 全检）。按正文哈希确定性抽样，省配额"
+          },
+          "enforce": {
+            "type": "string",
+            "enum": ["observe", "block"],
+            "description": "门禁强度（缺省 config → aiDetect.gate.enforce）：observe=只报不拦（**不进入重写循环**，省配额）；block=硬门禁（按 rewriteTargets 定向改写，仍不达标则留存）。返回里 `rewriteRequired` 才是\"本次要不要改\"的判据（`action` 只表强度：pass 的稿子在 block 下也是 \"block\"）；`rewriteNeed.mustRewrite` = 引擎算出的\"本轮至少要清几段\"（清单长度就是它，同类里按置信度升序递），`advise=retain` 表示一轮救不回来（需清段数超容量，或 `rewriteNeed.charGuard=false`）、直接留存；轮数照 `rewriteBudget.maxRounds`，别自定"
+          },
+          "metric": {
+            "type": "string",
+            "enum": ["confidence", "labels_ai", "both"],
+            "description": "旧口径的单指标（仅 mode=metric 时生效，缺省取 config.json → aiDetect.gate.metric）：confidence=整体 AI 浓度（官网顶部那个数）/ labels_ai=AI 特征字符占比 / both=两者都低于阈值"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "旧口径的判定阈值 0-1（仅 mode=metric 时生效）"
+          },
+          "budget": {
+            "type": "boolean",
+            "description": "只看当月用量与预算，不调用接口"
+          },
+          "record": {
+            "type": "boolean",
+            "description": "把这一轮判定写进**这篇文章的文章库记录**（2026-10-09）。写的是与发布器**同一个字段** `aiDetect`（§5.55 门禁行原文），并追加一条 `ai-detect` 历史 —— 于是 Console 抽屉的「AI 检测」卡片与发布历史都能看到它，事后不必翻日志。**未发布的稿子（一键生成 / 定时生成）只有靠它才能留下判定**：那些链路从不调发布器。只对 file / id 有效（text 是裸文本，没有文章记录）；写盘失败只回 recordError，不影响判定结果。判定为 skip（未检测）时同样写入——\"没检测\"必须与\"通过\"一眼可分。"
+          },
+          "note": {
+            "type": "string",
+            "description": "随记录写进历史的一条短注（如「重写第 2 轮复检」）；仅 record=true 时有意义"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}
