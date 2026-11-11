@@ -383,6 +383,16 @@ function entriesOf(list) {
 function rescan(dir) {
   _io.scans += 1
   _missing.clear() // 重扫即"重新看一遍磁盘"：负缓存必须同步作废，否则会记住不存在的结论
+  // 判活 mtime 必须在**读目录之前**取（2026-11-01 事故根因之一）。
+  //
+  // 原写法"先读完、后取 mtime"在这里是坏的：另一个进程（MCP 记账 / 定时链路 / 另一个
+  // worker）若恰好落在"读完列表、还没取 mtime"之间，就会得到"列表是旧的、mtime 是新的"
+  // —— 这份快照**自称新鲜**，于是被一直复用：记录明明在盘上，`scanAndList()` 却以为它不存在，
+  // 反手按 frontmatter 造一条空骨架覆盖上去。实测：一键生成的三篇稿子，AI 检测/决策/审稿
+  // 全被抹成 `history: []`，Console 显示「⚠ 无生成/发布记录」。
+  // 改成先取 mtime 后读：读期间真有人写过（before !== after）就把快照的 mtime 记成 before，
+  // 下一次 `snapshot()` 必然判过期并重扫 —— 旧列表永远不会以"新鲜"的身份被复用。
+  const before = dirMtime(dir)
   let list = []
   if (fs.existsSync(dir)) {
     list = fs
@@ -398,10 +408,29 @@ function rescan(dir) {
       })
       .filter(Boolean)
   }
-  // 关键顺序：先读完、后取 mtime。读期间发生的写会让快照的 mtime 落后于真实值，
-  // 于是下一个请求判定为"变了"→ 重扫（宁可多扫一次，不可丢掉一次写）。
-  _snapshot = { dir, mtimeMs: dirMtime(dir) ?? 0, entries: entriesOf(list), list }
+  const after = dirMtime(dir)
+  // before === after 才算"这次读到的就是此刻的盘"；期间有写入 → 保留 before 让快照自我作废
+  const mtimeMs = (before === after ? after : before) ?? 0
+  _snapshot = { dir, mtimeMs, entries: entriesOf(list), list }
   return _snapshot
+}
+
+/**
+ * 直接从磁盘读一条记录（**绕过快照**）。
+ *
+ * 只给"即将写回"的路径用（见 `scanAndList`）：手里的对象可能来自过期快照，拿它
+ * `upsertRecord()` 会把别的进程刚追加的过程整个覆盖掉。读不到（记录不存在 / 文件正在
+ * 被 tmp+rename 替换）就返回 null —— 对写回路径来说，这等价于"磁盘上没有"。
+ *
+ * 为什么不做成公开 API：它是"写前对账"这一个场景的判据，不是第二个读入口。
+ * 常规读取请用 `getRecord()`（快照命中时零文件读）。
+ */
+function readRecordFromDisk(id) {
+  try {
+    return JSON.parse(fs.readFileSync(recordPath(id), 'utf8'))
+  } catch {
+    return null
+  }
 }
 
 /** 取当前记录目录的快照；目录 mtime 未变则零文件读 */
@@ -495,10 +524,23 @@ export function listRecords() {
   return snap.list.map((r) => ({ ...r }))
 }
 
-/** 原子写（tmp + rename），防并发损坏 */
+/**
+ * 原子写（tmp + rename），防并发损坏。
+ *
+ * **history 只增不减**（2026-11-01）：调用方手里的记录是**某一时刻的副本**（README 之外的
+ * 现实：Console 的常驻 worker、MCP 的每次 CLI 子进程、定时链路，谁都在读改写）。若期间
+ * 另一个进程追加过历史，直接落盘就会把它们抹掉——事故实证见 `rescan()` 的注释（一键生成
+ * 三篇的 AI 检测/决策/审稿被空骨架覆盖）。所以写前对一次盘：盘上那份的 history 比这次要写的
+ * 长，就以盘上的为准。history 是**过程日志**，没有任何合法写入方需要把它改短。
+ */
 export function upsertRecord(record) {
   const dir = getArticlesDir()
   fs.mkdirSync(dir, { recursive: true }) // v2.22：项目维度
+  const prev = readRecordFromDisk(record.id)
+  const prevHistory = prev && Array.isArray(prev.history) ? prev.history : []
+  if (prevHistory.length > (Array.isArray(record.history) ? record.history.length : 0)) {
+    record.history = prevHistory
+  }
   record.updatedAt = new Date().toISOString()
   const tmp = recordPath(record.id) + '.tmp'
   _io.writes += 1
@@ -629,13 +671,26 @@ export function scanAndList() {
       const p = path.join(draftsDir, f)
       const parsed = parseDraftFile(p)
       let rec = records.get(parsed.id)
+      let fromDisk = false
       if (!rec) {
-        // 2026-08-28：records Map 已全量加载，直接构造登记（避免 ensureDraftRecord 内部 getRecord 二次读盘）
-        rec = makeDraftRecord(parsed)
-        upsertRecord(rec)
+        // 快照里没有 ≠ 盘上没有（2026-11-01）：另一个进程可能刚写好这条记录，而本进程的快照
+        // 恰好落在"读完列表、还没取 mtime"的窗口里。**写回之前必须以磁盘为准**——按 frontmatter
+        // 重建骨架并落盘，会把别人刚写进去的 AI 检测/决策/审稿整个覆盖（事故实证）。
+        // 只在"要写"的这一条上多读一次盘，常规列表仍走快照（性能不受影响）。
+        rec = readRecordFromDisk(parsed.id)
+        fromDisk = !!rec
+        if (!rec) {
+          // 2026-08-28：records Map 已全量加载，直接构造登记（避免 ensureDraftRecord 内部 getRecord 二次读盘）
+          rec = makeDraftRecord(parsed)
+          upsertRecord(rec)
+        }
         records.set(rec.id, rec)
-      } else if (!(rec.score && rec.score.total !== undefined) && parsed.score !== null) {
-        rec = backfillRecordScore(rec, parsed)
+      }
+      if (!(rec.score && rec.score.total !== undefined) && parsed.score !== null) {
+        // 这次要把记录落盘（回填评分）：先把磁盘上的版本捞回来当底稿（同上，快照里的副本可能过期）
+        const disk = fromDisk ? null : readRecordFromDisk(rec.id)
+        if (disk) rec = disk
+        if (!(rec.score && rec.score.total !== undefined)) rec = backfillRecordScore(rec, parsed)
         records.set(rec.id, rec)
       }
       seen.add(rec.id)
