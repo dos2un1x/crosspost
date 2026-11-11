@@ -255,6 +255,137 @@ test('行名可达性：预设里引用了部署中不存在的包 → 判负并
 })
 
 /**
+ * 行对齐契约（2026-11-11，0.2.2-rc.1 核对时建立）。
+ *
+ * 背景：上游 `cordis` 预设自 0.2.1 起带着 `dsh-time-context`，本仓库预设一直漏着。
+ * 3b 抓不到——漏掉的行不在本预设里，没有东西可解析，也不会让进程起不来；只有两份
+ * 行清单对差才看得见。这条检查守的是"下次上游加行/删行会被提醒"，以及"有意偏离
+ * 必须写进清单，不能变成持续噪音"。
+ *
+ * 用假部署 + 假上游预设 + 假本预设：fixture 在哪台机器上都能跑，且不依赖 DSH 版本。
+ */
+function sectionOf(out, startLabel, endLabel) {
+  const start = out.indexOf(startLabel)
+  if (start < 0) return ''
+  const end = out.indexOf(endLabel, start)
+  return out.slice(start, end < 0 ? undefined : end)
+}
+
+/** 铺一个只有 package.json + 空 bin 的假部署，可附带 dsh-web-app 的上游 cordis 预设 */
+function makeFakeDeploy(name, upstreamRows = null) {
+  const root = path.join(tmp, name)
+  const dsh = path.join(root, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(path.join(dsh, 'lib'), { recursive: true })
+  fs.writeFileSync(
+    path.join(dsh, 'package.json'),
+    JSON.stringify({ name: '@deepseek-ai/dsh', version: '9.9.9' }) + '\n',
+  )
+  const bin = path.join(dsh, 'lib', 'bin.js')
+  fs.writeFileSync(bin, '#!/usr/bin/env node\nprocess.exit(0)\n')
+  fs.chmodSync(bin, 0o755)
+  if (upstreamRows) {
+    const presets = path.join(root, 'node_modules', '@deepseek-ai', 'dsh-web-app', 'presets')
+    fs.mkdirSync(presets, { recursive: true })
+    fs.writeFileSync(path.join(presets, 'cordis.patch.yml'), upstreamRows)
+  }
+  return bin
+}
+
+/** 铺一个假的本仓库预设目录（REPO_PRESETS → <dir>/crosspost/cordis.patch.yml） */
+function makeFakeRepoPresets(name, rows) {
+  const dir = path.join(tmp, name, 'crosspost')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'cordis.patch.yml'), rows)
+  return path.dirname(dir)
+}
+
+test('行对齐：上游基线多出一行 → 点名提醒，但只是提醒（不判 ✖）', () => {
+  // 上游多了 `dsh-brand-new-row`：3b 看不见（本预设里没有这一行），只有 3c 能抓到。
+  const upstream = [
+    '- insert:',
+    '    - id: preset-cordis',
+    "      name: '@deepseek-ai/dsh-agent-preset'",
+    '      config:',
+    '        plugins:',
+    "          - { id: persona, name: '@deepseek-ai/dsh-persona' }",
+    "          - { id: time-context, name: '@deepseek-ai/dsh-time-context' }",
+    "          - { id: brand-new, name: '@deepseek-ai/dsh-brand-new-row' }",
+    '',
+  ].join('\n')
+  const local = [
+    '- insert:',
+    '    - id: preset-crosspost',
+    "      name: '@deepseek-ai/dsh-agent-preset'",
+    '      config:',
+    '        plugins:',
+    "          - { id: persona, name: '@deepseek-ai/dsh-persona' }",
+    "          - { id: time-context, name: '@deepseek-ai/dsh-time-context' }",
+    '',
+  ].join('\n')
+  const bin = makeFakeDeploy('d2-deploy', upstream)
+  const repoPresets = makeFakeRepoPresets('d2-local', local)
+
+  const r = runViaSymlink({
+    CROSSPOST_NODE: process.execPath,
+    DSH_BIN: bin,
+    REPO_PRESETS: repoPresets,
+  })
+  const out = stripAnsi(`${r.stdout}${r.stderr}`)
+  const sec = sectionOf(out, '3c.', '4. persona')
+
+  assert.match(sec, /dsh-brand-new-row/, `多出的行必须点名（否则使用者不知道缺什么）：\n${sec}`)
+  assert.match(sec, /⚠/, `行对齐是提醒级，应给 ⚠：\n${sec}`)
+  assert.doesNotMatch(
+    sec,
+    /✖/,
+    `少一行能力不会让进程起不来，不该判失败（假失败会训练人忽略脚本）：\n${sec}`,
+  )
+})
+
+test('行对齐：一致（含记录在案的有意偏离）时给 ✔，不制造噪音', () => {
+  // 上游有 schedule/market、本预设保留 ralph：两者都在允许清单里，必须判"一致"。
+  const upstream = [
+    '- insert:',
+    '    - id: preset-cordis',
+    "      name: '@deepseek-ai/dsh-agent-preset'",
+    '      config:',
+    '        plugins:',
+    "          - { id: persona, name: '@deepseek-ai/dsh-persona' }",
+    "          - { id: schedule, name: '@deepseek-ai/dsh-tool-schedule' }",
+    "          - { id: market, name: '@deepseek-ai/dsh-plugin-market/tools' }",
+    '',
+  ].join('\n')
+  const local = [
+    '- insert:',
+    '    - id: preset-crosspost',
+    "      name: '@deepseek-ai/dsh-agent-preset'",
+    '      config:',
+    '        plugins:',
+    "          - { id: persona, name: '@deepseek-ai/dsh-persona' }",
+    "          - { id: ralph, name: '@deepseek-ai/dsh-tool-ralph' }",
+    '',
+  ].join('\n')
+  const bin = makeFakeDeploy('d2-deploy-ok', upstream)
+  const repoPresets = makeFakeRepoPresets('d2-local-ok', local)
+
+  const r = runViaSymlink({
+    CROSSPOST_NODE: process.execPath,
+    DSH_BIN: bin,
+    REPO_PRESETS: repoPresets,
+  })
+  const out = stripAnsi(`${r.stdout}${r.stderr}`)
+  const sec = sectionOf(out, '3c.', '4. persona')
+
+  assert.match(sec, /✔/, `一致时应给 ✔：\n${sec}`)
+  assert.match(sec, /一致/, `一致时应明说"一致"：\n${sec}`)
+  assert.doesNotMatch(
+    sec,
+    /dsh-tool-schedule|dsh-plugin-market|dsh-tool-ralph/,
+    `允许清单里的偏离不得出现在告警里：\n${sec}`,
+  )
+})
+
+/**
  * 空预设目录不得让脚本崩掉（2026-10-03，bash 3.2 + `set -u` 实测）。
  *
  * 背景：`PRESET_DIRS` 来自通配，干净部署里可以有 0 个预设。而此时

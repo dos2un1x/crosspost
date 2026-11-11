@@ -568,7 +568,7 @@ for d in ${PRESET_DIRS[@]+"${PRESET_DIRS[@]}"}; do
   for f in "$d"/*.patch.yml; do [ -f "$f" ] && REPO_PATCH_LIST="$REPO_PATCH_LIST$f
 "; done
 done
-# 解析根：仓库版启动器下没有 $DEPLOY——改用 apps/cli/package.json（workspace 包的
+# 解析根：仓库版启动器下没有 ${DEPLOY}——改用 apps/cli/package.json（workspace 包的
 # 软链在那里）；安装版仍从 dsh 包自己的 package.json 起算。否则本节在 `pnpm dsh web`
 # 起的宿主上会**静默跳过**，而这恰恰是升级后最该跑的一条检查（2026-11-02 实测：
 # `.../dsh-tool-subagent-control/list-agents` 被删导出，旧版预设因此 never started）。
@@ -627,6 +627,91 @@ JS
       hint "本次实证：@deepseek-ai/dsh-workflow-worker-thread → @deepseek-ai/dsh-workflow-ptc"
       hint "本地插件行必须写成**包名 + 子路径**（如 preset-crosspost/plugins/crosspost.js）："
       hint "  相对名 ./plugins/… 按 config 目录（profile 目录）解析，找不到文件 → 新会话 never started"
+    fi
+  fi
+fi
+
+# ── 3c. 行对齐：本预设 vs 上游 `cordis` 基线 ─────────────────────────────
+#
+# 为什么要有这一节（2026-11-11，0.2.2-rc.1 核对时）：
+#   上游 `cordis` 预设自 0.2.1 起就带着 `@deepseek-ai/dsh-time-context`，而本仓库预设
+#   一直漏着。3b 抓不到它——漏掉的行**根本不在本预设里**，没有东西可解析；它也不会让
+#   进程起不来，只会让会话里的模型少一个能力（看不到"当前时间/时区"）。只有把两份
+#   **行清单对差**才看得见。同理，上游删行/改名加行也只有这样才不会漏。
+#
+# 只比 `@deepseek-ai/*` 包名：组行（`cordis:group`）与本地插件行（`preset-crosspost/…`）
+# 不参与。有意偏离写在下面两个清单里，与 `preset/crosspost/cordis.patch.yml` 文件头
+# 「与上游基线的差异」一节一一对应——两处要一起改。
+#
+# 判**提醒**不判失败：少一行能力不会让进程起不来，但它正是"静默少能力"的入口。
+sec "3c. 行对齐（本预设 vs 上游 cordis 基线）"
+UPSTREAM_PRESET=""
+if [ -n "$DEV_ROOT" ] && [ -f "$DEV_ROOT/packages/bundle/web-app/presets/cordis.patch.yml" ]; then
+  UPSTREAM_PRESET="$DEV_ROOT/packages/bundle/web-app/presets/cordis.patch.yml"
+elif [ -n "$DEPLOY" ] && [ -f "$DEPLOY/node_modules/@deepseek-ai/dsh-web-app/presets/cordis.patch.yml" ]; then
+  UPSTREAM_PRESET="$DEPLOY/node_modules/@deepseek-ai/dsh-web-app/presets/cordis.patch.yml"
+fi
+CROSSPOST_PRESET="$REPO_PRESETS/crosspost/cordis.patch.yml"
+if [ -z "$UPSTREAM_PRESET" ]; then
+  warn "找不到上游 cordis 预设（部署里没有 dsh-web-app/presets/cordis.patch.yml），行对齐检查跳过"
+elif [ ! -f "$CROSSPOST_PRESET" ]; then
+  warn "找不到本仓库预设 ${CROSSPOST_PRESET}，行对齐检查跳过"
+else
+  # 收本文件里所有**带引号的** @deepseek-ai 行名；未加引号的 cordis:group 自然不入选。
+  preset_names() {
+    grep -oE "name: *'@deepseek-ai/[^']+'" "$1" 2>/dev/null \
+      | sed -E "s/name: *'//; s/'$//" | LC_ALL=C sort -u
+  }
+  UP_NAMES="$(preset_names "$UPSTREAM_PRESET")"
+  LOCAL_NAMES="$(preset_names "$CROSSPOST_PRESET")"
+  if [ -z "$UP_NAMES" ]; then
+    warn "上游基线里没有可识别的 @deepseek-ai 行名（包布局可能变了），行对齐检查跳过"
+    UP_NAMES=""
+    LOCAL_NAMES=""
+  fi
+  if [ -z "$LOCAL_NAMES" ]; then
+    if [ -n "$UP_NAMES" ]; then
+      warn "本预设里没有可识别的 @deepseek-ai 行名，行对齐检查跳过"
+    fi
+  fi
+  # 有意偏离：上游有而本预设不跟 / 本预设多出来。与预设文件头那一节同步。
+  DELIBERATE_MISSING="@deepseek-ai/dsh-tool-schedule @deepseek-ai/dsh-plugin-market/tools"
+  DELIBERATE_EXTRA="@deepseek-ai/dsh-tool-ralph"
+  is_allowed() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac }
+  missing_rows=""; missing_n=0
+  extra_rows=""; extra_n=0
+  if [ -n "$UP_NAMES" ] && [ -n "$LOCAL_NAMES" ]; then
+    while IFS= read -r pkg; do
+      [ -n "$pkg" ] || continue
+      is_allowed "$pkg" "$DELIBERATE_MISSING" && continue
+      missing_rows="$missing_rows$pkg
+"
+      missing_n=$((missing_n + 1))
+    done < <(comm -23 <(printf '%s\n' "$UP_NAMES") <(printf '%s\n' "$LOCAL_NAMES"))
+    while IFS= read -r pkg; do
+      [ -n "$pkg" ] || continue
+      is_allowed "$pkg" "$DELIBERATE_EXTRA" && continue
+      extra_rows="$extra_rows$pkg
+"
+      extra_n=$((extra_n + 1))
+    done < <(comm -13 <(printf '%s\n' "$UP_NAMES") <(printf '%s\n' "$LOCAL_NAMES"))
+
+    if [ "$missing_n" -eq 0 ] && [ "$extra_n" -eq 0 ]; then
+      ok "行清单与上游 cordis 基线一致（允许的有意偏离：schedule/market 未跟、ralph 保留）"
+      hint "基线文件：$UPSTREAM_PRESET"
+    else
+      if [ "$missing_n" -gt 0 ]; then
+        warn "上游基线多出 ${missing_n} 行，本预设没有"
+        printf '%s' "$missing_rows" | sed 's/^/      · /'
+        hint "补法：照 $UPSTREAM_PRESET 里同名行的 config 加进 ${CROSSPOST_PRESET}（漏一行 = 会话少一个能力，且不报错）"
+        hint "若是有意不跟：加进本脚本的 DELIBERATE_MISSING **和**预设文件头「与上游基线的差异」一节，别让下一次告警变成噪音"
+      fi
+      if [ "$extra_n" -gt 0 ]; then
+        warn "本预设多出 ${extra_n} 行，上游基线没有（上游可能删了/改名了）"
+        printf '%s' "$extra_rows" | sed 's/^/      · /'
+        hint "先跑第 3b 节确认这些包在当前部署里还能解析；若上游是整包删除，删掉这一行或换成新名"
+        hint "若是有意保留：加进本脚本的 DELIBERATE_EXTRA **和**预设文件头「与上游基线的差异」一节"
+      fi
     fi
   fi
 fi

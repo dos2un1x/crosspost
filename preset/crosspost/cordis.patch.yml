@@ -55,6 +55,9 @@
 # `tool-web.fetch: false`：本预设不带 `web_fetch`，是既有行为（上游默认 true）。
 # `tool-ralph` 保持启用：上游 0.2.2 起已把 ralph 移出官方预设（改由 `ralph-bundle`
 #   按需装载），本机继续用它，所以这一行留着并保持 enabled。
+# 这份清单不是文档摆设：`preset/upgrade-check.sh` 第 3c 节会把本文件的行与上游
+# cordis 基线对差，`DELIBERATE_MISSING` / `DELIBERATE_EXTRA` 就是下面这几条。
+# 增删偏离时**两处一起改**，否则下次升级自检会报一条没人处理的提醒。
 - insert:
     - id: preset-crosspost
       name: '@deepseek-ai/dsh-agent-preset'
